@@ -54,6 +54,7 @@ impl SqliteStore {
 
             CREATE TABLE IF NOT EXISTS terminals (
                 session_id  TEXT PRIMARY KEY,
+                name        TEXT,
                 shell       TEXT NOT NULL,
                 cols        INTEGER NOT NULL,
                 rows        INTEGER NOT NULL,
@@ -99,6 +100,13 @@ impl SqliteStore {
             ",
         )
         .map_err(|e| format!("migrate: {e}"))?;
+
+        if let Err(e) = conn.execute("ALTER TABLE terminals ADD COLUMN name TEXT", []) {
+            let msg = e.to_string().to_lowercase();
+            if !msg.contains("duplicate column") {
+                return Err(format!("migrate add terminals.name: {e}"));
+            }
+        }
 
         Ok(())
     }
@@ -192,15 +200,17 @@ impl Store for SqliteStore {
     fn upsert_terminal(&self, rec: &TerminalRecord) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         conn.execute(
-            "INSERT INTO terminals (session_id, shell, cols, rows, started_at, status, exit_code)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO terminals (session_id, name, shell, cols, rows, started_at, status, exit_code)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(session_id) DO UPDATE SET
+                name = excluded.name,
                 status = excluded.status,
                 exit_code = excluded.exit_code,
                 cols = excluded.cols,
                 rows = excluded.rows",
             params![
                 rec.session_id.to_string(),
+                rec.name,
                 rec.shell,
                 rec.cols,
                 rec.rows,
@@ -217,7 +227,7 @@ impl Store for SqliteStore {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         let mut stmt = conn
             .prepare(
-                "SELECT session_id, shell, cols, rows, started_at, status, exit_code
+                "SELECT session_id, name, shell, cols, rows, started_at, status, exit_code
                  FROM terminals WHERE session_id = ?1",
             )
             .map_err(|e| format!("get_terminal prepare: {e}"))?;
@@ -227,12 +237,13 @@ impl Store for SqliteStore {
                 let sid: String = row.get(0)?;
                 Ok(TerminalRecord {
                     session_id: sid.parse().unwrap_or(Uuid::nil()),
-                    shell: row.get(1)?,
-                    cols: row.get::<_, u32>(2)? as u16,
-                    rows: row.get::<_, u32>(3)? as u16,
-                    started_at: row.get(4)?,
-                    status: SessionStatus::from_label(&row.get::<_, String>(5)?),
-                    exit_code: row.get(6)?,
+                    name: row.get(1)?,
+                    shell: row.get(2)?,
+                    cols: row.get::<_, u32>(3)? as u16,
+                    rows: row.get::<_, u32>(4)? as u16,
+                    started_at: row.get(5)?,
+                    status: SessionStatus::from_label(&row.get::<_, String>(6)?),
+                    exit_code: row.get(7)?,
                 })
             })
             .map_err(|e| format!("get_terminal query: {e}"))?;
@@ -248,7 +259,7 @@ impl Store for SqliteStore {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         let mut stmt = conn
             .prepare(
-                "SELECT session_id, shell, cols, rows, started_at, status, exit_code
+                "SELECT session_id, name, shell, cols, rows, started_at, status, exit_code
                  FROM terminals ORDER BY started_at DESC",
             )
             .map_err(|e| format!("list_terminals prepare: {e}"))?;
@@ -258,12 +269,13 @@ impl Store for SqliteStore {
                 let sid: String = row.get(0)?;
                 Ok(TerminalRecord {
                     session_id: sid.parse().unwrap_or(Uuid::nil()),
-                    shell: row.get(1)?,
-                    cols: row.get::<_, u32>(2)? as u16,
-                    rows: row.get::<_, u32>(3)? as u16,
-                    started_at: row.get(4)?,
-                    status: SessionStatus::from_label(&row.get::<_, String>(5)?),
-                    exit_code: row.get(6)?,
+                    name: row.get(1)?,
+                    shell: row.get(2)?,
+                    cols: row.get::<_, u32>(3)? as u16,
+                    rows: row.get::<_, u32>(4)? as u16,
+                    started_at: row.get(5)?,
+                    status: SessionStatus::from_label(&row.get::<_, String>(6)?),
+                    exit_code: row.get(7)?,
                 })
             })
             .map_err(|e| format!("list_terminals query: {e}"))?;
@@ -733,6 +745,7 @@ mod tests {
         let sid = Uuid::new_v4();
         let rec = TerminalRecord {
             session_id: sid,
+            name: None,
             shell: "/bin/bash".into(),
             cols: 80,
             rows: 24,
@@ -755,6 +768,7 @@ mod tests {
         let sid = Uuid::new_v4();
         let rec = TerminalRecord {
             session_id: sid,
+            name: None,
             shell: "/bin/bash".into(),
             cols: 80,
             rows: 24,
@@ -783,6 +797,7 @@ mod tests {
             store
                 .upsert_terminal(&TerminalRecord {
                     session_id: Uuid::from_u128(i),
+                    name: None,
                     shell: "/bin/sh".into(),
                     cols: 80,
                     rows: 24,
@@ -813,6 +828,7 @@ mod tests {
         store
             .upsert_terminal(&TerminalRecord {
                 session_id: sid,
+                name: None,
                 shell: "/bin/sh".into(),
                 cols: 80,
                 rows: 24,

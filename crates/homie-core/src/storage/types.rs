@@ -43,6 +43,7 @@ pub struct ChatRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalRecord {
     pub session_id: Uuid,
+    pub name: Option<String>,
     pub shell: String,
     pub cols: u16,
     pub rows: u16,

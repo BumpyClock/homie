@@ -56,6 +56,7 @@ export interface RpcResponse {
 
 export interface SessionInfo {
   session_id: string;
+  name?: string | null;
   shell: string;
   cols: number;
   rows: number;
@@ -73,4 +74,8 @@ export interface TmuxSessionInfo {
 export interface TmuxListResponse {
   supported: boolean;
   sessions: TmuxSessionInfo[];
+}
+
+export interface SessionPreviewResponse {
+  text: string;
 }

@@ -78,12 +78,14 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         "events.subscribe" | "events.unsubscribe" => Some(Scope::Events),
         "terminal.session.list"
         | "terminal.session.attach"
+        | "terminal.session.preview"
         | "terminal.tmux.list" => Some(Scope::TerminalRead),
         "terminal.session.start"
         | "terminal.session.resize"
         | "terminal.session.input"
         | "terminal.session.kill"
         | "terminal.session.remove"
+        | "terminal.session.rename"
         | "terminal.tmux.attach"
         | "terminal.tmux.kill" => Some(Scope::TerminalWrite),
         "agent.chat.list" | "agent.codex.list" => Some(Scope::AgentRead),

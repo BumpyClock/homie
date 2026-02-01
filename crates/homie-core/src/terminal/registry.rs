@@ -22,6 +22,7 @@ const DEFAULT_HISTORY_BYTES: usize = 2 * 1024 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInfo {
     pub session_id: Uuid,
+    pub name: Option<String>,
     pub shell: String,
     pub cols: u16,
     pub rows: u16,
@@ -122,6 +123,7 @@ impl TerminalRegistry {
             rows,
             subscriber_id,
             outbound_tx,
+            None,
         )
     }
 
@@ -195,7 +197,15 @@ impl TerminalRegistry {
         cmd.arg("-t");
         cmd.arg(&session_name);
         let display = format!("tmux:{session_name}");
-        self.start_session_with_command(display, cmd, cols, rows, subscriber_id, outbound_tx)
+        self.start_session_with_command(
+            display,
+            cmd,
+            cols,
+            rows,
+            subscriber_id,
+            outbound_tx,
+            Some(session_name),
+        )
     }
 
     pub fn kill_tmux_session(&self, session_name: String) -> Result<(), TerminalError> {
@@ -229,6 +239,7 @@ impl TerminalRegistry {
         rows: u16,
         subscriber_id: Uuid,
         outbound_tx: mpsc::Sender<OutboundMessage>,
+        name: Option<String>,
     ) -> Result<SessionInfo, TerminalError> {
         let pty_system = native_pty_system();
         let size = PtySize {
@@ -278,6 +289,7 @@ impl TerminalRegistry {
 
         let info = SessionInfo {
             session_id,
+            name: name.clone(),
             shell: display_shell.clone(),
             cols,
             rows,
@@ -286,6 +298,7 @@ impl TerminalRegistry {
 
         let rec = TerminalRecord {
             session_id,
+            name,
             shell: info.shell.clone(),
             cols: info.cols,
             rows: info.rows,
@@ -430,6 +443,7 @@ impl TerminalRegistry {
             .ok_or(TerminalError::NotFound(session_id))?;
         let rec = TerminalRecord {
             session_id,
+            name: active.info.name.clone(),
             shell: active.info.shell.clone(),
             cols: active.info.cols,
             rows: active.info.rows,
@@ -456,6 +470,7 @@ impl TerminalRegistry {
             if let Some(active) = self.sessions.get(id) {
                 let rec = TerminalRecord {
                     session_id: *id,
+                    name: active.info.name.clone(),
                     shell: active.info.shell.clone(),
                     cols: active.info.cols,
                     rows: active.info.rows,
@@ -494,6 +509,49 @@ impl TerminalRegistry {
         Ok(())
     }
 
+    pub fn rename_session(
+        &mut self,
+        session_id: Uuid,
+        name: Option<String>,
+    ) -> Result<(), TerminalError> {
+        let trimmed = name.and_then(|value| {
+            let next = value.trim();
+            if next.is_empty() {
+                None
+            } else {
+                Some(next.to_string())
+            }
+        });
+
+        if let Some(active) = self.sessions.get_mut(&session_id) {
+            if is_tmux_shell(&active.info.shell) {
+                return Err(TerminalError::Missing(
+                    "tmux sessions cannot be renamed".into(),
+                ));
+            }
+            active.info.name = trimmed.clone();
+            self.persist_status(&active.info, SessionStatus::Active, None);
+            return Ok(());
+        }
+
+        let rec = self
+            .store
+            .get_terminal(session_id)
+            .map_err(TerminalError::Internal)?;
+        let mut rec = match rec {
+            Some(value) => value,
+            None => return Err(TerminalError::NotFound(session_id)),
+        };
+        if is_tmux_shell(&rec.shell) {
+            return Err(TerminalError::Missing(
+                "tmux sessions cannot be renamed".into(),
+            ));
+        }
+        rec.name = trimmed;
+        self.store.upsert_terminal(&rec).map_err(TerminalError::Internal)?;
+        Ok(())
+    }
+
     pub fn preview_session(
         &self,
         session_id: Uuid,
@@ -525,6 +583,7 @@ impl TerminalRegistry {
     fn persist_status(&self, info: &SessionInfo, status: SessionStatus, exit_code: Option<u32>) {
         let rec = TerminalRecord {
             session_id: info.session_id,
+            name: info.name.clone(),
             shell: info.shell.clone(),
             cols: info.cols,
             rows: info.rows,
@@ -616,6 +675,10 @@ fn tmux_supported() -> bool {
         return false;
     }
     Command::new("tmux").arg("-V").output().is_ok()
+}
+
+fn is_tmux_shell(shell: &str) -> bool {
+    shell.starts_with("tmux:")
 }
 
 fn tmux_has_session(session_name: &str) -> Result<bool, TerminalError> {

@@ -2,26 +2,28 @@ import { useEffect, useRef, useState } from 'react';
 import { useGateway, type ConnectionStatus } from '@/hooks/use-gateway'
 import { useTargets } from '@/hooks/use-targets'
 import { TargetSelector } from '@/components/target-selector'
-import { SessionList } from '@/components/session-list'
+import { SessionList, PREVIEW_OPTIONS, PREVIEW_REFRESH_KEY, type PreviewRefresh } from '@/components/session-list'
 import { TerminalView } from '@/components/terminal-view'
 import { ThemeSelector } from '@/components/theme-selector'
-import { ArrowLeft, ChevronDown, Check, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Check, Trash2, X, RefreshCw, Plus } from 'lucide-react';
 
-function StatusBadge({ status }: { status: ConnectionStatus }) {
-  const colors: Record<ConnectionStatus, string> = {
-    disconnected: "bg-gray-500",
-    connecting: "bg-yellow-500",
-    handshaking: "bg-blue-500",
-    connected: "bg-green-500",
-    error: "bg-destructive",
-    rejected: "bg-destructive",
-  };
+function StatusDot({ status, className }: { status: ConnectionStatus; className?: string }) {
+  const color =
+    status === "connected"
+      ? "bg-green-500"
+      : status === "connecting" || status === "handshaking"
+        ? "bg-yellow-500"
+        : "bg-red-500";
+
+  const shouldPulse = status === "connecting" || status === "handshaking";
 
   return (
-    <div className={`flex items-center gap-2 px-3 py-2 rounded-full text-white text-sm font-medium ${colors[status]}`}>
-      <div className="w-2 h-2 rounded-full bg-white animate-pulse motion-reduce:animate-none" />
-      <span className="capitalize">{status}</span>
-    </div>
+    <span
+      className={`inline-block rounded-full ${color} ${shouldPulse ? "animate-pulse motion-reduce:animate-none" : ""} ${className ?? "h-2.5 w-2.5"}`}
+      role="img"
+      aria-label={`Connection status: ${status}`}
+      title={`Connection: ${status}`}
+    />
   );
 }
 
@@ -42,6 +44,13 @@ function App() {
   const prevAttachedRef = useRef<string[]>([]);
   const previewNamespace = activeTargetId ?? "default";
 
+  const [previewRefresh, setPreviewRefresh] = useState<PreviewRefresh>(() => {
+    if (typeof window === "undefined") return "1m";
+    const stored = window.localStorage.getItem(PREVIEW_REFRESH_KEY) as PreviewRefresh | null;
+    return stored && PREVIEW_OPTIONS.some((o) => o.value === stored) ? stored : "1m";
+  });
+  const [refreshToken, setRefreshToken] = useState(0);
+
   const [isTargetOpen, setIsTargetOpen] = useState(false);
   const targetTriggerRef = useRef<HTMLButtonElement | null>(null);
   const targetPanelRef = useRef<HTMLDivElement | null>(null);
@@ -58,6 +67,11 @@ function App() {
   useEffect(() => {
     setAttachedSessionIds([]);
   }, [activeTargetId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(PREVIEW_REFRESH_KEY, previewRefresh);
+  }, [previewRefresh]);
 
   const closeDetails = () => {
     setDetailsTargetId(null);
@@ -139,6 +153,26 @@ function App() {
       setAttachedSessionIds(prev => prev.filter(id => id !== sessionId));
   };
 
+  const handleStartSession = async () => {
+    try {
+      const session = await call('terminal.session.start', {
+        cols: 80,
+        rows: 24
+      }) as { session_id?: string };
+
+      setRefreshToken((t) => t + 1);
+
+      if (session?.session_id) {
+        await call('terminal.session.attach', { session_id: session.session_id });
+        handleAttach(session.session_id);
+      }
+    } catch (err: unknown) {
+      console.error("Failed to start session", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      alert('Failed to start session: ' + msg);
+    }
+  };
+
   // If we have attached sessions, show the Terminal View (Full Screen)
   if (attachedSessionIds.length > 0) {
       return (
@@ -157,7 +191,7 @@ function App() {
                   </div>
                   <div className="flex items-center gap-4">
                       <ThemeSelector />
-                      <StatusBadge status={status} />
+                      <StatusDot status={status} className="h-2.5 w-2.5" />
                   </div>
               </div>
               <div className="flex-1 min-h-0">
@@ -178,12 +212,12 @@ function App() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border bg-card/40 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="text-lg font-semibold">Homie Web</div>
-            <div className="text-xs text-muted-foreground">Gateway Console</div>
-          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-baseline gap-3">
+              <div className="text-lg font-semibold">Homie Web</div>
+              <div className="text-xs text-muted-foreground">Gateway Console</div>
+            </div>
 
-          <div className="flex items-center gap-3">
             <div className="relative">
               <button
                 ref={targetTriggerRef}
@@ -196,7 +230,10 @@ function App() {
                 aria-expanded={isTargetOpen}
               >
                 <span className="text-muted-foreground">Target:</span>
-                <span className="max-w-[220px] truncate font-medium">{activeTarget?.name ?? 'Select'}</span>
+                <span className="flex items-center gap-2 min-w-0">
+                  <StatusDot status={status} className="h-2.5 w-2.5" />
+                  <span className="max-w-[220px] truncate font-medium">{activeTarget?.name ?? 'Select'}</span>
+                </span>
                 <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform motion-reduce:transition-none ${isTargetOpen ? 'rotate-180' : ''}`} />
               </button>
 
@@ -204,7 +241,7 @@ function App() {
                 <div
                   ref={targetPanelRef}
                   tabIndex={-1}
-                  className="absolute right-0 mt-2 w-[min(420px,calc(100vw-3rem))] max-h-[70vh] overflow-auto bg-popover border border-border rounded-lg shadow-sm p-4 outline-none origin-top-right homie-popover"
+                  className="absolute left-0 mt-2 w-[min(420px,calc(100vw-3rem))] max-h-[70vh] overflow-auto bg-popover border border-border rounded-lg shadow-sm p-4 outline-none origin-top-left homie-popover"
                   role="dialog"
                   aria-label="Target selector"
                 >
@@ -226,35 +263,75 @@ function App() {
                     onDelete={removeTarget}
                     hideLocal={hideLocal}
                     onRestoreLocal={restoreLocal}
+                    connectionStatus={status}
+                    serverHello={serverHello}
+                    rejection={rejection}
+                    error={error}
                   />
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {serverHello && (
+              <>
+                <div className="hidden sm:flex items-center gap-2 bg-muted/40 border border-border rounded px-2">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Preview</span>
+                  <select
+                    className="bg-transparent text-xs text-foreground py-2 pr-2"
+                    value={previewRefresh}
+                    onChange={(e) => setPreviewRefresh(e.target.value as PreviewRefresh)}
+                    aria-label="Preview refresh cadence"
+                  >
+                    {PREVIEW_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setRefreshToken((t) => t + 1)}
+                  disabled={status !== 'connected'}
+                  className="p-2 min-h-[44px] min-w-[44px] bg-muted hover:bg-muted/80 rounded text-muted-foreground disabled:opacity-50 transition-colors"
+                  title="Refresh"
+                  aria-label="Refresh sessions"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleStartSession}
+                  disabled={status !== 'connected'}
+                  className="flex items-center gap-1 px-3 py-2 min-h-[44px] bg-primary hover:bg-primary/90 rounded text-primary-foreground text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Session
+                </button>
+              </>
+            )}
 
             <ThemeSelector />
-            <StatusBadge status={status} />
           </div>
         </div>
       </header>
 
       <main className="px-6 py-6 space-y-6">
-        {rejection && (
-          <div className="p-4 bg-destructive/20 border border-destructive rounded-md text-sm text-destructive-foreground">
-            <h3 className="font-semibold mb-1">Connection Rejected</h3>
-            <p>Reason: {rejection.reason}</p>
-            <p className="text-xs mt-1 opacity-70">Code: {rejection.code}</p>
-          </div>
-        )}
-
-        {error && status === 'error' && (
-          <div className="p-4 bg-destructive/20 border border-destructive rounded-md text-sm text-destructive-foreground">
-            <p>Connection failed. Retrying...</p>
-          </div>
-        )}
 
         <section className="min-h-[400px]">
           {serverHello && (
-            <SessionList call={call} status={status} onAttach={handleAttach} previewNamespace={previewNamespace} />
+            <SessionList
+              call={call}
+              status={status}
+              onAttach={handleAttach}
+              previewNamespace={previewNamespace}
+              previewRefresh={previewRefresh}
+              refreshToken={refreshToken}
+            />
           )}
         </section>
       </main>
