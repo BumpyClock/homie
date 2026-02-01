@@ -66,14 +66,16 @@ mod tests {
     fn register_and_lookup() {
         let mut reg = ServiceRegistry::new();
         reg.register("terminal", "1.0");
-        reg.register("agent.chat", "1.0");
+        reg.register("agent", "1.0");
+        reg.register("chat", "1.0");
 
         assert!(reg.has_namespace("terminal"));
-        assert!(reg.has_namespace("agent.chat"));
+        assert!(reg.has_namespace("agent"));
+        assert!(reg.has_namespace("chat"));
         assert!(!reg.has_namespace("files"));
 
         let caps = reg.capabilities();
-        assert_eq!(caps.len(), 2);
+        assert_eq!(caps.len(), 3);
         assert_eq!(caps[0].service, "terminal");
     }
 }

@@ -13,7 +13,7 @@ mod server;
 pub mod storage;
 pub mod terminal;
 
-pub use agent::AgentService;
+pub use agent::{AgentService, ChatService};
 pub use auth::{AuthOutcome, LiveWhois, TailscaleIdentity, TailscaleWhois};
 pub use authz::{context_for_outcome, scope_for_method, AuthContext, Role, Scope};
 pub use config::ServerConfig;

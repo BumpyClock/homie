@@ -89,6 +89,11 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         | "terminal.tmux.attach"
         | "terminal.tmux.kill" => Some(Scope::TerminalWrite),
         "agent.chat.list" | "agent.codex.list" => Some(Scope::AgentRead),
+        "chat.list"
+        | "chat.thread.read"
+        | "chat.thread.list"
+        | "chat.account.read"
+        | "chat.skills.list" => Some(Scope::AgentRead),
         "agent.chat.create"
         | "agent.chat.message.send"
         | "agent.chat.cancel"
@@ -96,7 +101,13 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         | "agent.codex.create"
         | "agent.codex.message.send"
         | "agent.codex.cancel"
-        | "agent.codex.approval.respond" => Some(Scope::AgentWrite),
+        | "agent.codex.approval.respond"
+        | "chat.create"
+        | "chat.resume"
+        | "chat.message.send"
+        | "chat.cancel"
+        | "chat.approval.respond"
+        | "chat.skills.config.write" => Some(Scope::AgentWrite),
         "presence.list" => Some(Scope::PresenceRead),
         "presence.register" | "presence.heartbeat" | "presence.unregister" => {
             Some(Scope::PresenceWrite)
@@ -107,7 +118,9 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         "pairing.request" | "pairing.approve" | "pairing.revoke" => Some(Scope::PairingWrite),
         "notifications.list" => Some(Scope::NotificationsRead),
         "notifications.register" | "notifications.send" => Some(Scope::NotificationsWrite),
-        "agent.chat.event.subscribe" | "agent.codex.event.subscribe" => Some(Scope::Events),
+        "agent.chat.event.subscribe"
+        | "agent.codex.event.subscribe"
+        | "chat.event.subscribe" => Some(Scope::Events),
         _ => None,
     }
 }

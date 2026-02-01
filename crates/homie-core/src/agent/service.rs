@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
 use homie_protocol::{error_codes, BinaryFrame, Response};
@@ -14,40 +14,39 @@ use crate::router::{ReapEvent, ServiceHandler};
 use crate::storage::{ChatRecord, SessionStatus, Store};
 
 /// Maps Codex notification methods to Homie event topics.
-fn codex_method_to_topic(method: &str) -> Option<&'static str> {
+fn codex_method_to_topics(method: &str) -> Option<(&'static str, &'static str)> {
     match method {
-        "item/agentMessage/delta" => Some("agent.chat.delta"),
-        "item/started" => Some("agent.chat.item.started"),
-        "item/completed" => Some("agent.chat.item.completed"),
-        "turn/started" => Some("agent.chat.turn.started"),
-        "turn/completed" => Some("agent.chat.turn.completed"),
-        "item/commandExecution/outputDelta" => Some("agent.chat.command.output"),
-        "item/fileChange/outputDelta" => Some("agent.chat.file.output"),
-        "item/reasoning/summaryTextDelta" => Some("agent.chat.reasoning.delta"),
-        "turn/diff/updated" => Some("agent.chat.diff.updated"),
-        "turn/plan/updated" => Some("agent.chat.plan.updated"),
-        "item/commandExecution/requestApproval" => Some("agent.chat.approval.required"),
-        "item/fileChange/requestApproval" => Some("agent.chat.approval.required"),
+        "item/agentMessage/delta" => Some(("chat.message.delta", "agent.chat.delta")),
+        "item/started" => Some(("chat.item.started", "agent.chat.item.started")),
+        "item/completed" => Some(("chat.item.completed", "agent.chat.item.completed")),
+        "turn/started" => Some(("chat.turn.started", "agent.chat.turn.started")),
+        "turn/completed" => Some(("chat.turn.completed", "agent.chat.turn.completed")),
+        "item/commandExecution/outputDelta" => Some(("chat.command.output", "agent.chat.command.output")),
+        "item/fileChange/outputDelta" => Some(("chat.file.output", "agent.chat.file.output")),
+        "item/reasoning/summaryTextDelta" => Some(("chat.reasoning.delta", "agent.chat.reasoning.delta")),
+        "turn/diff/updated" => Some(("chat.diff.updated", "agent.chat.diff.updated")),
+        "turn/plan/updated" => Some(("chat.plan.updated", "agent.chat.plan.updated")),
+        "item/commandExecution/requestApproval" => Some(("chat.approval.required", "agent.chat.approval.required")),
+        "item/fileChange/requestApproval" => Some(("chat.approval.required", "agent.chat.approval.required")),
         _ => None,
     }
 }
 
-/// Agent service: bridges the Codex app-server to the Homie WS protocol.
+/// Chat core: bridges the Codex app-server to the Homie WS protocol.
 ///
-/// Each WS connection gets its own `AgentService`. A `CodexProcess` is
-/// started lazily on the first `agent.chat.create` call and killed on
-/// shutdown.
+/// Each WS connection gets its own core. A `CodexProcess` is started lazily
+/// on the first chat request and killed on shutdown.
 ///
 /// # Example interaction
 ///
 /// Client sends:
 /// ```json
-/// {"type":"request","id":"...","method":"agent.chat.create","params":{}}
+/// {"type":"request","id":"...","method":"chat.create","params":{}}
 /// ```
 ///
 /// Service spawns Codex, runs the handshake, sends `thread/start`, and
 /// returns `{"chat_id":"<thread_id>"}`.
-pub struct AgentService {
+struct CodexChatCore {
     outbound_tx: mpsc::Sender<OutboundMessage>,
     process: Option<CodexProcess>,
     event_forwarder: Option<tokio::task::JoinHandle<()>>,
@@ -56,8 +55,8 @@ pub struct AgentService {
     store: Arc<dyn Store>,
 }
 
-impl AgentService {
-    pub fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
+impl CodexChatCore {
+    fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
         Self {
             outbound_tx,
             process: None,
@@ -98,6 +97,7 @@ impl AgentService {
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string();
+                let thread_id_value = thread_id.clone();
                 let chat_id = if thread_id.is_empty() {
                     Uuid::new_v4().to_string()
                 } else {
@@ -117,12 +117,81 @@ impl AgentService {
                     tracing::warn!(%chat_id, "failed to persist chat create: {e}");
                 }
 
-                Response::success(req_id, json!({ "chat_id": chat_id }))
+                Response::success(
+                    req_id,
+                    json!({ "chat_id": chat_id, "thread_id": thread_id_value }),
+                )
             }
             Err(e) => Response::error(
                 req_id,
                 error_codes::INTERNAL_ERROR,
                 format!("thread/start failed: {e}"),
+            ),
+        }
+    }
+
+    async fn chat_resume(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        let (chat_id, thread_id_param) = match parse_resume_params(&params) {
+            Some(v) => v,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing chat_id",
+                )
+            }
+        };
+
+        let thread_id = match self.resolve_thread_id(&chat_id, thread_id_param.as_deref()) {
+            Some(id) => id,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing thread_id",
+                )
+            }
+        };
+
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        let params = json!({ "threadId": thread_id });
+        match process.send_request("thread/resume", Some(params)).await {
+            Ok(result) => {
+                let resolved = result
+                    .get("threadId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&thread_id)
+                    .to_string();
+                self.thread_ids.insert(chat_id.clone(), resolved.clone());
+
+                let rec = match self.store.get_chat(&chat_id).ok().flatten() {
+                    Some(mut rec) => {
+                        rec.thread_id = resolved.clone();
+                        rec.status = SessionStatus::Active;
+                        rec
+                    }
+                    None => ChatRecord {
+                        chat_id: chat_id.clone(),
+                        thread_id: resolved.clone(),
+                        created_at: chrono_now(),
+                        status: SessionStatus::Active,
+                        event_pointer: 0,
+                    },
+                };
+                if let Err(e) = self.store.upsert_chat(&rec) {
+                    tracing::warn!(%chat_id, "failed to persist chat resume: {e}");
+                }
+
+                Response::success(req_id, json!({ "chat_id": chat_id, "thread_id": resolved }))
+            }
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("thread/resume failed: {e}"),
             ),
         }
     }
@@ -143,11 +212,16 @@ impl AgentService {
             return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
         }
 
-        let thread_id = self
-            .thread_ids
-            .get(&chat_id)
-            .cloned()
-            .unwrap_or_else(|| chat_id.clone());
+        let thread_id = match self.resolve_thread_id(&chat_id, None) {
+            Some(id) => id,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing thread_id",
+                )
+            }
+        };
 
         let codex_params = json!({
             "threadId": thread_id,
@@ -172,7 +246,7 @@ impl AgentService {
         }
     }
 
-    async fn chat_cancel(&self, req_id: Uuid, params: Option<Value>) -> Response {
+    async fn chat_cancel(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
         let (chat_id, turn_id) = match parse_cancel_params(&params) {
             Some(v) => v,
             None => {
@@ -180,6 +254,17 @@ impl AgentService {
                     req_id,
                     error_codes::INVALID_PARAMS,
                     "missing chat_id or turn_id",
+                )
+            }
+        };
+
+        let thread_id = match self.resolve_thread_id(&chat_id, None) {
+            Some(id) => id,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing thread_id",
                 )
             }
         };
@@ -195,12 +280,6 @@ impl AgentService {
             }
         };
 
-        let thread_id = self
-            .thread_ids
-            .get(&chat_id)
-            .cloned()
-            .unwrap_or_else(|| chat_id.clone());
-
         let codex_params = json!({
             "threadId": thread_id,
             "turnId": turn_id,
@@ -215,6 +294,116 @@ impl AgentService {
                 req_id,
                 error_codes::INTERNAL_ERROR,
                 format!("turn/interrupt failed: {e}"),
+            ),
+        }
+    }
+
+    async fn chat_thread_read(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        let (chat_id, thread_id) = match parse_thread_read_params(&params) {
+            Some(v) => v,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing chat_id or thread_id",
+                )
+            }
+        };
+
+        let thread_id = match thread_id {
+            Some(id) => id,
+            None => match chat_id.as_deref().and_then(|id| self.resolve_thread_id(id, None)) {
+                Some(id) => id,
+                None => {
+                    return Response::error(
+                        req_id,
+                        error_codes::INVALID_PARAMS,
+                        "missing thread_id",
+                    )
+                }
+            },
+        };
+
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        let params = json!({ "threadId": thread_id });
+        match process.send_request("thread/read", Some(params)).await {
+            Ok(result) => Response::success(req_id, result),
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("thread/read failed: {e}"),
+            ),
+        }
+    }
+
+    async fn chat_thread_list(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        match process.send_request("thread/list", params).await {
+            Ok(result) => Response::success(req_id, result),
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("thread/list failed: {e}"),
+            ),
+        }
+    }
+
+    async fn chat_account_read(&mut self, req_id: Uuid) -> Response {
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        match process.send_request("account/read", None).await {
+            Ok(result) => Response::success(req_id, result),
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("account/read failed: {e}"),
+            ),
+        }
+    }
+
+    async fn chat_skills_list(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        match process.send_request("skills/list", params).await {
+            Ok(result) => Response::success(req_id, result),
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("skills/list failed: {e}"),
+            ),
+        }
+    }
+
+    async fn chat_skills_config_write(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        match process.send_request("skills/config/write", params).await {
+            Ok(result) => Response::success(req_id, result),
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("skills/config/write failed: {e}"),
             ),
         }
     }
@@ -278,48 +467,6 @@ impl AgentService {
             ),
         }
     }
-}
-
-impl ServiceHandler for AgentService {
-    fn namespace(&self) -> &str {
-        "agent"
-    }
-
-    fn handle_request(
-        &mut self,
-        id: Uuid,
-        method: &str,
-        params: Option<Value>,
-    ) -> Pin<Box<dyn std::future::Future<Output = Response> + Send + '_>> {
-        let method = method.to_string();
-        let canonical = match method.as_str() {
-            "agent.codex.create" => "agent.chat.create",
-            "agent.codex.message.send" => "agent.chat.message.send",
-            "agent.codex.cancel" => "agent.chat.cancel",
-            "agent.codex.approval.respond" => "agent.chat.approval.respond",
-            "agent.codex.list" => "agent.chat.list",
-            other => other,
-        }
-        .to_string();
-        Box::pin(async move {
-            match canonical.as_str() {
-                "agent.chat.create" => self.chat_create(id).await,
-                "agent.chat.message.send" => self.chat_message_send(id, params).await,
-                "agent.chat.cancel" => self.chat_cancel(id, params).await,
-                "agent.chat.approval.respond" => self.approval_respond(id, params).await,
-                "agent.chat.list" => self.chat_list(id),
-                _ => Response::error(
-                    id,
-                    error_codes::METHOD_NOT_FOUND,
-                    format!("unknown method: {method}"),
-                ),
-            }
-        })
-    }
-
-    fn handle_binary(&mut self, _frame: &BinaryFrame) {
-        tracing::debug!("agent service does not handle binary frames");
-    }
 
     fn reap(&mut self) -> Vec<ReapEvent> {
         std::mem::take(&mut self.reap_events)
@@ -345,11 +492,210 @@ impl ServiceHandler for AgentService {
             p.shutdown();
         }
     }
+
+    fn resolve_thread_id(&mut self, chat_id: &str, explicit: Option<&str>) -> Option<String> {
+        if let Some(thread_id) = explicit {
+            let thread_id = thread_id.to_string();
+            self.thread_ids.insert(chat_id.to_string(), thread_id.clone());
+            return Some(thread_id);
+        }
+
+        if let Some(thread_id) = self.thread_ids.get(chat_id) {
+            return Some(thread_id.clone());
+        }
+
+        match self.store.get_chat(chat_id) {
+            Ok(Some(rec)) if !rec.thread_id.is_empty() => {
+                self.thread_ids
+                    .insert(chat_id.to_string(), rec.thread_id.clone());
+                Some(rec.thread_id)
+            }
+            _ => None,
+        }
+    }
+}
+
+pub struct ChatService {
+    core: Arc<Mutex<CodexChatCore>>,
+}
+
+pub struct AgentService {
+    core: Arc<Mutex<CodexChatCore>>,
+}
+
+impl ChatService {
+    pub fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
+        Self {
+            core: Arc::new(Mutex::new(CodexChatCore::new(outbound_tx, store))),
+        }
+    }
+
+    pub fn new_shared(
+        outbound_tx: mpsc::Sender<OutboundMessage>,
+        store: Arc<dyn Store>,
+    ) -> (Self, AgentService) {
+        let core = Arc::new(Mutex::new(CodexChatCore::new(outbound_tx, store)));
+        (
+            Self {
+                core: core.clone(),
+            },
+            AgentService { core },
+        )
+    }
+
+    fn shutdown_core(&mut self) {
+        let core = self.core.clone();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let mut core = core.lock().await;
+                core.shutdown();
+            });
+        } else if let Ok(mut core) = self.core.try_lock() {
+            core.shutdown();
+        }
+    }
+
+    fn reap_core(&mut self) -> Vec<ReapEvent> {
+        self.core.try_lock().map(|mut core| core.reap()).unwrap_or_default()
+    }
+}
+
+impl AgentService {
+    pub fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
+        Self {
+            core: Arc::new(Mutex::new(CodexChatCore::new(outbound_tx, store))),
+        }
+    }
+
+    fn shutdown_core(&mut self) {
+        let core = self.core.clone();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let mut core = core.lock().await;
+                core.shutdown();
+            });
+        } else if let Ok(mut core) = self.core.try_lock() {
+            core.shutdown();
+        }
+    }
+
+    fn reap_core(&mut self) -> Vec<ReapEvent> {
+        self.core.try_lock().map(|mut core| core.reap()).unwrap_or_default()
+    }
+}
+
+impl ServiceHandler for ChatService {
+    fn namespace(&self) -> &str {
+        "chat"
+    }
+
+    fn handle_request(
+        &mut self,
+        id: Uuid,
+        method: &str,
+        params: Option<Value>,
+    ) -> Pin<Box<dyn std::future::Future<Output = Response> + Send + '_>> {
+        let method = method.to_string();
+        Box::pin(async move {
+            let mut core = self.core.lock().await;
+            match method.as_str() {
+                "chat.create" => core.chat_create(id).await,
+                "chat.resume" => core.chat_resume(id, params).await,
+                "chat.message.send" => core.chat_message_send(id, params).await,
+                "chat.cancel" => core.chat_cancel(id, params).await,
+                "chat.approval.respond" => core.approval_respond(id, params).await,
+                "chat.list" => core.chat_list(id),
+                "chat.thread.read" => core.chat_thread_read(id, params).await,
+                "chat.thread.list" => core.chat_thread_list(id, params).await,
+                "chat.account.read" => core.chat_account_read(id).await,
+                "chat.skills.list" => core.chat_skills_list(id, params).await,
+                "chat.skills.config.write" => core.chat_skills_config_write(id, params).await,
+                _ => Response::error(
+                    id,
+                    error_codes::METHOD_NOT_FOUND,
+                    format!("unknown method: {method}"),
+                ),
+            }
+        })
+    }
+
+    fn handle_binary(&mut self, _frame: &BinaryFrame) {
+        tracing::debug!("chat service does not handle binary frames");
+    }
+
+    fn reap(&mut self) -> Vec<ReapEvent> {
+        self.reap_core()
+    }
+
+    fn shutdown(&mut self) {
+        self.shutdown_core();
+    }
+}
+
+impl ServiceHandler for AgentService {
+    fn namespace(&self) -> &str {
+        "agent"
+    }
+
+    fn handle_request(
+        &mut self,
+        id: Uuid,
+        method: &str,
+        params: Option<Value>,
+    ) -> Pin<Box<dyn std::future::Future<Output = Response> + Send + '_>> {
+        let method = method.to_string();
+        let canonical = match method.as_str() {
+            "agent.codex.create" => "agent.chat.create",
+            "agent.codex.message.send" => "agent.chat.message.send",
+            "agent.codex.cancel" => "agent.chat.cancel",
+            "agent.codex.approval.respond" => "agent.chat.approval.respond",
+            "agent.codex.list" => "agent.chat.list",
+            other => other,
+        }
+        .to_string();
+        Box::pin(async move {
+            let mut core = self.core.lock().await;
+            match canonical.as_str() {
+                "agent.chat.create" => core.chat_create(id).await,
+                "agent.chat.message.send" => core.chat_message_send(id, params).await,
+                "agent.chat.cancel" => core.chat_cancel(id, params).await,
+                "agent.chat.approval.respond" => core.approval_respond(id, params).await,
+                "agent.chat.list" => core.chat_list(id),
+                _ => Response::error(
+                    id,
+                    error_codes::METHOD_NOT_FOUND,
+                    format!("unknown method: {method}"),
+                ),
+            }
+        })
+    }
+
+    fn handle_binary(&mut self, _frame: &BinaryFrame) {
+        tracing::debug!("agent service does not handle binary frames");
+    }
+
+    fn reap(&mut self) -> Vec<ReapEvent> {
+        self.reap_core()
+    }
+
+    fn shutdown(&mut self) {
+        self.shutdown_core();
+    }
+}
+
+impl Drop for ChatService {
+    fn drop(&mut self) {
+        if let Ok(mut core) = self.core.try_lock() {
+            core.shutdown();
+        }
+    }
 }
 
 impl Drop for AgentService {
     fn drop(&mut self) {
-        self.shutdown();
+        if let Ok(mut core) = self.core.try_lock() {
+            core.shutdown();
+        }
     }
 }
 
@@ -361,7 +707,7 @@ async fn event_forwarder_loop(
     store: Arc<dyn Store>,
 ) {
     while let Some(event) = event_rx.recv().await {
-        let topic = match codex_method_to_topic(&event.method) {
+        let (chat_topic, agent_topic) = match codex_method_to_topics(&event.method) {
             Some(t) => t,
             None => {
                 tracing::debug!(method = %event.method, "unmapped codex event, skipping");
@@ -384,10 +730,19 @@ async fn event_forwarder_loop(
             }
         }
 
-        match outbound_tx.try_send(OutboundMessage::event(topic, Some(event_params))) {
+        let chat_params = event_params.clone();
+        match outbound_tx.try_send(OutboundMessage::event(chat_topic, Some(chat_params))) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
-                tracing::warn!(topic, "backpressure: dropping agent event");
+                tracing::warn!(topic = chat_topic, "backpressure: dropping chat event");
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => break,
+        }
+
+        match outbound_tx.try_send(OutboundMessage::event(agent_topic, Some(event_params))) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!(topic = agent_topic, "backpressure: dropping agent event");
             }
             Err(mpsc::error::TrySendError::Closed(_)) => break,
         }
@@ -419,6 +774,35 @@ fn parse_cancel_params(params: &Option<Value>) -> Option<(String, String)> {
     Some((chat_id, turn_id))
 }
 
+fn parse_resume_params(params: &Option<Value>) -> Option<(String, Option<String>)> {
+    let p = params.as_ref()?;
+    let chat_id = p.get("chat_id")?.as_str()?.to_string();
+    let thread_id = p
+        .get("thread_id")
+        .or_else(|| p.get("threadId"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Some((chat_id, thread_id))
+}
+
+fn parse_thread_read_params(params: &Option<Value>) -> Option<(Option<String>, Option<String>)> {
+    let p = params.as_ref()?;
+    let chat_id = p
+        .get("chat_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let thread_id = p
+        .get("thread_id")
+        .or_else(|| p.get("threadId"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    if chat_id.is_none() && thread_id.is_none() {
+        None
+    } else {
+        Some((chat_id, thread_id))
+    }
+}
+
 fn parse_approval_params(params: &Option<Value>) -> Option<(u64, String)> {
     let p = params.as_ref()?;
     let codex_request_id = p.get("codex_request_id")?.as_u64()?;
@@ -447,78 +831,78 @@ mod tests {
     #[test]
     fn codex_method_maps_agent_message_delta_to_chat_delta() {
         assert_eq!(
-            codex_method_to_topic("item/agentMessage/delta"),
-            Some("agent.chat.delta")
+            codex_method_to_topics("item/agentMessage/delta"),
+            Some(("chat.message.delta", "agent.chat.delta"))
         );
     }
 
     #[test]
     fn codex_method_maps_turn_events() {
         assert_eq!(
-            codex_method_to_topic("turn/started"),
-            Some("agent.chat.turn.started")
+            codex_method_to_topics("turn/started"),
+            Some(("chat.turn.started", "agent.chat.turn.started"))
         );
         assert_eq!(
-            codex_method_to_topic("turn/completed"),
-            Some("agent.chat.turn.completed")
+            codex_method_to_topics("turn/completed"),
+            Some(("chat.turn.completed", "agent.chat.turn.completed"))
         );
     }
 
     #[test]
     fn codex_method_maps_item_events() {
         assert_eq!(
-            codex_method_to_topic("item/started"),
-            Some("agent.chat.item.started")
+            codex_method_to_topics("item/started"),
+            Some(("chat.item.started", "agent.chat.item.started"))
         );
         assert_eq!(
-            codex_method_to_topic("item/completed"),
-            Some("agent.chat.item.completed")
+            codex_method_to_topics("item/completed"),
+            Some(("chat.item.completed", "agent.chat.item.completed"))
         );
     }
 
     #[test]
     fn codex_method_maps_approval_requests() {
         assert_eq!(
-            codex_method_to_topic("item/commandExecution/requestApproval"),
-            Some("agent.chat.approval.required")
+            codex_method_to_topics("item/commandExecution/requestApproval"),
+            Some(("chat.approval.required", "agent.chat.approval.required"))
         );
         assert_eq!(
-            codex_method_to_topic("item/fileChange/requestApproval"),
-            Some("agent.chat.approval.required")
+            codex_method_to_topics("item/fileChange/requestApproval"),
+            Some(("chat.approval.required", "agent.chat.approval.required"))
         );
     }
 
     #[test]
     fn codex_method_maps_output_deltas() {
         assert_eq!(
-            codex_method_to_topic("item/commandExecution/outputDelta"),
-            Some("agent.chat.command.output")
+            codex_method_to_topics("item/commandExecution/outputDelta"),
+            Some(("chat.command.output", "agent.chat.command.output"))
         );
         assert_eq!(
-            codex_method_to_topic("item/fileChange/outputDelta"),
-            Some("agent.chat.file.output")
+            codex_method_to_topics("item/fileChange/outputDelta"),
+            Some(("chat.file.output", "agent.chat.file.output"))
         );
     }
 
     #[test]
     fn codex_method_maps_reasoning_and_plan() {
         assert_eq!(
-            codex_method_to_topic("item/reasoning/summaryTextDelta"),
-            Some("agent.chat.reasoning.delta")
+            codex_method_to_topics("item/reasoning/summaryTextDelta"),
+            Some(("chat.reasoning.delta", "agent.chat.reasoning.delta"))
         );
         assert_eq!(
-            codex_method_to_topic("turn/diff/updated"),
-            Some("agent.chat.diff.updated")
+            codex_method_to_topics("turn/diff/updated"),
+            Some(("chat.diff.updated", "agent.chat.diff.updated"))
         );
         assert_eq!(
-            codex_method_to_topic("turn/plan/updated"),
-            Some("agent.chat.plan.updated")
+            codex_method_to_topics("turn/plan/updated"),
+            Some(("chat.plan.updated", "agent.chat.plan.updated"))
         );
     }
 
     #[test]
     fn unknown_codex_method_returns_none() {
-        assert_eq!(codex_method_to_topic("unknown/method"), None);
+        assert_eq!(codex_method_to_topics("unknown/method"), None);
     }
 
     #[test]

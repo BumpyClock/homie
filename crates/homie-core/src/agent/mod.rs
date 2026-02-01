@@ -1,4 +1,4 @@
 mod process;
 mod service;
 
-pub use service::AgentService;
+pub use service::{AgentService, ChatService};

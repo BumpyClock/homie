@@ -62,6 +62,7 @@ pub fn build_router(
     let mut registry = ServiceRegistry::new();
     registry.register("terminal", "1.0");
     registry.register("agent", "1.0");
+    registry.register("chat", "1.0");
     registry.register("presence", "1.0");
     registry.register("jobs", "0.1");
     registry.register("pairing", "0.1");

@@ -14,7 +14,7 @@ use homie_protocol::{
     PROTOCOL_VERSION,
 };
 
-use crate::agent::AgentService;
+use crate::agent::ChatService;
 use crate::auth::AuthOutcome;
 use crate::authz::{context_for_outcome, scope_for_method, AuthContext, Scope};
 use crate::config::ServerConfig;
@@ -212,7 +212,10 @@ async fn run_message_loop(
         terminal_registry,
         outbound_tx.clone(),
     )));
-    router.register(Box::new(AgentService::new(outbound_tx.clone(), store.clone())));
+    let (chat_service, agent_service) =
+        ChatService::new_shared(outbound_tx.clone(), store.clone());
+    router.register(Box::new(chat_service));
+    router.register(Box::new(agent_service));
     router.register(Box::new(PresenceService::new(nodes)));
     router.register(Box::new(JobsService::new(store.clone())));
     router.register(Box::new(PairingService::new(

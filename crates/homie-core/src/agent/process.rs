@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
@@ -52,8 +53,10 @@ impl CodexProcess {
     /// Spawn `codex app-server` and return the process handle plus an event
     /// receiver for notifications/requests from the Codex server.
     pub async fn spawn() -> Result<(Self, mpsc::Receiver<CodexEvent>), String> {
+        let homie_dir = homie_home_dir()?;
         let mut child = Command::new("codex")
             .arg("app-server")
+            .current_dir(&homie_dir)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -181,6 +184,18 @@ impl CodexProcess {
     }
 }
 
+fn homie_home_dir() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME")
+        .ok_or_else(|| "HOME is not set; cannot resolve ~/.homie".to_string())?;
+    let dir = PathBuf::from(home).join(".homie");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("failed to create ~/.homie: {e}"))?;
+    let skills_dir = dir.join("skills");
+    std::fs::create_dir_all(&skills_dir)
+        .map_err(|e| format!("failed to create ~/.homie/skills: {e}"))?;
+    Ok(dir)
+}
+
 impl Drop for CodexProcess {
     fn drop(&mut self) {
         self.shutdown();
@@ -290,6 +305,7 @@ async fn writer_loop(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Receiv
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::time::{timeout, Duration, Instant};
 
     #[test]
     fn dispatch_line_routes_response_to_pending_waiter() {
@@ -363,5 +379,131 @@ mod tests {
 
         let line = r#"{"id":999,"result":"orphan"}"#;
         dispatch_line(line, &mut pending, &event_tx);
+    }
+
+    #[tokio::test]
+    async fn codex_app_server_smoke() {
+        if !should_run_codex_e2e() {
+            eprintln!("skipping codex e2e; set HOMIE_CODEX_E2E=1 to run");
+            return;
+        }
+
+        let (process, mut event_rx) =
+            CodexProcess::spawn().await.expect("spawn codex app-server");
+
+        with_timeout(Duration::from_secs(15), process.initialize())
+            .await
+            .expect("initialize codex");
+
+        let account = with_timeout(Duration::from_secs(10), process.send_request("account/read", None))
+            .await
+            .expect("account/read");
+        assert!(account.is_object(), "account/read returns an object");
+
+        let thread = with_timeout(Duration::from_secs(10), process.send_request("thread/start", None))
+            .await
+            .expect("thread/start");
+        let thread_id = extract_id(&thread, &["threadId", "thread_id"], &[("thread", "id")])
+            .unwrap_or_else(|| panic!("thread/start returned no thread id: {thread}"));
+
+        let params = serde_json::json!({
+            "threadId": thread_id,
+            "input": [{"type": "text", "text": "Reply with the single word ping."}],
+        });
+        let turn = with_timeout(
+            Duration::from_secs(10),
+            process.send_request("turn/start", Some(params)),
+        )
+        .await
+        .expect("turn/start");
+        let turn_id = extract_id(&turn, &["turnId", "turn_id"], &[("turn", "id")])
+            .unwrap_or_else(|| panic!("turn/start returned no turn id: {turn}"));
+
+        let deadline = Instant::now() + Duration::from_secs(90);
+        let mut saw_delta = false;
+        let mut saw_completed = false;
+
+        while Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let next = timeout(remaining, event_rx.recv())
+                .await
+                .expect("event recv timeout");
+            let Some(event) = next else { break };
+
+            if event.method == "item/agentMessage/delta" {
+                saw_delta = true;
+            }
+            if event.method == "turn/completed" {
+                if let Some(params) = event.params.as_ref() {
+                    if event_thread_id(params).as_deref() == Some(&thread_id)
+                        || event_turn_id(params).as_deref() == Some(&turn_id)
+                    {
+                        saw_completed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        assert!(
+            saw_delta || saw_completed,
+            "expected at least one delta or completed event"
+        );
+    }
+
+    fn should_run_codex_e2e() -> bool {
+        matches!(std::env::var("HOMIE_CODEX_E2E").as_deref(), Ok("1"))
+    }
+
+    async fn with_timeout<T>(
+        dur: Duration,
+        fut: impl std::future::Future<Output = Result<T, String>>,
+    ) -> Result<T, String> {
+        match timeout(dur, fut).await {
+            Ok(res) => res,
+            Err(_) => Err("timeout waiting for codex app-server".to_string()),
+        }
+    }
+
+    fn event_thread_id(params: &Value) -> Option<String> {
+        params
+            .get("threadId")
+            .or_else(|| params.get("thread_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    }
+
+    fn event_turn_id(params: &Value) -> Option<String> {
+        params
+            .get("turnId")
+            .or_else(|| params.get("turn_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    }
+
+    fn extract_id(
+        value: &Value,
+        direct_keys: &[&str],
+        nested_keys: &[(&str, &str)],
+    ) -> Option<String> {
+        for key in direct_keys {
+            if let Some(id) = value.get(*key).and_then(|v| v.as_str()) {
+                if !id.is_empty() {
+                    return Some(id.to_string());
+                }
+            }
+        }
+        for (outer, inner) in nested_keys {
+            if let Some(id) = value
+                .get(*outer)
+                .and_then(|v| v.get(*inner))
+                .and_then(|v| v.as_str())
+            {
+                if !id.is_empty() {
+                    return Some(id.to_string());
+                }
+            }
+        }
+        None
     }
 }
