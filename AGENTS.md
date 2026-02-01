@@ -22,5 +22,5 @@ All the projects have open source and permissible liceenses so you can copy thei
 # Important
 - Overall plan is in ./plans/plan.md. Read it. Use reference projects for ideas on implementation.
 - Corresponding plans for backend, web , and react native apps are in ./plans/phase1/<backend.prd, rn-mobile.prd, and web.prd>
-
+- organize the code under src/ directory in proper directories, like src/infra , src/gateway, src/apps, src/web etc. 
 

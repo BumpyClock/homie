@@ -30,9 +30,10 @@
         "Connection lifecycle includes heartbeat + idle timeout"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "labels": [],
-      "dependsOn": []
+      "dependsOn": [],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-003",
@@ -99,6 +100,6 @@
     "createdAt": "2026-02-01T05:26:13.438Z",
     "version": "1.0.0",
     "sourcePrd": "plans/phase1/backend.prd",
-    "updatedAt": "2026-02-01T05:32:28.455Z"
+    "updatedAt": "2026-02-01T05:43:45.839Z"
   }
 }
