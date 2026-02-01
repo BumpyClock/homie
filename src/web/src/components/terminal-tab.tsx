@@ -1,9 +1,6 @@
 
 import { useEffect, useRef } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import "@xterm/xterm/css/xterm.css";
+import { init as initGhostty, Terminal, FitAddon } from "ghostty-web";
 import { useTheme } from "@/hooks/use-theme";
 import { DEFAULT_PREVIEW_LINES, savePreview } from "@/lib/session-previews";
 
@@ -33,6 +30,12 @@ function getThemeColorAlpha(variable: string, alpha: number): string {
   return `hsl(${value} / ${alpha})`;
 }
 
+let ghosttyInitPromise: Promise<void> | null = null;
+function ensureGhosttyInit(): Promise<void> {
+  if (!ghosttyInitPromise) ghosttyInitPromise = initGhostty();
+  return ghosttyInitPromise;
+}
+
 export function TerminalTab({
   sessionId,
   onInput,
@@ -54,7 +57,7 @@ export function TerminalTab({
     const fg = getThemeColor("--foreground");
     const cursor = getThemeColor("--primary");
 
-    terminalRef.current.options.theme = {
+    const theme = {
       background: bg,
       foreground: fg,
       cursor: cursor,
@@ -81,21 +84,27 @@ export function TerminalTab({
       brightCyan: getThemeColor("--term-bright-cyan"),
       brightWhite: getThemeColor("--term-bright-white"),
     };
+
+    terminalRef.current.options.theme = theme;
+    terminalRef.current.renderer?.setTheme(theme);
   }, [resolvedTheme, colorScheme]);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Initial theme setup
-    const bg = getThemeColor("--background");
-    const fg = getThemeColor("--foreground");
-    const cursor = getThemeColor("--primary");
+    let disposed = false;
+    let cleanup: (() => void) | null = null;
 
-    const term = new Terminal({
-      cursorBlink: true,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      fontSize: 14,
-      theme: {
+    const start = async () => {
+      await ensureGhosttyInit();
+      if (disposed || !containerRef.current) return;
+
+      // Initial theme setup
+      const bg = getThemeColor("--background");
+      const fg = getThemeColor("--foreground");
+      const cursor = getThemeColor("--primary");
+
+      const theme = {
         background: bg,
         foreground: fg,
         cursor: cursor,
@@ -121,48 +130,60 @@ export function TerminalTab({
         brightMagenta: getThemeColor("--term-bright-magenta"),
         brightCyan: getThemeColor("--term-bright-cyan"),
         brightWhite: getThemeColor("--term-bright-white"),
-      },
-      allowProposedApi: true,
-    });
+      };
 
-    const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
+      const term = new Terminal({
+        cursorBlink: true,
+        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        fontSize: 14,
+        theme,
+      });
 
-    term.loadAddon(fitAddon);
-    term.loadAddon(webLinksAddon);
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
 
-    term.open(containerRef.current);
-    fitAddon.fit();
+      term.open(containerRef.current);
+      fitAddon.fit();
 
-    term.onData((data) => {
-      onInput(data);
-    });
+      term.onData((data) => {
+        onInput(data);
+      });
 
-    term.onResize((size) => {
-      onResize(size.cols, size.rows);
-    });
+      term.onResize((size) => {
+        onResize(size.cols, size.rows);
+      });
 
-    terminalRef.current = term;
-    fitAddonRef.current = fitAddon;
+      terminalRef.current = term;
+      fitAddonRef.current = fitAddon;
 
-    // Report initial size
-    onResize(term.cols, term.rows);
+      // Report initial size
+      onResize(term.cols, term.rows);
 
-    const cleanup = registerDataListener((data) => {
-      term.write(data);
-    });
+      cleanup = registerDataListener((data) => {
+        term.write(data);
+      });
+    };
+
+    void start();
 
     return () => {
+      disposed = true;
       try {
-        const snapshot = snapshotTerminal(term, DEFAULT_PREVIEW_LINES);
-        if (snapshot.trim().length > 0) {
-          savePreview(previewNamespace, sessionId, snapshot);
+        const term = terminalRef.current;
+        if (term) {
+          const snapshot = snapshotTerminal(term, DEFAULT_PREVIEW_LINES);
+          if (snapshot.trim().length > 0) {
+            savePreview(previewNamespace, sessionId, snapshot);
+          }
         }
       } catch {
         // ignore snapshot failures
       }
-      cleanup();
-      term.dispose();
+      cleanup?.();
+      cleanup = null;
+      terminalRef.current?.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, onInput, onResize, registerDataListener]); // Removed theme deps from init to avoid re-creation
