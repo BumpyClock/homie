@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useGateway, type ConnectionStatus } from '@/hooks/use-gateway'
 import { useTargets } from '@/hooks/use-targets'
 import { TargetSelector } from '@/components/target-selector'
-import { SessionList, PREVIEW_OPTIONS, PREVIEW_REFRESH_KEY, type PreviewRefresh } from '@/components/session-list'
-import { TerminalView } from '@/components/terminal-view'
+import { SessionList } from '@/components/session-list'
+import { TerminalView, type AttachedSession } from '@/components/terminal-view'
 import { ThemeSelector } from '@/components/theme-selector'
 import { ArrowLeft, ChevronDown, Check, Trash2, X, RefreshCw, Plus } from 'lucide-react';
+import { PREVIEW_OPTIONS, PREVIEW_REFRESH_KEY, type PreviewRefresh, sessionDisplayName, shortSessionId } from '@/lib/session-utils';
 
 function StatusDot({ status, className }: { status: ConnectionStatus; className?: string }) {
   const color =
@@ -40,7 +41,7 @@ function App() {
     restoreLocal
   } = useTargets();
   const { status, serverHello, rejection, error, call, onBinaryMessage } = useGateway({ url: activeTarget?.url ?? "" });
-  const [attachedSessionIds, setAttachedSessionIds] = useState<string[]>([]);
+  const [attachedSessions, setAttachedSessions] = useState<AttachedSession[]>([]);
   const prevAttachedRef = useRef<string[]>([]);
   const previewNamespace = activeTargetId ?? "default";
 
@@ -65,7 +66,7 @@ function App() {
   }, [activeTargetId]);
 
   useEffect(() => {
-    setAttachedSessionIds([]);
+    setAttachedSessions([]);
   }, [activeTargetId]);
 
   useEffect(() => {
@@ -134,6 +135,7 @@ function App() {
 
   useEffect(() => {
     const prev = prevAttachedRef.current;
+    const attachedSessionIds = attachedSessions.map((session) => session.id);
     const removed = prev.filter((id) => !attachedSessionIds.includes(id));
     if (removed.length > 0 && status === "connected") {
       removed.forEach((id) => {
@@ -141,16 +143,25 @@ function App() {
       });
     }
     prevAttachedRef.current = attachedSessionIds;
-  }, [attachedSessionIds, status, call]);
+  }, [attachedSessions, status, call]);
 
-  const handleAttach = (sessionId: string) => {
-    if (!attachedSessionIds.includes(sessionId)) {
-        setAttachedSessionIds([...attachedSessionIds, sessionId]);
-    }
+  const handleAttach = (session: { session_id: string; shell: string; name?: string | null }) => {
+    const label = sessionDisplayName(session);
+    setAttachedSessions((prev) => {
+      if (prev.some((item) => item.id === session.session_id)) return prev;
+      return [...prev, { id: session.session_id, label }];
+    });
   };
 
   const handleDetach = (sessionId: string) => {
-      setAttachedSessionIds(prev => prev.filter(id => id !== sessionId));
+      setAttachedSessions(prev => prev.filter(session => session.id !== sessionId));
+  };
+
+  const handleRename = (sessionId: string, name: string | null) => {
+    const label = name && name.trim().length > 0 ? name.trim() : shortSessionId(sessionId);
+    setAttachedSessions((prev) =>
+      prev.map((session) => session.id === sessionId ? { ...session, label } : session)
+    );
   };
 
   const handleStartSession = async () => {
@@ -163,8 +174,14 @@ function App() {
       setRefreshToken((t) => t + 1);
 
       if (session?.session_id) {
-        await call('terminal.session.attach', { session_id: session.session_id });
-        handleAttach(session.session_id);
+        const info = await call('terminal.session.attach', { session_id: session.session_id }) as {
+          session_id?: string;
+          shell?: string;
+          name?: string | null;
+        };
+        if (info?.session_id) {
+          handleAttach({ session_id: info.session_id, shell: info.shell ?? "", name: info.name });
+        }
       }
     } catch (err: unknown) {
       console.error("Failed to start session", err);
@@ -174,13 +191,13 @@ function App() {
   };
 
   // If we have attached sessions, show the Terminal View (Full Screen)
-  if (attachedSessionIds.length > 0) {
+  if (attachedSessions.length > 0) {
       return (
           <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
               <div className="flex items-center justify-between p-2 bg-muted/50 border-b border-border shrink-0">
                   <div className="flex items-center gap-4">
                     <button 
-                        onClick={() => setAttachedSessionIds([])}
+                        onClick={() => setAttachedSessions([])}
                         className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground"
                         title="Back to Dashboard"
                         aria-label="Back to dashboard"
@@ -196,7 +213,7 @@ function App() {
               </div>
               <div className="flex-1 min-h-0">
                   <TerminalView 
-                    attachedSessionIds={attachedSessionIds}
+                    attachedSessions={attachedSessions}
                     onDetach={handleDetach}
                     call={call}
                     onBinaryMessage={onBinaryMessage}
@@ -328,6 +345,7 @@ function App() {
               call={call}
               status={status}
               onAttach={handleAttach}
+              onRename={handleRename}
               previewNamespace={previewNamespace}
               previewRefresh={previewRefresh}
               refreshToken={refreshToken}

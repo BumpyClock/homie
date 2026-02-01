@@ -6,17 +6,17 @@ import {
   PREVIEW_MAX_BYTES,
   PREVIEW_OPTIONS,
   resolveTmuxCloseBehavior,
+  sessionDisplayName,
   tmuxSessionName,
   type PreviewRefresh,
 } from '@/lib/session-utils';
-import { Terminal, Trash2, X } from 'lucide-react';
-
-export { PREVIEW_OPTIONS, PREVIEW_REFRESH_KEY, type PreviewRefresh } from '@/lib/session-utils';
+import { Pencil, Terminal, Trash2, X } from 'lucide-react';
 
 interface SessionListProps {
   call: (method: string, params?: unknown) => Promise<unknown>;
   status: string;
-  onAttach: (sessionId: string) => void;
+  onAttach: (session: SessionInfo) => void;
+  onRename?: (sessionId: string, name: string | null) => void;
   previewNamespace: string;
   previewRefresh: PreviewRefresh;
   refreshToken?: number;
@@ -26,18 +26,15 @@ interface SessionListResponse {
   sessions: SessionInfo[];
 }
 
-export function SessionList({ call, status, onAttach, previewNamespace, previewRefresh, refreshToken }: SessionListProps) {
+export function SessionList({ call, status, onAttach, onRename, previewNamespace, previewRefresh, refreshToken }: SessionListProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tmuxSessions, setTmuxSessions] = useState<TmuxSessionInfo[]>([]);
   const [tmuxSupported, setTmuxSupported] = useState(false);
   const [tmuxError, setTmuxError] = useState<string | null>(null);
-  const [, setTmuxLoading] = useState(false);
 
   const fetchSessions = useCallback(async () => {
     if (status !== 'connected') return;
-    setLoading(true);
     try {
       const res = await call('terminal.session.list') as SessionListResponse;
       setSessions(res.sessions || []);
@@ -46,14 +43,11 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
       console.error('Failed to list sessions:', err);
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg || 'Failed to list sessions');
-    } finally {
-      setLoading(false);
     }
   }, [call, status]);
 
   const fetchTmux = useCallback(async () => {
     if (status !== 'connected') return;
-    setTmuxLoading(true);
     try {
       const res = await call('terminal.tmux.list') as TmuxListResponse;
       setTmuxSupported(res.supported);
@@ -69,8 +63,6 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
         const msg = err instanceof Error ? err.message : String(err);
         setTmuxError(msg || 'Failed to list tmux sessions');
       }
-    } finally {
-      setTmuxLoading(false);
     }
   }, [call, status]);
 
@@ -87,7 +79,7 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
         savePreview(previewNamespace, sessionId, text);
       }
     } catch {
-      // ignore preview failures
+      return;
     }
   }, [call, previewNamespace]);
 
@@ -109,17 +101,25 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
   }, [fetchPreview, previewCadenceMs, previewNamespace]);
 
   useEffect(() => {
-    if (status === 'connected') {
-      fetchSessions();
-      fetchTmux();
-      // Poll every 5 seconds to keep the list fresh
-      const interval = setInterval(() => {
-        fetchSessions();
-        fetchTmux();
-      }, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [status, fetchSessions, fetchTmux]);
+    if (status !== 'connected') return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const cadence = previewCadenceMs();
+
+    const poll = async () => {
+      if (cancelled) return;
+      await fetchSessions();
+      await fetchTmux();
+      if (cancelled || cadence === null) return;
+      timer = setTimeout(poll, cadence);
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [status, fetchSessions, fetchTmux, previewCadenceMs]);
 
   useEffect(() => {
     if (status !== "connected") return;
@@ -146,7 +146,7 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
       }) as SessionInfo;
       fetchSessions();
       if (session && session.session_id) {
-        onAttach(session.session_id);
+        onAttach(session);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -164,7 +164,6 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
       alert('Failed to kill tmux session: ' + msg);
     }
   };
-
 
   const handleKill = async (session: SessionInfo) => {
       const tmuxName = tmuxSessionName(session.shell);
@@ -212,10 +211,31 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
       }
   };
 
-  const handleAttach = async (id: string) => {
+  const handleRename = async (session: SessionInfo) => {
+      if (tmuxSessionName(session.shell)) return;
+      const current = typeof session.name === "string" ? session.name : "";
+      const next = window.prompt("Rename session", current);
+      if (next === null) return;
+      const trimmed = next.trim();
+      const name = trimmed.length > 0 ? trimmed : null;
       try {
-          await call('terminal.session.attach', { session_id: id });
-          onAttach(id);
+          await call('terminal.session.rename', { session_id: session.session_id, name });
+          setSessions((prev) =>
+              prev.map((item) =>
+                  item.session_id === session.session_id ? { ...item, name } : item
+              )
+          );
+          onRename?.(session.session_id, name);
+      } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          alert('Failed to rename session: ' + msg);
+      }
+  };
+
+  const handleAttach = async (session: SessionInfo) => {
+      try {
+          await call('terminal.session.attach', { session_id: session.session_id });
+          onAttach(session);
       } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           alert('Failed to attach session: ' + msg);
@@ -315,26 +335,22 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
                     </div>
                   </div>
                 ))}
-                {activeSessions.map(session => {
+                {activeSessions.map((session) => {
                   const preview = loadPreview(previewNamespace, session.session_id)?.text ?? "";
                   const tmuxName = tmuxSessionName(session.shell);
+                  const displayName = sessionDisplayName(session);
                   return (
                     <div key={session.session_id} className="bg-card p-4 rounded-lg border border-border shadow-sm flex flex-col gap-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-green-500" title="active" />
-                          <span className="font-mono text-sm text-foreground" title={session.session_id}>
-                            {session.session_id.substring(0, 8)}...
+                          <span className="font-mono text-sm text-foreground max-w-[220px] truncate" title={session.session_id}>
+                            {displayName}
                           </span>
                           {tmuxName ? (
-                            <>
-                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
-                                tmux
-                              </span>
-                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
-                                {tmuxName}
-                              </span>
-                            </>
+                            <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                              tmux
+                            </span>
                           ) : (
                             <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
                               {session.shell}
@@ -350,16 +366,26 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
                         {preview.trim().length > 0 ? preview : "Preview available after first detach."}
                       </div>
                       <div className="flex gap-2">
-                        <button 
-                          onClick={() => handleAttach(session.session_id)}
+                        <button
+                          onClick={() => handleAttach(session)}
                           className="flex-1 px-3 py-2 min-h-[44px] bg-muted hover:bg-muted/80 rounded text-xs font-medium text-foreground transition-colors"
                         >
                           Attach
                         </button>
-                        <button 
+                        {!tmuxName && (
+                          <button
+                            onClick={() => handleRename(session)}
+                            className="px-3 py-2 min-h-[44px] min-w-[44px] text-muted-foreground hover:bg-muted/60 hover:text-foreground rounded transition-colors flex items-center justify-center"
+                            title="Rename session"
+                            aria-label="Rename session"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
                           onClick={() => handleKill(session)}
                           className="px-3 py-2 min-h-[44px] min-w-[44px] text-muted-foreground hover:bg-destructive/20 hover:text-destructive rounded transition-colors flex items-center justify-center"
-                          title="Kill Session"
+                          title="Kill session"
                           aria-label="Kill session"
                         >
                           <X className="w-4 h-4" />
@@ -380,26 +406,22 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
               </div>
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
-                {inactiveSessions.map(session => {
+                {inactiveSessions.map((session) => {
                   const preview = loadPreview(previewNamespace, session.session_id)?.text ?? "";
                   const tmuxName = tmuxSessionName(session.shell);
+                  const displayName = sessionDisplayName(session);
                   return (
                     <div key={session.session_id} className="bg-card p-4 rounded-lg border border-border shadow-sm flex flex-col gap-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-muted-foreground" title={session.status} />
-                          <span className="font-mono text-sm text-foreground" title={session.session_id}>
-                            {session.session_id.substring(0, 8)}...
+                          <span className="font-mono text-sm text-foreground max-w-[220px] truncate" title={session.session_id}>
+                            {displayName}
                           </span>
                           {tmuxName ? (
-                            <>
-                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
-                                tmux
-                              </span>
-                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
-                                {tmuxName}
-                              </span>
-                            </>
+                            <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                              tmux
+                            </span>
                           ) : (
                             <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
                               {session.shell}
@@ -415,13 +437,23 @@ export function SessionList({ call, status, onAttach, previewNamespace, previewR
                         {preview.trim().length > 0 ? preview : "No preview captured."}
                       </div>
                       <div className="flex gap-2">
-                        <button 
-                          onClick={() => handleAttach(session.session_id)}
+                        <button
+                          onClick={() => handleAttach(session)}
                           className="flex-1 px-3 py-2 min-h-[44px] bg-muted hover:bg-muted/80 rounded text-xs font-medium text-foreground transition-colors"
                         >
                           Resume
                         </button>
-                        <button 
+                        {!tmuxName && (
+                          <button
+                            onClick={() => handleRename(session)}
+                            className="px-3 py-2 min-h-[44px] min-w-[44px] text-muted-foreground hover:bg-muted/60 hover:text-foreground rounded transition-colors flex items-center justify-center"
+                            title="Rename session"
+                            aria-label="Rename session"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
                           onClick={() => handleRemove(session.session_id)}
                           className="px-3 py-2 min-h-[44px] min-w-[44px] text-muted-foreground hover:bg-destructive/20 hover:text-destructive rounded transition-colors flex items-center justify-center"
                           title="Remove from history"

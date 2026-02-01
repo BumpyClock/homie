@@ -221,6 +221,35 @@ async fn session_start_returns_session_id() {
 }
 
 #[tokio::test]
+async fn renaming_a_session_updates_the_list_name() {
+    let addr = start_server(ServerConfig::default()).await;
+    let mut ws = connect_and_handshake(addr).await;
+
+    let result = rpc(
+        &mut ws,
+        "terminal.session.start",
+        Some(json!({ "cols": 80, "rows": 24 })),
+    )
+    .await;
+    let session_id = extract_session_id(&result);
+
+    rpc(
+        &mut ws,
+        "terminal.session.rename",
+        Some(json!({ "session_id": session_id, "name": "My Session" })),
+    )
+    .await;
+
+    let list = rpc(&mut ws, "terminal.session.list", None).await;
+    let sessions = list["sessions"].as_array().expect("sessions array");
+    let found = sessions
+        .iter()
+        .find(|s| s["session_id"].as_str() == Some(&session_id))
+        .expect("session missing");
+    assert_eq!(found["name"].as_str(), Some("My Session"));
+}
+
+#[tokio::test]
 async fn session_start_produces_pty_output() {
     let addr = start_server(ServerConfig::default()).await;
     let mut ws = connect_and_handshake(addr).await;

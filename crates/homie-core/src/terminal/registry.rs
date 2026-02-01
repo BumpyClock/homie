@@ -523,14 +523,19 @@ impl TerminalRegistry {
             }
         });
 
-        if let Some(active) = self.sessions.get_mut(&session_id) {
+        let active_info = if let Some(active) = self.sessions.get_mut(&session_id) {
             if is_tmux_shell(&active.info.shell) {
                 return Err(TerminalError::Missing(
                     "tmux sessions cannot be renamed".into(),
                 ));
             }
             active.info.name = trimmed.clone();
-            self.persist_status(&active.info, SessionStatus::Active, None);
+            Some(active.info.clone())
+        } else {
+            None
+        };
+        if let Some(info) = active_info {
+            self.persist_status(&info, SessionStatus::Active, None);
             return Ok(());
         }
 

@@ -4,16 +4,23 @@ import { TerminalTab } from "./terminal-tab";
 import { parseBinaryFrame, StreamType } from "@/lib/binary-protocol";
 import { X, Terminal } from "lucide-react";
 
+export interface AttachedSession {
+  id: string;
+  label: string;
+}
+
 interface TerminalViewProps {
-  attachedSessionIds: string[];
+  attachedSessions: AttachedSession[];
   onDetach: (sessionId: string) => void;
   call: (method: string, params?: unknown) => Promise<unknown>;
   onBinaryMessage: (cb: (data: ArrayBuffer) => void) => () => void;
   previewNamespace: string;
 }
 
-export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessage, previewNamespace }: TerminalViewProps) {
+export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage, previewNamespace }: TerminalViewProps) {
   const [userActiveSessionId, setUserActiveSessionId] = useState<string | null>(null);
+
+  const attachedSessionIds = attachedSessions.map((session) => session.id);
 
   // Derive the effective active session ID
   const activeSessionId = (userActiveSessionId && attachedSessionIds.includes(userActiveSessionId))
@@ -80,7 +87,7 @@ export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessa
     handleInput(activeSessionId, sequence);
   };
 
-  if (attachedSessionIds.length === 0) {
+  if (attachedSessions.length === 0) {
     return <div className="text-muted-foreground text-center p-10">No active terminal sessions</div>;
   }
 
@@ -88,21 +95,21 @@ export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessa
     <div className="flex flex-col h-full w-full bg-background">
       {/* Tab Bar */}
       <div className="flex items-center bg-muted/50 border-b border-border overflow-x-auto">
-        {attachedSessionIds.map((sessionId) => (
+        {attachedSessions.map((session) => (
           <div
-            key={sessionId}
+            key={session.id}
             className={`
               flex items-center gap-2 px-4 py-2 text-sm cursor-pointer select-none
-              ${activeSessionId === sessionId ? "bg-card text-foreground border-t-2 border-primary" : "text-muted-foreground hover:bg-muted/80"}
+              ${activeSessionId === session.id ? "bg-card text-foreground border-t-2 border-primary" : "text-muted-foreground hover:bg-muted/80"}
             `}
-            onClick={() => setUserActiveSessionId(sessionId)}
+            onClick={() => setUserActiveSessionId(session.id)}
           >
             <Terminal size={14} />
-            <span className="max-w-[150px] truncate">{sessionId.slice(0, 8)}...</span>
+            <span className="max-w-[150px] truncate">{session.label}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onDetach(sessionId);
+                onDetach(session.id);
               }}
               className="p-1 hover:bg-muted rounded-full"
               aria-label="Close session"
