@@ -24,6 +24,9 @@ pub trait Store: Send + Sync + 'static {
     /// List all chats, ordered by created_at descending.
     fn list_chats(&self) -> Result<Vec<ChatRecord>, String>;
 
+    /// Delete a chat by ID.
+    fn delete_chat(&self, chat_id: &str) -> Result<(), String>;
+
     /// Update the append-only event log pointer for a chat.
     fn update_event_pointer(&self, chat_id: &str, pointer: u64) -> Result<(), String>;
 

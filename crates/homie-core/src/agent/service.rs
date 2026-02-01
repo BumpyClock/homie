@@ -297,7 +297,7 @@ impl CodexChatCore {
     }
 
     async fn chat_thread_read(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
-        let (chat_id, thread_id) = match parse_thread_read_params(&params) {
+        let (chat_id, thread_id, include_turns) = match parse_thread_read_params(&params) {
             Some(v) => v,
             None => {
                 return Response::error(
@@ -327,7 +327,7 @@ impl CodexChatCore {
         }
 
         let process = self.process.as_ref().unwrap();
-        let params = json!({ "threadId": thread_id });
+        let params = json!({ "threadId": thread_id, "includeTurns": include_turns });
         match process.send_request("thread/read", Some(params)).await {
             Ok(result) => Response::success(req_id, result),
             Err(e) => Response::error(
@@ -354,14 +354,101 @@ impl CodexChatCore {
         }
     }
 
+    async fn chat_thread_archive(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        let (chat_id, thread_id_param) = match parse_thread_archive_params(&params) {
+            Some(v) => v,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing chat_id or thread_id",
+                )
+            }
+        };
+
+        let thread_id = match self.resolve_thread_id(&chat_id, thread_id_param.as_deref()) {
+            Some(id) => id,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing thread_id",
+                )
+            }
+        };
+
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        let params = json!({ "threadId": thread_id });
+        match process.send_request("thread/archive", Some(params)).await {
+            Ok(_) => {
+                if let Err(e) = self.store.delete_chat(&chat_id) {
+                    tracing::warn!(%chat_id, "failed to delete archived chat: {e}");
+                }
+                self.thread_ids.remove(&chat_id);
+                Response::success(req_id, json!({ "ok": true }))
+            }
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("thread/archive failed: {e}"),
+            ),
+        }
+    }
+
+    async fn chat_thread_rename(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        let (chat_id, thread_id_param, title) = match parse_thread_rename_params(&params) {
+            Some(v) => v,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing chat_id or title",
+                )
+            }
+        };
+
+        let thread_id = match self.resolve_thread_id(&chat_id, thread_id_param.as_deref()) {
+            Some(id) => id,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing thread_id",
+                )
+            }
+        };
+
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        let params = json!({ "threadId": thread_id, "name": title });
+        match process.send_request("thread/name/set", Some(params)).await {
+            Ok(_) => Response::success(req_id, json!({ "ok": true })),
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("thread/name/set failed: {e}"),
+            ),
+        }
+    }
+
     async fn chat_account_read(&mut self, req_id: Uuid) -> Response {
         if let Err(e) = self.ensure_process().await {
             return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
         }
 
         let process = self.process.as_ref().unwrap();
-        match process.send_request("account/read", None).await {
-            Ok(result) => Response::success(req_id, result),
+        match process.send_request("account/read", Some(json!({}))).await {
+            Ok(result) => {
+                tracing::info!(result = %result, "codex account/read");
+                Response::success(req_id, result)
+            }
             Err(e) => Response::error(
                 req_id,
                 error_codes::INTERNAL_ERROR,
@@ -605,6 +692,8 @@ impl ServiceHandler for ChatService {
                 "chat.list" => core.chat_list(id),
                 "chat.thread.read" => core.chat_thread_read(id, params).await,
                 "chat.thread.list" => core.chat_thread_list(id, params).await,
+                "chat.thread.archive" => core.chat_thread_archive(id, params).await,
+                "chat.thread.rename" => core.chat_thread_rename(id, params).await,
                 "chat.account.read" => core.chat_account_read(id).await,
                 "chat.skills.list" => core.chat_skills_list(id, params).await,
                 "chat.skills.config.write" => core.chat_skills_config_write(id, params).await,
@@ -813,7 +902,7 @@ fn parse_resume_params(params: &Option<Value>) -> Option<(String, Option<String>
     Some((chat_id, thread_id))
 }
 
-fn parse_thread_read_params(params: &Option<Value>) -> Option<(Option<String>, Option<String>)> {
+fn parse_thread_read_params(params: &Option<Value>) -> Option<(Option<String>, Option<String>, bool)> {
     let p = params.as_ref()?;
     let chat_id = p
         .get("chat_id")
@@ -824,11 +913,43 @@ fn parse_thread_read_params(params: &Option<Value>) -> Option<(Option<String>, O
         .or_else(|| p.get("threadId"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let include_turns = p
+        .get("include_turns")
+        .or_else(|| p.get("includeTurns"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if chat_id.is_none() && thread_id.is_none() {
         None
     } else {
-        Some((chat_id, thread_id))
+        Some((chat_id, thread_id, include_turns))
     }
+}
+
+fn parse_thread_archive_params(params: &Option<Value>) -> Option<(String, Option<String>)> {
+    let p = params.as_ref()?;
+    let chat_id = p.get("chat_id")?.as_str()?.to_string();
+    let thread_id = p
+        .get("thread_id")
+        .or_else(|| p.get("threadId"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Some((chat_id, thread_id))
+}
+
+fn parse_thread_rename_params(params: &Option<Value>) -> Option<(String, Option<String>, String)> {
+    let p = params.as_ref()?;
+    let chat_id = p.get("chat_id")?.as_str()?.to_string();
+    let title = p
+        .get("title")
+        .or_else(|| p.get("name"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())?;
+    let thread_id = p
+        .get("thread_id")
+        .or_else(|| p.get("threadId"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Some((chat_id, thread_id, title))
 }
 
 fn parse_approval_params(params: &Option<Value>) -> Option<(u64, String)> {

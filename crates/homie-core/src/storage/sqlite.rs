@@ -187,6 +187,13 @@ impl Store for SqliteStore {
             .map_err(|e| format!("list_chats collect: {e}"))
     }
 
+    fn delete_chat(&self, chat_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        conn.execute("DELETE FROM chats WHERE chat_id = ?1", params![chat_id])
+            .map_err(|e| format!("delete_chat: {e}"))?;
+        Ok(())
+    }
+
     fn update_event_pointer(&self, chat_id: &str, pointer: u64) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         conn.execute(

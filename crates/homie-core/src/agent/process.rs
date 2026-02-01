@@ -395,7 +395,10 @@ mod tests {
             .await
             .expect("initialize codex");
 
-        let account = with_timeout(Duration::from_secs(10), process.send_request("account/read", None))
+        let account = with_timeout(
+            Duration::from_secs(10),
+            process.send_request("account/read", Some(serde_json::json!({}))),
+        )
             .await
             .expect("account/read");
         assert!(account.is_object(), "account/read returns an object");

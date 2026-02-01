@@ -112,7 +112,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                     protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION },
                     client_id: "homie-web/0.0.1",
                     auth_token: authToken,
-                    capabilities: ["terminal"],
+                    capabilities: ["terminal", "chat"],
                 };
 
                 log("send hello", { protocol: clientHello.protocol, client_id: clientHello.client_id });

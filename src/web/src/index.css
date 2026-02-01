@@ -551,6 +551,7 @@
 
 .homie-popover {
   animation: homie-popover-in 180ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
+  z-index: 50;
 }
 
 @media (prefers-reduced-motion: reduce) {

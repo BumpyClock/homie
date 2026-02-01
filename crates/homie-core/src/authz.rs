@@ -107,6 +107,8 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         | "chat.message.send"
         | "chat.cancel"
         | "chat.approval.respond"
+        | "chat.thread.archive"
+        | "chat.thread.rename"
         | "chat.skills.config.write" => Some(Scope::AgentWrite),
         "presence.list" => Some(Scope::PresenceRead),
         "presence.register" | "presence.heartbeat" | "presence.unregister" => {

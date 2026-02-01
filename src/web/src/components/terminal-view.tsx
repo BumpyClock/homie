@@ -1,12 +1,28 @@
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type RefObject } from "react";
 import { TerminalTab } from "./terminal-tab";
 import { parseBinaryFrame, StreamType } from "@/lib/binary-protocol";
-import { X, Terminal } from "lucide-react";
+import { sessionDisplayName } from "@/lib/session-utils";
+import type { SessionInfo } from "@/lib/protocol";
+import { Plus, X, Terminal } from "lucide-react";
 
 export interface AttachedSession {
   id: string;
   label: string;
+}
+
+interface TerminalSessionMenu {
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+  menuRef: RefObject<HTMLDivElement | null>;
+  firstItemRef: RefObject<HTMLButtonElement | null>;
+  sessions: SessionInfo[];
+  loading: boolean;
+  error: string | null;
+  onStartNewSession: () => void | Promise<void>;
+  onOpenSession: (session: SessionInfo) => void | Promise<void>;
 }
 
 interface TerminalViewProps {
@@ -16,9 +32,10 @@ interface TerminalViewProps {
   onBinaryMessage: (cb: (data: ArrayBuffer) => void) => () => void;
   previewNamespace: string;
   focusSessionId?: string | null;
+  sessionMenu?: TerminalSessionMenu;
 }
 
-export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage, previewNamespace, focusSessionId }: TerminalViewProps) {
+export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage, previewNamespace, focusSessionId, sessionMenu }: TerminalViewProps) {
   const [userActiveSessionId, setUserActiveSessionId] = useState<string | null>(null);
 
   const attachedSessionIds = attachedSessions.map((session) => session.id);
@@ -101,30 +118,116 @@ export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage
   return (
     <div className="flex flex-col h-full w-full bg-background">
       {/* Tab Bar */}
-      <div className="flex items-center bg-muted/50 border-b border-border overflow-x-auto">
-        {attachedSessions.map((session) => (
-          <div
-            key={session.id}
-            className={`
-              flex items-center gap-2 px-4 py-2 text-sm cursor-pointer select-none
-              ${activeSessionId === session.id ? "bg-card text-foreground border-t-2 border-primary" : "text-muted-foreground hover:bg-muted/80"}
-            `}
-            onClick={() => setUserActiveSessionId(session.id)}
-          >
-            <Terminal size={14} />
-            <span className="max-w-[150px] truncate">{session.label}</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDetach(session.id);
-              }}
-              className="p-1 hover:bg-muted rounded-full"
-              aria-label="Close session"
+      <div className="flex items-center bg-muted/50 border-b border-border">
+        <div className="flex-1 flex items-center overflow-x-auto">
+          {attachedSessions.map((session) => (
+            <div
+              key={session.id}
+              className={`
+                flex items-center gap-2 px-4 py-2 text-sm cursor-pointer select-none
+                ${activeSessionId === session.id ? "bg-card text-foreground border-t-2 border-primary" : "text-muted-foreground hover:bg-muted/80"}
+              `}
+              onClick={() => setUserActiveSessionId(session.id)}
             >
-              <X size={12} />
+              <Terminal size={14} />
+              <span className="max-w-[150px] truncate">{session.label}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDetach(session.id);
+                }}
+                className="p-1 hover:bg-muted rounded-full"
+                aria-label="Close session"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {sessionMenu && (
+          <div className="relative shrink-0 pr-2">
+            <button
+              ref={sessionMenu.triggerRef}
+              type="button"
+              onClick={sessionMenu.onToggle}
+              className="p-2 min-h-[44px] min-w-[44px] rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              aria-haspopup="menu"
+              aria-expanded={sessionMenu.isOpen}
+              aria-label="Open sessions menu"
+              title="Sessions"
+            >
+              <Plus className="w-5 h-5" />
             </button>
+
+            {sessionMenu.isOpen && (
+              <div
+                ref={sessionMenu.menuRef}
+                tabIndex={-1}
+                role="menu"
+                aria-label="Sessions"
+                className="absolute right-0 top-full mt-2 z-50 w-[min(360px,calc(100vw-2rem))] max-h-[70vh] overflow-auto bg-popover border border-border rounded-lg shadow-lg outline-none origin-top-right homie-popover"
+              >
+                <div className="p-2">
+                  <button
+                    ref={sessionMenu.firstItemRef}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      sessionMenu.onClose();
+                      void sessionMenu.onStartNewSession();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="text-sm font-medium">New session</span>
+                  </button>
+
+                  <div className="mt-3 px-3 text-[11px] uppercase tracking-wide text-muted-foreground">Running sessions</div>
+
+                  {sessionMenu.error && (
+                    <div className="mt-2 px-3 py-2 text-xs text-destructive">
+                      {sessionMenu.error}
+                    </div>
+                  )}
+
+                  {sessionMenu.loading ? (
+                    <div className="mt-2 px-3 py-2 text-xs text-muted-foreground">Loading…</div>
+                  ) : sessionMenu.sessions.length === 0 ? (
+                    <div className="mt-2 px-3 py-2 text-xs text-muted-foreground">No running sessions</div>
+                  ) : (
+                    <div className="mt-1">
+                      {sessionMenu.sessions.map((session) => {
+                        const label = sessionDisplayName(session);
+                        const isOpen = attachedSessionIds.includes(session.session_id);
+                        return (
+                          <button
+                            key={session.session_id}
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              sessionMenu.onClose();
+                              void sessionMenu.onOpenSession(session);
+                            }}
+                            className="w-full flex items-center justify-between gap-3 px-3 py-2 min-h-[44px] rounded-md hover:bg-muted/60 transition-colors text-left"
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              <Terminal className="w-4 h-4 text-muted-foreground" />
+                              <span className="text-sm text-foreground truncate">{label}</span>
+                            </span>
+                            {isOpen && (
+                              <span className="text-[11px] text-muted-foreground">Open</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-        ))}
+        )}
       </div>
 
       {/* Terminal Content */}
