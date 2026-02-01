@@ -46,9 +46,10 @@
         "Kill session via `terminal.session.kill` with confirm"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "labels": [],
-      "dependsOn": []
+      "dependsOn": [],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-004",
@@ -85,6 +86,6 @@
     "createdAt": "2026-02-01T07:58:11.417Z",
     "version": "1.0.0",
     "sourcePrd": "plans/phase1/web.prd",
-    "updatedAt": "2026-02-01T08:06:29.974Z"
+    "updatedAt": "2026-02-01T08:10:22.505Z"
   }
 }
