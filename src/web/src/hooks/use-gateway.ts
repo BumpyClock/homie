@@ -39,6 +39,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
   
   const wsRef = useRef<WebSocket | null>(null);
   const binaryListeners = useRef<Set<(data: ArrayBuffer) => void>>(new Set());
+  const eventListeners = useRef<Set<(event: { topic: string; params?: unknown }) => void>>(new Set());
   const retryCount = useRef(0);
   const mounted = useRef(true);
   const handshakeCompleted = useRef(false);
@@ -169,6 +170,11 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                          log("response", { id, ok: !data.error });
                     } else if (data?.type === "event") {
                          log("event", { topic: data.topic });
+                         if (typeof data.topic === "string") {
+                           eventListeners.current.forEach((listener) =>
+                             listener({ topic: data.topic, params: data.params })
+                           );
+                         }
                     }
                 }
             };
@@ -259,5 +265,12 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
       };
   }, []);
 
-  return { status, serverHello, rejection, error, call, sendBinary, onBinaryMessage };
+  const onEvent = useCallback((callback: (event: { topic: string; params?: unknown }) => void) => {
+    eventListeners.current.add(callback);
+    return () => {
+      eventListeners.current.delete(callback);
+    };
+  }, []);
+
+  return { status, serverHello, rejection, error, call, sendBinary, onBinaryMessage, onEvent };
 }

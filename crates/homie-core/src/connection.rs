@@ -5,7 +5,7 @@ use axum::extract::ws::{Message, WebSocket};
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use serde_json::json;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 use homie_protocol::{
@@ -46,6 +46,7 @@ pub struct ConnectionParams {
     pub store: Arc<dyn Store>,
     pub nodes: Arc<Mutex<NodeRegistry>>,
     pub terminal_registry: Arc<Mutex<TerminalRegistry>>,
+    pub event_tx: broadcast::Sender<crate::router::ReapEvent>,
     pub pairing_default_ttl_secs: u64,
     pub pairing_retention_secs: u64,
 }
@@ -60,6 +61,7 @@ struct MessageLoopParams {
     store: Arc<dyn Store>,
     nodes: Arc<Mutex<NodeRegistry>>,
     terminal_registry: Arc<Mutex<TerminalRegistry>>,
+    event_tx: broadcast::Sender<crate::router::ReapEvent>,
     pairing_default_ttl_secs: u64,
     pairing_retention_secs: u64,
 }
@@ -75,6 +77,7 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
         store,
         nodes,
         terminal_registry,
+        event_tx,
         pairing_default_ttl_secs,
         pairing_retention_secs,
     } = params;
@@ -167,6 +170,7 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
         store,
         nodes,
         terminal_registry,
+        event_tx,
         pairing_default_ttl_secs,
         pairing_retention_secs,
     };
@@ -189,6 +193,7 @@ async fn run_message_loop(
         store,
         nodes,
         terminal_registry,
+        event_tx,
         pairing_default_ttl_secs,
         pairing_retention_secs,
     } = params;
@@ -207,10 +212,7 @@ async fn run_message_loop(
         terminal_registry,
         outbound_tx.clone(),
     )));
-    router.register(Box::new(AgentService::new(
-        outbound_tx.clone(),
-        store.clone(),
-    )));
+    router.register(Box::new(AgentService::new(outbound_tx.clone(), store.clone())));
     router.register(Box::new(PresenceService::new(nodes)));
     router.register(Box::new(JobsService::new(store.clone())));
     router.register(Box::new(PairingService::new(
@@ -226,9 +228,7 @@ async fn run_message_loop(
     // Per-connection subscription manager.
     let mut subscriptions = SubscriptionManager::new();
 
-    // Reap interval: check for exited sessions periodically.
-    let mut reap_interval = tokio::time::interval(Duration::from_secs(2));
-    reap_interval.tick().await;
+    let mut event_rx = event_tx.subscribe();
 
     loop {
         tokio::select! {
@@ -323,20 +323,26 @@ async fn run_message_loop(
                     .await;
                 break;
             }
-            // Reap exited sessions → emit events (filtered by subscriptions).
-            _ = reap_interval.tick() => {
-                let events = router.reap_all();
-                for reap_event in events {
-                    tracing::info!(topic = %reap_event.topic, "reap event");
-                    // Only send if client has a matching subscription.
-                    if subscriptions.matches(&reap_event.topic) {
-                        let evt = ProtoMessage::Event(homie_protocol::Event {
-                            topic: reap_event.topic,
-                            params: reap_event.params,
-                        });
-                        if let Ok(json) = encode_message(&evt) {
-                            let _ = sink.send(Message::Text(json.into())).await;
+            // Broadcast events (filtered by subscriptions).
+            evt = event_rx.recv() => {
+                match evt {
+                    Ok(reap_event) => {
+                        tracing::info!(topic = %reap_event.topic, "broadcast event");
+                        if subscriptions.matches(&reap_event.topic) {
+                            let evt = ProtoMessage::Event(homie_protocol::Event {
+                                topic: reap_event.topic,
+                                params: reap_event.params,
+                            });
+                            if let Ok(json) = encode_message(&evt) {
+                                let _ = sink.send(Message::Text(json.into())).await;
+                            }
                         }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        tracing::warn!("event receiver lagged");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        break;
                     }
                 }
             }
@@ -375,6 +381,10 @@ async fn handle_text_message(
                 "events.unsubscribe" => handle_unsubscribe(req.id, req.params, subscriptions),
                 "agent.chat.event.subscribe" | "agent.codex.event.subscribe" => {
                     let params = agent_subscribe_params(req.params);
+                    handle_subscribe(req.id, params, subscriptions)
+                }
+                "chat.event.subscribe" => {
+                    let params = chat_subscribe_params(req.params);
                     handle_subscribe(req.id, params, subscriptions)
                 }
                 _ => router.route_request(req.id, &req.method, req.params).await,
@@ -467,6 +477,18 @@ fn agent_subscribe_params(params: Option<serde_json::Value>) -> Option<serde_jso
             Some(params)
         }
         None => Some(json!({ "topic": "agent.chat.*" })),
+    }
+}
+
+fn chat_subscribe_params(params: Option<serde_json::Value>) -> Option<serde_json::Value> {
+    let mut params = params.unwrap_or_else(|| json!({}));
+    match params.as_object_mut() {
+        Some(map) => {
+            map.entry("topic".to_string())
+                .or_insert_with(|| json!("chat.*"));
+            Some(params)
+        }
+        None => Some(json!({ "topic": "chat.*" })),
     }
 }
 

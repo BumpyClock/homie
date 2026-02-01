@@ -40,7 +40,7 @@ function App() {
     hideLocal,
     restoreLocal
   } = useTargets();
-  const { status, serverHello, rejection, error, call, onBinaryMessage } = useGateway({ url: activeTarget?.url ?? "" });
+  const { status, serverHello, rejection, error, call, onBinaryMessage, onEvent } = useGateway({ url: activeTarget?.url ?? "" });
   const [attachedSessions, setAttachedSessions] = useState<AttachedSession[]>([]);
   const prevAttachedRef = useRef<string[]>([]);
   const previewNamespace = activeTargetId ?? "default";
@@ -144,6 +144,19 @@ function App() {
     }
     prevAttachedRef.current = attachedSessionIds;
   }, [attachedSessions, status, call]);
+
+  useEffect(() => {
+    if (status !== "connected") return;
+
+    void call("events.subscribe", { topic: "terminal.*" }).catch(() => {});
+    const cleanup = onEvent((evt) => {
+      if (evt.topic === "terminal.session.exit") {
+        setRefreshToken((t) => t + 1);
+      }
+    });
+
+    return cleanup;
+  }, [status, call, onEvent]);
 
   const handleAttach = (session: { session_id: string; shell: string; name?: string | null }) => {
     const label = sessionDisplayName(session);

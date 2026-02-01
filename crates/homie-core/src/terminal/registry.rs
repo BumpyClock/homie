@@ -487,12 +487,14 @@ impl TerminalRegistry {
 
         exited
             .into_iter()
-            .map(|(session_id, exit_code)| ReapEvent {
-                topic: "terminal.session.exit".into(),
-                params: Some(json!({
-                    "session_id": session_id,
-                    "exit_code": exit_code,
-                })),
+            .map(|(session_id, exit_code)| {
+                ReapEvent::new(
+                    "terminal.session.exit",
+                    Some(json!({
+                        "session_id": session_id,
+                        "exit_code": exit_code,
+                    })),
+                )
             })
             .collect()
     }

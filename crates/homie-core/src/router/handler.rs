@@ -10,6 +10,15 @@ pub struct ReapEvent {
     pub params: Option<Value>,
 }
 
+impl ReapEvent {
+    pub fn new(topic: impl Into<String>, params: Option<Value>) -> Self {
+        Self {
+            topic: topic.into(),
+            params,
+        }
+    }
+}
+
 /// Trait implemented by each service (terminal, agent.chat, etc.).
 ///
 /// Services are connection-scoped: one instance per WS connection, dropped

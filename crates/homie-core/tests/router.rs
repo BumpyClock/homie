@@ -470,6 +470,72 @@ async fn exit_event_with_wildcard_subscription() {
     );
 }
 
+#[tokio::test]
+async fn exit_events_are_broadcast_to_all_connections() {
+    let addr = start_server(ServerConfig::default()).await;
+    let mut ws1 = connect_and_handshake(addr).await;
+    let mut ws2 = connect_and_handshake(addr).await;
+
+    rpc(&mut ws1, "events.subscribe", Some(json!({ "topic": "terminal.*" }))).await;
+    rpc(&mut ws2, "events.subscribe", Some(json!({ "topic": "terminal.*" }))).await;
+
+    let result = rpc(
+        &mut ws1,
+        "terminal.session.start",
+        Some(json!({ "shell": "/bin/sh", "cols": 80, "rows": 24 })),
+    )
+    .await;
+    let sid = result["session_id"].as_str().unwrap().to_string();
+
+    rpc(
+        &mut ws1,
+        "terminal.session.input",
+        Some(json!({ "session_id": sid, "data": "exit\n" })),
+    )
+    .await;
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut got_exit_1 = false;
+    let mut got_exit_2 = false;
+
+    loop {
+        if got_exit_1 && got_exit_2 {
+            break;
+        }
+
+        tokio::select! {
+            msg = next_msg(&mut ws1), if !got_exit_1 => {
+                if let WsMsg::Text(t) = msg {
+                    if let Ok(m) = serde_json::from_str::<homie_protocol::Message>(&t) {
+                        if let homie_protocol::Message::Event(evt) = m {
+                            if evt.topic == "terminal.session.exit" {
+                                got_exit_1 = true;
+                            }
+                        }
+                    }
+                }
+            }
+            msg = next_msg(&mut ws2), if !got_exit_2 => {
+                if let WsMsg::Text(t) = msg {
+                    if let Ok(m) = serde_json::from_str::<homie_protocol::Message>(&t) {
+                        if let homie_protocol::Message::Event(evt) = m {
+                            if evt.topic == "terminal.session.exit" {
+                                got_exit_2 = true;
+                            }
+                        }
+                    }
+                }
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                break;
+            }
+        }
+    }
+
+    assert!(got_exit_1, "expected ws1 to receive terminal.session.exit");
+    assert!(got_exit_2, "expected ws2 to receive terminal.session.exit");
+}
+
 // ── Tests: Handshake advertises services from registry ──────────────
 
 #[tokio::test]

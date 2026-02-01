@@ -1,5 +1,6 @@
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::State;
@@ -8,13 +9,14 @@ use axum::middleware;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
+use tokio::sync::broadcast;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::{authenticate, AuthOutcome, TailscaleWhois};
 use crate::config::ServerConfig;
 use crate::connection::{run_connection, ConnectionParams};
 use crate::presence::NodeRegistry;
-use crate::router::ServiceRegistry;
+use crate::router::{ReapEvent, ServiceRegistry};
 use crate::storage::Store;
 use crate::terminal::TerminalRegistry;
 
@@ -27,6 +29,7 @@ pub(crate) struct AppState {
     pub store: Arc<dyn Store>,
     pub nodes: Arc<Mutex<NodeRegistry>>,
     pub terminal_registry: Arc<Mutex<TerminalRegistry>>,
+    pub event_tx: broadcast::Sender<ReapEvent>,
 }
 
 /// Build the axum router for the WS server.
@@ -66,6 +69,27 @@ pub fn build_router(
 
     let nodes = Arc::new(Mutex::new(NodeRegistry::new(config.node_timeout)));
     let terminal_registry = Arc::new(Mutex::new(TerminalRegistry::new(store.clone())));
+    let (event_tx, _event_rx) = broadcast::channel::<ReapEvent>(256);
+
+    let reaper_registry = terminal_registry.clone();
+    let reaper_tx = event_tx.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            let events = {
+                let mut registry = match reaper_registry.lock() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                registry.reap_exited()
+            };
+            for evt in events {
+                let _ = reaper_tx.send(evt);
+            }
+        }
+    });
 
     let state = AppState {
         config,
@@ -74,6 +98,7 @@ pub fn build_router(
         store,
         nodes,
         terminal_registry,
+        event_tx,
     };
 
     Router::new()
@@ -143,6 +168,7 @@ async fn ws_upgrade(
     let config = state.config.clone();
     let nodes = state.nodes.clone();
     let terminal_registry = state.terminal_registry.clone();
+    let event_tx = state.event_tx.clone();
     let params = ConnectionParams {
         config,
         heartbeat_interval: heartbeat,
@@ -151,6 +177,7 @@ async fn ws_upgrade(
         store,
         nodes,
         terminal_registry,
+        event_tx,
         pairing_default_ttl_secs: state.config.pairing_default_ttl_secs,
         pairing_retention_secs: state.config.pairing_retention_secs,
     };
