@@ -30,6 +30,7 @@ pub(crate) struct AppState {
 pub fn build_router(config: ServerConfig, whois: impl TailscaleWhois) -> Router {
     let mut registry = ServiceRegistry::new();
     registry.register("terminal", "1.0");
+    registry.register("agent", "1.0");
 
     let state = AppState {
         config,

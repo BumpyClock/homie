@@ -13,6 +13,7 @@ use homie_protocol::{
     PROTOCOL_VERSION,
 };
 
+use crate::agent::AgentService;
 use crate::auth::AuthOutcome;
 use crate::router::{MessageRouter, ServiceRegistry, SubscriptionManager};
 use crate::terminal::TerminalService;
@@ -133,9 +134,10 @@ async fn run_message_loop(
     // Bounded for backpressure — services use try_send to avoid blocking.
     let (outbound_tx, mut outbound_rx) = mpsc::channel::<Message>(256);
 
-    // Build the router with the terminal service.
+    // Build the router with services.
     let mut router = MessageRouter::new();
-    router.register(Box::new(TerminalService::new(outbound_tx)));
+    router.register(Box::new(TerminalService::new(outbound_tx.clone())));
+    router.register(Box::new(AgentService::new(outbound_tx)));
 
     // Per-connection subscription manager.
     let mut subscriptions = SubscriptionManager::new();
