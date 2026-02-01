@@ -73,14 +73,21 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
 
     const connect = () => {
         if (!mounted.current) return;
+
+        if (wsRef.current) {
+          const state = wsRef.current.readyState;
+          if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
+            log("skip connect: socket active");
+            return;
+          }
+        }
         
         setStatus("connecting");
         setError(null);
         setRejection(null);
         setServerHello(null);
         log("connecting", { url, auth: authToken ? "set" : "none" });
-        // Ensure we don't have multiple connections
-        if (wsRef.current) {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.CLOSING) {
             wsRef.current.close();
         }
 
@@ -95,6 +102,10 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                 setStatus("handshaking");
                 retryCount.current = 0;
                 log("open");
+                if (reconnectTimeoutRef.current) {
+                  clearTimeout(reconnectTimeoutRef.current);
+                  reconnectTimeoutRef.current = null;
+                }
 
                 const clientHello: ClientHello = {
                     protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION },
@@ -170,9 +181,13 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                 log("error", e);
             };
 
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 if (!mounted.current) return;
-                log("close");
+                if (wsRef.current !== ws) {
+                  return;
+                }
+                log("close", { code: event.code, reason: event.reason, wasClean: event.wasClean });
+                wsRef.current = null;
 
                 // Clear pending requests
                 for (const pending of pendingRequests.current.values()) {

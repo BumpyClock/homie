@@ -261,7 +261,18 @@ async fn run_message_loop(
                     Some(Ok(Message::Pong(_))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
                     }
-                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(Message::Close(frame))) => {
+                        if let Some(frame) = frame {
+                            tracing::info!(code = %frame.code, reason = %frame.reason, "ws close");
+                        } else {
+                            tracing::info!("ws close");
+                        }
+                        break;
+                    }
+                    None => {
+                        tracing::info!("ws stream ended");
+                        break;
+                    }
                     Some(Err(e)) => {
                         tracing::warn!("ws error: {e}");
                         break;

@@ -47,11 +47,11 @@ export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessa
   }, []);
 
   const handleInput = useCallback((sessionId: string, data: string) => {
-    call("terminal.session.input", { session_id: sessionId, data });
+    void call("terminal.session.input", { session_id: sessionId, data }).catch(() => {});
   }, [call]);
 
   const handleResize = useCallback((sessionId: string, cols: number, rows: number) => {
-    call("terminal.session.resize", { session_id: sessionId, cols, rows });
+    void call("terminal.session.resize", { session_id: sessionId, cols, rows }).catch(() => {});
   }, [call]);
 
   const handleKeybarAction = async (action: string) => {
