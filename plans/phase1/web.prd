@@ -1,0 +1,96 @@
+[PRD]
+# PRD: Homie Web Client (Terminal MVP)
+
+## Overview
+Web app that provides terminal-only access to the Homie backend. Uses a single WebSocket connection to the gateway, renders PTY output via xterm.js, and offers session list, tabs, and a keybar. Supports light/dark/system themes plus multiple color schemes. Default target is same-origin gateway; user can save additional tailnet targets.
+
+## Goals
+- Terminal-only web client that connects to gateway and streams PTY output
+- Session list with start, attach, and kill actions
+- Tabbed terminal view with keybar shortcuts
+- Theme (light/dark/system) and multiple color schemes, persisted
+- Target management for same-origin + saved tailnet endpoints
+
+## Quality Gates
+
+These commands must pass for every user story:
+- `pnpm typecheck && pnpm lint` - Type checking and linting
+
+For UI stories, also include:
+- Verify in browser using dev-browser skill
+
+## User Stories
+
+### US-001: Web app scaffold + gateway connection
+**Description:** As a user, I want the web app to connect to the gateway over WebSocket so that I can use terminal features from the browser.
+
+**Acceptance Criteria:**
+- [ ] Web app initializes WS connection using same-origin gateway by default
+- [ ] Shows connection status (connecting/connected/error)
+- [ ] Performs protocol handshake and rejects incompatible versions
+- [ ] Reconnect on transient disconnect with backoff
+
+### US-002: Target selection + saved endpoints
+**Description:** As a user, I want to switch between gateway endpoints so that I can access local or tailnet servers.
+
+**Acceptance Criteria:**
+- [ ] Default target is same-origin gateway
+- [ ] User can add/save custom targets (name + ws/wss URL)
+- [ ] Switching target reconnects and refreshes session list
+- [ ] Targets persist in local storage
+
+### US-003: Session list + lifecycle controls
+**Description:** As a user, I want to see terminal sessions and control them so that I can start or end sessions from the web app.
+
+**Acceptance Criteria:**
+- [ ] List sessions with status, title/command, and last activity
+- [ ] Start new session via `terminal.session.start`
+- [ ] Attach to session via `terminal.session.attach`
+- [ ] Kill session via `terminal.session.kill` with confirm
+
+### US-004: Terminal view with tabs + keybar
+**Description:** As a user, I want an interactive terminal view with tabs and a keybar so that I can operate multiple sessions efficiently.
+
+**Acceptance Criteria:**
+- [ ] Render terminal output using xterm.js
+- [ ] Input, resize, and output streaming wired to `terminal.*` methods
+- [ ] Tab bar for multiple attached sessions
+- [ ] Keybar provides ctrl/esc/arrows/tab/paste shortcuts
+
+### US-005: Themes + color schemes
+**Description:** As a user, I want light/dark/system themes and multiple color schemes so that I can choose a comfortable visual style.
+
+**Acceptance Criteria:**
+- [ ] Theme options: light, dark, system
+- [ ] Multiple color schemes available per theme
+- [ ] Theme and scheme persist in local storage
+- [ ] Terminal and surrounding UI reflect selected theme/scheme
+
+## Functional Requirements
+- FR-1: Web client uses a single WS connection to gateway per target
+- FR-2: Session actions map to `terminal.*` methods
+- FR-3: Terminal output uses binary frames mapped to sessionId
+- FR-4: Target list is persisted locally
+- FR-5: Theme/scheme selection persists and applies on load
+
+## Non-Goals
+- Agent chat UI or Codex features
+- Token auth UI (future)
+- File transfer, clipboard sync, or job runner
+- Multi-user/admin features
+
+## Technical Considerations
+- React + Vite app with xterm.js
+- Use binary WS frames for PTY output
+- Local storage for targets and theme settings
+- Same-origin defaults; user-entered ws/wss targets for tailnet
+
+## Success Metrics
+- Start a session and see output within 1s on tailnet
+- Zero console errors during normal use
+- Theme and target settings persist across reloads
+
+## Open Questions
+- Serve web app from gateway binary or separate static host?
+- Should session list auto-refresh or require manual refresh?
+[/PRD]

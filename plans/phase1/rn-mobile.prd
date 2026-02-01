@@ -1,0 +1,92 @@
+[PRD]
+# PRD: Homie React Native App (Terminal MVP)
+
+## Overview
+React Native app that provides terminal-only access to the Homie backend. Uses native navigation plus a WebView-based xterm.js terminal for parity with web. Connects to gateway targets over WebSocket and persists target settings. Token-based auth UI is planned but out-of-scope for MVP.
+
+## Goals
+- Terminal-only RN app with session list and terminal screen
+- WebView-based xterm.js terminal for MVP
+- Tabbed navigation (Terminal, Sessions, Settings)
+- Target management (tailnet endpoints) persisted locally
+- Foundation for later token auth UI and native terminal renderer
+
+## Quality Gates
+
+These commands must pass for every user story:
+- `pnpm typecheck && pnpm lint` - Type checking and linting
+
+For UI stories, also include:
+- Verify in browser using dev-browser skill
+
+## User Stories
+
+### US-001: App shell + navigation
+**Description:** As a user, I want a native app shell with tabs so that I can move between sessions, terminal, and settings.
+
+**Acceptance Criteria:**
+- [ ] Tab navigation with Terminal, Sessions, Settings
+- [ ] App launches to Sessions tab
+- [ ] Basic empty states for each tab
+
+### US-002: Target management (tailnet endpoints)
+**Description:** As a user, I want to save gateway targets so that I can connect to different machines.
+
+**Acceptance Criteria:**
+- [ ] Add/edit/remove target (name + ws/wss URL)
+- [ ] Default target can be selected
+- [ ] Targets persist in app storage
+- [ ] Selecting target triggers reconnect
+
+### US-003: WS connection + session list
+**Description:** As a user, I want to see sessions from the gateway so that I can attach to a terminal.
+
+**Acceptance Criteria:**
+- [ ] Connect to selected target over WS
+- [ ] Show connection status
+- [ ] List sessions with status, title/command, last activity
+- [ ] Start and kill sessions
+
+### US-004: WebView terminal screen
+**Description:** As a user, I want a terminal screen that behaves like desktop so that I can run commands on mobile.
+
+**Acceptance Criteria:**
+- [ ] WebView embeds xterm.js terminal UI
+- [ ] Bridge WS events to WebView for PTY output and input
+- [ ] Supports resize on rotation
+- [ ] Session attach/close handled cleanly
+
+### US-005: Mobile keybar + paste helpers
+**Description:** As a user, I want quick access to control keys so that I can operate CLI tools on mobile.
+
+**Acceptance Criteria:**
+- [ ] Keybar includes ctrl/esc/arrows/tab
+- [ ] Paste action sends clipboard content to terminal
+- [ ] Keybar hides/shows without breaking terminal focus
+
+## Functional Requirements
+- FR-1: WS protocol matches backend envelope + binary PTY frames
+- FR-2: Session actions map to `terminal.*` methods
+- FR-3: WebView terminal uses xterm.js and stays in sync with session state
+- FR-4: Targets and settings persist locally
+
+## Non-Goals
+- Agent chat UI or Codex features
+- Token auth UI (future)
+- Native terminal renderer (future)
+- File transfer or clipboard sync
+
+## Technical Considerations
+- React Native app; WebView for terminal view (MVP)
+- Local storage for targets (AsyncStorage or secure storage later)
+- Later: replace WebView with native renderer
+
+## Success Metrics
+- Start session and see output on mobile within 2s
+- Stable reconnection after background/foreground
+- Keybar improves CLI usability on iOS/Android
+
+## Open Questions
+- Which storage API to use for targets in MVP?
+- Should terminal view live in its own tab or only via session detail?
+[/PRD]

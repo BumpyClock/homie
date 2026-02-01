@@ -1,0 +1,25 @@
+[package]
+name = "homie-core"
+description = "Core server runtime for the Homie remote terminal system"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+homie-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+tokio = { workspace = true, features = ["test-util", "macros"] }
+axum = { workspace = true, features = ["ws"] }
+tokio-tungstenite = "0.26"

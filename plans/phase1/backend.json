@@ -1,0 +1,104 @@
+{
+  "name": "Homie Backend (Gateway + Node, co-located)",
+  "description": "Single-host backend that exposes WebSocket APIs for terminal sessions and Agent.chat , Initially just `Codex-cli app server`. Gateway + Node run on the same machine, sharing an internal router while preserving protocol structure for future multi-node expansion.",
+  "branchName": "main",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Define protocol envelope + handshake",
+      "description": "As a client, I want a stable handshake and message envelope so that I can communicate with the backend reliably.",
+      "acceptanceCriteria": [
+        "Define versioned handshake fields (protocol min/max, client identity, auth fields)",
+        "Define request/response/event envelope schema with `id`, `method`, `params`, `error`, `topic`",
+        "Define binary frame header format for PTY bytes (includes `sessionId` + stream type)",
+        "Encode/decode implemented in Rust types used by the backend"
+      ],
+      "priority": 1,
+      "passes": true,
+      "labels": [],
+      "dependsOn": [],
+      "completionNotes": "Completed by agent"
+    },
+    {
+      "id": "US-002",
+      "title": "WS server + auth (Tailscale identity)",
+      "description": "As a user, I want to connect to the backend over WS with Tailscale identity checks so that access is limited to my tailnet.",
+      "acceptanceCriteria": [
+        "WS server listens on loopback; optional bind for tailnet or Serve",
+        "When behind Tailscale Serve, validate identity headers via `tailscale whois`",
+        "Reject connections without valid identity or incompatible protocol version",
+        "Connection lifecycle includes heartbeat + idle timeout"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    },
+    {
+      "id": "US-003",
+      "title": "Terminal service (PTY sessions)",
+      "description": "As a user, I want to start and control terminal sessions so that I can run commands remotely.",
+      "acceptanceCriteria": [
+        "Implement `terminal.session.start`, `attach`, `resize`, `input`, `kill`",
+        "PTY runtime uses portable-pty (agent-term patterns)",
+        "Stream PTY output as binary frames with `sessionId`",
+        "Session cleanup on client disconnect and process exit"
+      ],
+      "priority": 3,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    },
+    {
+      "id": "US-004",
+      "title": "Router + subscriptions",
+      "description": "As a client, I want multiplexed messaging so that I can subscribe to terminal output and Codex events over one WS.",
+      "acceptanceCriteria": [
+        "Route requests by `service.method` to internal handlers",
+        "Support `event` subscriptions with `topic` filtering",
+        "Backpressure handling for high-volume PTY output",
+        "Internal registry supports future multi-node expansion but runs local-only now"
+      ],
+      "priority": 4,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    },
+    {
+      "id": "US-005",
+      "title": "Codex app-server integration",
+      "description": "As a user, I want Codex chat sessions routed through the backend so that I can chat from any client.",
+      "acceptanceCriteria": [
+        "Spawn/manage `codex app-server` sessions (CodexMonitor reference)",
+        "Implement `agent.chat.create`, `agent.chat.message.send`, `agent.chat.event.subscribe`, `agent.chat.cancel`",
+        "Forward Codex events without altering semantics (delta/final/tool/status)",
+        "When Codex requests approval, forward approval-required events to clients"
+      ],
+      "priority": 4,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    },
+    {
+      "id": "US-006",
+      "title": "Persistence layer",
+      "description": "As a user, I want chat/session metadata stored so that sessions can be resumed after restart.",
+      "acceptanceCriteria": [
+        "Persist chat metadata + append-only event log pointer",
+        "Persist terminal session metadata (start time, cmd, status)",
+        "On restart, list stored sessions as inactive until reattached",
+        "Storage interface supports future backend migration"
+      ],
+      "priority": 4,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    }
+  ],
+  "metadata": {
+    "createdAt": "2026-02-01T05:26:13.438Z",
+    "version": "1.0.0",
+    "sourcePrd": "plans/phase1/backend.prd",
+    "updatedAt": "2026-02-01T05:32:28.455Z"
+  }
+}
