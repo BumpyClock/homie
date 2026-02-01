@@ -76,11 +76,16 @@ pub fn context_for_outcome(outcome: &AuthOutcome, config: &ServerConfig) -> Auth
 pub fn scope_for_method(method: &str) -> Option<Scope> {
     match method {
         "events.subscribe" | "events.unsubscribe" => Some(Scope::Events),
-        "terminal.session.list" | "terminal.session.attach" => Some(Scope::TerminalRead),
+        "terminal.session.list"
+        | "terminal.session.attach"
+        | "terminal.tmux.list" => Some(Scope::TerminalRead),
         "terminal.session.start"
         | "terminal.session.resize"
         | "terminal.session.input"
-        | "terminal.session.kill" => Some(Scope::TerminalWrite),
+        | "terminal.session.kill"
+        | "terminal.session.remove"
+        | "terminal.tmux.attach"
+        | "terminal.tmux.kill" => Some(Scope::TerminalWrite),
         "agent.chat.list" | "agent.codex.list" => Some(Scope::AgentRead),
         "agent.chat.create"
         | "agent.chat.message.send"

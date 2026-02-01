@@ -11,4 +11,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    // Allow Tailscale HTTPS / MagicDNS hostnames like `device.tailxxxx.ts.net`
+    // Vite treats entries starting with "." as "this domain + all subdomains".
+    allowedHosts: ['.ts.net'],
+  },
 })

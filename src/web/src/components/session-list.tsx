@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { SessionInfo } from '@/lib/protocol';
+import type { SessionInfo, TmuxListResponse, TmuxSessionInfo } from '@/lib/protocol';
 import { loadPreview, removePreview } from '@/lib/session-previews';
 import { Terminal, Play, X, RefreshCw, Trash2 } from 'lucide-react';
 
@@ -14,10 +14,56 @@ interface SessionListResponse {
   sessions: SessionInfo[];
 }
 
+type TmuxCloseBehavior = "detach" | "kill";
+
+const TMUX_CLOSE_KEY = "homie-tmux-close-behavior";
+
+function normalizeRpcError(err: unknown): { code: number; message: string } | null {
+  if (err && typeof err === "object") {
+    const code = (err as { code?: number }).code;
+    const message = (err as { message?: string }).message;
+    if (typeof code === "number") {
+      return { code, message: typeof message === "string" ? message : "" };
+    }
+  }
+  return null;
+}
+
+function tmuxSessionName(shell: string): string | null {
+  if (!shell) return null;
+  if (shell.startsWith("tmux:")) {
+    const name = shell.slice("tmux:".length).trim();
+    return name.length > 0 ? name : null;
+  }
+  return null;
+}
+
+function resolveTmuxCloseBehavior(): TmuxCloseBehavior {
+  if (typeof window === "undefined") return "detach";
+  try {
+    const stored = window.localStorage.getItem(TMUX_CLOSE_KEY);
+    if (stored === "detach" || stored === "kill") {
+      return stored;
+    }
+    const kill = window.confirm(
+      "When closing a tmux session, do you want to kill the tmux session? OK = kill tmux session, Cancel = detach (leave running)."
+    );
+    const choice: TmuxCloseBehavior = kill ? "kill" : "detach";
+    window.localStorage.setItem(TMUX_CLOSE_KEY, choice);
+    return choice;
+  } catch {
+    return "detach";
+  }
+}
+
 export function SessionList({ call, status, onAttach, previewNamespace }: SessionListProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tmuxSessions, setTmuxSessions] = useState<TmuxSessionInfo[]>([]);
+  const [tmuxSupported, setTmuxSupported] = useState(false);
+  const [tmuxError, setTmuxError] = useState<string | null>(null);
+  const [tmuxLoading, setTmuxLoading] = useState(false);
 
   const fetchSessions = useCallback(async () => {
     if (status !== 'connected') return;
@@ -35,14 +81,69 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
     }
   }, [call, status]);
 
+  const fetchTmux = useCallback(async () => {
+    if (status !== 'connected') return;
+    setTmuxLoading(true);
+    try {
+      const res = await call('terminal.tmux.list') as TmuxListResponse;
+      setTmuxSupported(res.supported);
+      setTmuxSessions(res.sessions || []);
+      setTmuxError(null);
+    } catch (err: unknown) {
+      const rpc = normalizeRpcError(err);
+      if (rpc?.code === -32601) {
+        setTmuxSupported(false);
+        setTmuxSessions([]);
+        setTmuxError(null);
+      } else {
+        const msg = err instanceof Error ? err.message : String(err);
+        setTmuxError(msg || 'Failed to list tmux sessions');
+      }
+    } finally {
+      setTmuxLoading(false);
+    }
+  }, [call, status]);
+
   useEffect(() => {
     if (status === 'connected') {
       fetchSessions();
+      fetchTmux();
       // Poll every 5 seconds to keep the list fresh
-      const interval = setInterval(fetchSessions, 5000);
+      const interval = setInterval(() => {
+        fetchSessions();
+        fetchTmux();
+      }, 5000);
       return () => clearInterval(interval);
     }
-  }, [status, fetchSessions]);
+  }, [status, fetchSessions, fetchTmux]);
+
+  const handleTmuxAttach = async (name: string) => {
+    try {
+      const session = await call('terminal.tmux.attach', {
+        session_name: name,
+        cols: 80,
+        rows: 24,
+      }) as SessionInfo;
+      fetchSessions();
+      if (session && session.session_id) {
+        onAttach(session.session_id);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert('Failed to attach tmux session: ' + msg);
+    }
+  };
+
+  const handleTmuxKill = async (name: string) => {
+    if (!confirm(`Kill tmux session "${name}"?`)) return;
+    try {
+      await call('terminal.tmux.kill', { session_name: name });
+      fetchTmux();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert('Failed to kill tmux session: ' + msg);
+    }
+  };
 
   const handleStart = async () => {
     try {
@@ -66,10 +167,31 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
     }
   };
 
-  const handleKill = async (id: string) => {
+  const handleKill = async (session: SessionInfo) => {
+      const tmuxName = tmuxSessionName(session.shell);
+      if (tmuxName) {
+          const behavior = resolveTmuxCloseBehavior();
+          if (behavior === "kill") {
+              try {
+                  await call('terminal.tmux.kill', { session_name: tmuxName });
+              } catch (err: unknown) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  alert('Failed to kill tmux session: ' + msg);
+                  return;
+              }
+          }
+          try {
+              await call('terminal.session.kill', { session_id: session.session_id });
+              fetchSessions();
+          } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              alert('Failed to close session: ' + msg);
+          }
+          return;
+      }
       if (!confirm('Are you sure you want to kill this session?')) return;
       try {
-          await call('terminal.session.kill', { session_id: id });
+          await call('terminal.session.kill', { session_id: session.session_id });
           fetchSessions();
       } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -99,6 +221,11 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
       }
   };
 
+  const handleRefresh = () => {
+      fetchSessions();
+      fetchTmux();
+  };
+
   if (status !== 'connected') {
       return null;
   }
@@ -115,7 +242,7 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
         </h2>
         <div className="flex gap-2">
             <button 
-                onClick={fetchSessions} 
+                onClick={handleRefresh} 
                 disabled={loading}
                 className="p-2 min-h-[44px] min-w-[44px] bg-muted hover:bg-muted/80 rounded text-muted-foreground disabled:opacity-50 transition-colors"
                 title="Refresh"
@@ -139,6 +266,60 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
           </div>
       )}
 
+      {tmuxSupported && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Tmux Sessions</div>
+            {tmuxLoading && (
+              <div className="text-xs text-muted-foreground">Refreshing…</div>
+            )}
+          </div>
+          {tmuxError && (
+            <div className="mb-3 p-3 bg-destructive/20 border border-destructive rounded text-destructive-foreground text-sm">
+              {tmuxError}
+            </div>
+          )}
+          {tmuxSessions.length === 0 ? (
+            <div className="text-sm text-muted-foreground bg-muted/30 rounded-lg border border-border border-dashed p-4">
+              No tmux sessions
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {tmuxSessions.map((session) => (
+                <div key={session.name} className="bg-card p-4 rounded-lg border border-border shadow-sm flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${session.attached ? 'bg-green-500' : 'bg-muted-foreground'}`} />
+                      <span className="font-mono text-sm text-foreground" title={session.name}>
+                        {session.name}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">tmux</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{session.windows} win</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleTmuxAttach(session.name)}
+                      className="flex-1 px-3 py-2 min-h-[44px] bg-muted hover:bg-muted/80 rounded text-xs font-medium text-foreground transition-colors"
+                    >
+                      Attach
+                    </button>
+                    <button
+                      onClick={() => handleTmuxKill(session.name)}
+                      className="px-3 py-2 min-h-[44px] min-w-[44px] text-muted-foreground hover:bg-destructive/20 hover:text-destructive rounded transition-colors flex items-center justify-center"
+                      title="Kill tmux session"
+                      aria-label="Kill tmux session"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {sessions.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground bg-muted/30 rounded-lg border border-border border-dashed">
           No sessions yet
@@ -155,6 +336,7 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
               <div className="grid gap-3 md:grid-cols-2">
                 {activeSessions.map(session => {
                   const preview = loadPreview(previewNamespace, session.session_id)?.text ?? "";
+                  const tmuxName = tmuxSessionName(session.shell);
                   return (
                     <div key={session.session_id} className="bg-card p-4 rounded-lg border border-border shadow-sm flex flex-col gap-3">
                       <div className="flex items-center justify-between">
@@ -163,9 +345,20 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
                           <span className="font-mono text-sm text-foreground" title={session.session_id}>
                             {session.session_id.substring(0, 8)}...
                           </span>
-                          <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
-                            {session.shell}
-                          </span>
+                          {tmuxName ? (
+                            <>
+                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                                tmux
+                              </span>
+                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                                {tmuxName}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                              {session.shell}
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-muted-foreground">{session.cols}x{session.rows}</div>
                       </div>
@@ -183,7 +376,7 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
                           Attach
                         </button>
                         <button 
-                          onClick={() => handleKill(session.session_id)}
+                          onClick={() => handleKill(session)}
                           className="px-3 py-2 min-h-[44px] min-w-[44px] text-muted-foreground hover:bg-destructive/20 hover:text-destructive rounded transition-colors flex items-center justify-center"
                           title="Kill Session"
                           aria-label="Kill session"
@@ -208,6 +401,7 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
               <div className="grid gap-3 md:grid-cols-2">
                 {inactiveSessions.map(session => {
                   const preview = loadPreview(previewNamespace, session.session_id)?.text ?? "";
+                  const tmuxName = tmuxSessionName(session.shell);
                   return (
                     <div key={session.session_id} className="bg-card p-4 rounded-lg border border-border shadow-sm flex flex-col gap-3">
                       <div className="flex items-center justify-between">
@@ -216,9 +410,20 @@ export function SessionList({ call, status, onAttach, previewNamespace }: Sessio
                           <span className="font-mono text-sm text-foreground" title={session.session_id}>
                             {session.session_id.substring(0, 8)}...
                           </span>
-                          <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
-                            {session.shell}
-                          </span>
+                          {tmuxName ? (
+                            <>
+                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                                tmux
+                              </span>
+                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                                {tmuxName}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                              {session.shell}
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-muted-foreground capitalize">{session.status}</div>
                       </div>

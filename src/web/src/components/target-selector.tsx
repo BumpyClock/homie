@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, Globe, Server, Check } from 'lucide-react';
+import { Plus, Trash2, Globe, Server, Check, Settings } from 'lucide-react';
 import type { Target } from '@/hooks/use-targets';
 
 interface TargetSelectorProps {
@@ -8,6 +8,7 @@ interface TargetSelectorProps {
   onSelect: (id: string) => void;
   onAdd: (name: string, url: string) => void;
   onDelete: (id: string) => void;
+  onDetails?: (target: Target) => void;
   hideLocal: boolean;
   onRestoreLocal: () => void;
 }
@@ -18,6 +19,7 @@ export function TargetSelector({
   onSelect,
   onAdd,
   onDelete,
+  onDetails,
   hideLocal,
   onRestoreLocal
 }: TargetSelectorProps) {
@@ -133,19 +135,35 @@ export function TargetSelector({
                 </div>
               </div>
 
-              {(target.type === 'custom' || !hideLocal) && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(target.id);
-                  }}
-                  className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Remove target"
-                  aria-label="Remove target"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
+              <div className="flex items-center gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                {onDetails && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDetails(target);
+                    }}
+                    className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded"
+                    title="Gateway details"
+                    aria-label="Gateway details"
+                  >
+                    <Settings size={14} />
+                  </button>
+                )}
+
+                {(target.type === 'custom' || !hideLocal) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(target.id);
+                    }}
+                    className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/20 rounded"
+                    title="Remove target"
+                    aria-label="Remove target"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

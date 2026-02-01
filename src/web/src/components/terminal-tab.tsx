@@ -21,9 +21,16 @@ interface TerminalTabProps {
 // Helper to get HSL color string from CSS variable
 function getThemeColor(variable: string): string {
   const root = document.documentElement;
-  const value = getComputedStyle(root).getPropertyValue(variable);
+  const value = getComputedStyle(root).getPropertyValue(variable).trim();
   if (!value) return "#000000";
   return `hsl(${value})`;
+}
+
+function getThemeColorAlpha(variable: string, alpha: number): string {
+  const root = document.documentElement;
+  const value = getComputedStyle(root).getPropertyValue(variable).trim();
+  if (!value) return `rgba(0, 0, 0, ${alpha})`;
+  return `hsl(${value} / ${alpha})`;
 }
 
 export function TerminalTab({
@@ -42,17 +49,37 @@ export function TerminalTab({
   // Update theme when it changes
   useEffect(() => {
     if (!terminalRef.current) return;
-    
+
     const bg = getThemeColor("--background");
     const fg = getThemeColor("--foreground");
     const cursor = getThemeColor("--primary");
-    // const selection = getThemeColor("--primary"); // with opacity usually, but xterm handles selection style separately
 
     terminalRef.current.options.theme = {
-        background: bg,
-        foreground: fg,
-        cursor: cursor,
-        selectionBackground: resolvedTheme === 'dark' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+      background: bg,
+      foreground: fg,
+      cursor: cursor,
+      selectionBackground: getThemeColorAlpha(
+        "--primary",
+        resolvedTheme === "dark" ? 0.25 : 0.18
+      ),
+
+      black: getThemeColor("--term-black"),
+      red: getThemeColor("--term-red"),
+      green: getThemeColor("--term-green"),
+      yellow: getThemeColor("--term-yellow"),
+      blue: getThemeColor("--term-blue"),
+      magenta: getThemeColor("--term-magenta"),
+      cyan: getThemeColor("--term-cyan"),
+      white: getThemeColor("--term-white"),
+
+      brightBlack: getThemeColor("--term-bright-black"),
+      brightRed: getThemeColor("--term-bright-red"),
+      brightGreen: getThemeColor("--term-bright-green"),
+      brightYellow: getThemeColor("--term-bright-yellow"),
+      brightBlue: getThemeColor("--term-bright-blue"),
+      brightMagenta: getThemeColor("--term-bright-magenta"),
+      brightCyan: getThemeColor("--term-bright-cyan"),
+      brightWhite: getThemeColor("--term-bright-white"),
     };
   }, [resolvedTheme, colorScheme]);
 
@@ -72,7 +99,28 @@ export function TerminalTab({
         background: bg,
         foreground: fg,
         cursor: cursor,
-        selectionBackground: resolvedTheme === 'dark' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+        selectionBackground: getThemeColorAlpha(
+          "--primary",
+          resolvedTheme === "dark" ? 0.25 : 0.18
+        ),
+
+        black: getThemeColor("--term-black"),
+        red: getThemeColor("--term-red"),
+        green: getThemeColor("--term-green"),
+        yellow: getThemeColor("--term-yellow"),
+        blue: getThemeColor("--term-blue"),
+        magenta: getThemeColor("--term-magenta"),
+        cyan: getThemeColor("--term-cyan"),
+        white: getThemeColor("--term-white"),
+
+        brightBlack: getThemeColor("--term-bright-black"),
+        brightRed: getThemeColor("--term-bright-red"),
+        brightGreen: getThemeColor("--term-bright-green"),
+        brightYellow: getThemeColor("--term-bright-yellow"),
+        brightBlue: getThemeColor("--term-bright-blue"),
+        brightMagenta: getThemeColor("--term-bright-magenta"),
+        brightCyan: getThemeColor("--term-bright-cyan"),
+        brightWhite: getThemeColor("--term-bright-white"),
       },
       allowProposedApi: true,
     });

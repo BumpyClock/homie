@@ -1,4 +1,5 @@
 use std::env;
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -17,7 +18,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bind = parse_socket("HOMIE_BIND", defaults.bind);
     let tailnet_bind = parse_optional_socket("HOMIE_TAILNET_BIND");
-    let tailscale_serve = parse_bool("HOMIE_TAILSCALE_SERVE", defaults.tailscale_serve);
+    let tailscale_env = parse_bool("HOMIE_TAILSCALE", false);
+    let tailscale_serve =
+        parse_bool("HOMIE_TAILSCALE_SERVE", defaults.tailscale_serve) || tailscale_env;
     let allow_lan = parse_bool("HOMIE_ALLOW_LAN", defaults.allow_lan);
     let heartbeat_interval = parse_duration("HOMIE_HEARTBEAT_SECS", defaults.heartbeat_interval);
     let idle_timeout = parse_duration("HOMIE_IDLE_SECS", defaults.idle_timeout);
@@ -58,6 +61,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::open(Path::new(&db_path))?;
     let store = Arc::new(store);
 
+    if tailscale_env {
+        ensure_tailscale_serve(config.bind).await;
+    }
+
     let app = build_router(config.clone(), LiveWhois, store);
 
     let listener = TcpListener::bind(config.bind).await?;
@@ -93,6 +100,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     Ok(())
+}
+
+async fn ensure_tailscale_serve(bind: SocketAddr) {
+    let host = match bind.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => "127.0.0.1".to_string(),
+        IpAddr::V6(ip) if ip.is_unspecified() => "::1".to_string(),
+        other => other.to_string(),
+    };
+    let backend = format!("http://{host}:{}", bind.port());
+    let output = tokio::process::Command::new("tailscale")
+        .args(["serve", "https", "/", &backend])
+        .output()
+        .await;
+    match output {
+        Ok(out) if out.status.success() => {
+            tracing::info!(%backend, "tailscale serve enabled");
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(%backend, error = %stderr, "tailscale serve failed");
+        }
+        Err(err) => {
+            tracing::warn!(%backend, error = %err, "tailscale serve failed");
+        }
+    }
 }
 
 fn parse_socket(key: &str, default: SocketAddr) -> SocketAddr {

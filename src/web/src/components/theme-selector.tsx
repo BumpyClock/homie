@@ -26,9 +26,11 @@ export function ThemeSelector() {
 
   const schemes: { value: ColorScheme; label: string; color: string }[] = [
     { value: "default", label: "Default", color: "bg-zinc-500" },
-    { value: "ocean", label: "Ocean", color: "bg-blue-500" },
-    { value: "forest", label: "Forest", color: "bg-green-500" },
-    { value: "sunset", label: "Sunset", color: "bg-orange-500" },
+    { value: "monokai", label: "Monokai", color: "bg-pink-500" },
+    { value: "one-dark", label: "One Dark", color: "bg-blue-500" },
+    { value: "flexoki", label: "Flexoki", color: "bg-amber-500" },
+    { value: "dracula", label: "Dracula", color: "bg-violet-500" },
+    { value: "catppuccin", label: "Catppuccin", color: "bg-purple-500" },
   ]
 
   return (
@@ -68,7 +70,7 @@ export function ThemeSelector() {
 
             <div>
               <h3 className="text-sm font-medium mb-2">Color Scheme</h3>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {schemes.map((s) => (
                   <button
                     key={s.value}

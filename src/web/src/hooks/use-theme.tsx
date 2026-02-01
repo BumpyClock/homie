@@ -2,7 +2,17 @@
 import { createContext, useContext, useEffect, useState } from "react"
 
 export type Theme = "dark" | "light" | "system"
-export type ColorScheme = "default" | "ocean" | "forest" | "sunset"
+
+export const COLOR_SCHEMES = [
+  "default",
+  "monokai",
+  "one-dark",
+  "flexoki",
+  "dracula",
+  "catppuccin",
+] as const
+
+export type ColorScheme = (typeof COLOR_SCHEMES)[number]
 
 interface ThemeProviderProps {
   children: React.ReactNode
@@ -39,9 +49,13 @@ export function ThemeProvider({
     () => (localStorage.getItem(storageKey + "-mode") as Theme) || defaultTheme
   )
   
-  const [colorScheme, setColorSchemeState] = useState<ColorScheme>(
-      () => (localStorage.getItem(storageKey + "-scheme") as ColorScheme) || defaultScheme
-  )
+  const [colorScheme, setColorSchemeState] = useState<ColorScheme>(() => {
+    const stored = localStorage.getItem(storageKey + "-scheme")
+    if (stored && (COLOR_SCHEMES as readonly string[]).includes(stored)) {
+      return stored as ColorScheme
+    }
+    return defaultScheme
+  })
 
   const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">("dark");
 

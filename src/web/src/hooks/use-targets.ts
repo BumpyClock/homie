@@ -77,7 +77,7 @@ export function useTargets() {
 
   const initialActiveTargetId = (() => {
     const stored = localStorage.getItem(STORAGE_KEY_ACTIVE_TARGET);
-    if (stored && initialTargets.some((t) => t.id === stored)) return stored;
+    if (stored && initialTargets.some((t: Target) => t.id === stored)) return stored;
     return initialTargets[0]?.id ?? "";
   })();
 
@@ -110,6 +110,20 @@ export function useTargets() {
     setActiveTargetId(newTarget.id); // Auto-select new target
   };
 
+  const updateTarget = (id: string, updates: { name?: string; url?: string }) => {
+    setTargets(prev => prev.map((t) => {
+      if (t.id !== id) return t;
+      if (t.type === 'local') {
+        return { ...t, name: updates.name ?? t.name, url: getLocalGatewayUrl() };
+      }
+      return {
+        ...t,
+        name: updates.name ?? t.name,
+        url: updates.url ? normalizeGatewayUrl(updates.url) : t.url,
+      };
+    }));
+  };
+
   const removeTarget = (id: string) => {
     const target = targets.find((t) => t.id === id);
     const nextTargets = targets.filter((t) => t.id !== id);
@@ -140,6 +154,7 @@ export function useTargets() {
     activeTargetId,
     setActiveTargetId,
     addTarget,
+    updateTarget,
     removeTarget,
     hideLocal,
     restoreLocal

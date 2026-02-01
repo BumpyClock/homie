@@ -50,6 +50,9 @@ impl TerminalService {
                 self.attached.insert(info.session_id);
                 Response::success(req_id, json!({ "session_id": info.session_id }))
             }
+            Err(TerminalError::Missing(msg)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
+            }
             Err(TerminalError::Internal(msg)) => {
                 Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
             }
@@ -86,6 +89,9 @@ impl TerminalService {
                 error_codes::SESSION_NOT_FOUND,
                 format!("session not found: {session_id}"),
             ),
+            Err(TerminalError::Missing(msg)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
+            }
             Err(TerminalError::Internal(msg)) => {
                 Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
             }
@@ -116,6 +122,9 @@ impl TerminalService {
                 error_codes::SESSION_NOT_FOUND,
                 format!("session not found: {session_id}"),
             ),
+            Err(TerminalError::Missing(msg)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
+            }
             Err(TerminalError::Internal(msg)) => {
                 Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
             }
@@ -165,6 +174,9 @@ impl TerminalService {
                 error_codes::SESSION_NOT_FOUND,
                 format!("session not found: {session_id}"),
             ),
+            Err(TerminalError::Missing(msg)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
+            }
             Err(TerminalError::Internal(msg)) => {
                 Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
             }
@@ -198,6 +210,9 @@ impl TerminalService {
                 error_codes::SESSION_NOT_FOUND,
                 format!("session not found: {session_id}"),
             ),
+            Err(TerminalError::Missing(msg)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
+            }
             Err(TerminalError::Internal(msg)) => {
                 Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
             }
@@ -228,9 +243,134 @@ impl TerminalService {
                 error_codes::SESSION_NOT_FOUND,
                 format!("session not found: {session_id}"),
             ),
+            Err(TerminalError::Missing(msg)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
+            }
             Err(TerminalError::Internal(msg)) => {
                 Response::error(req_id, error_codes::INVALID_PARAMS, msg)
             }
+        }
+    }
+
+    fn tmux_list(&self, req_id: Uuid) -> Response {
+        let result = {
+            let registry = self.registry.lock().unwrap();
+            registry.list_tmux_sessions()
+        };
+
+        match result {
+            Ok((supported, sessions)) => Response::success(
+                req_id,
+                json!({ "supported": supported, "sessions": sessions }),
+            ),
+            Err(TerminalError::Internal(msg)) => {
+                Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
+            }
+            Err(TerminalError::Missing(msg)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
+            }
+            Err(TerminalError::NotFound(_)) => Response::error(
+                req_id,
+                error_codes::SESSION_NOT_FOUND,
+                "session not found",
+            ),
+        }
+    }
+
+    fn tmux_attach(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        let p = match params {
+            Some(v) => v,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing params",
+                )
+            }
+        };
+        let session_name = match p.get("session_name").and_then(|v| v.as_str()) {
+            Some(v) if !v.is_empty() => v.to_string(),
+            _ => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing session_name",
+                )
+            }
+        };
+        let cols = p.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+        let rows = p.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+
+        let result = {
+            let mut registry = self.registry.lock().unwrap();
+            registry.attach_tmux_session(
+                session_name,
+                cols,
+                rows,
+                self.subscriber_id,
+                self.outbound_tx.clone(),
+            )
+        };
+
+        match result {
+            Ok(info) => {
+                self.attached.insert(info.session_id);
+                Response::success(req_id, serde_json::to_value(&info).unwrap_or(json!({})))
+            }
+            Err(TerminalError::Missing(msg)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
+            }
+            Err(TerminalError::Internal(msg)) => {
+                Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
+            }
+            Err(TerminalError::NotFound(_)) => Response::error(
+                req_id,
+                error_codes::SESSION_NOT_FOUND,
+                "session not found",
+            ),
+        }
+    }
+
+    fn tmux_kill(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        let p = match params {
+            Some(v) => v,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing params",
+                )
+            }
+        };
+        let session_name = match p.get("session_name").and_then(|v| v.as_str()) {
+            Some(v) if !v.is_empty() => v.to_string(),
+            _ => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing session_name",
+                )
+            }
+        };
+
+        let result = {
+            let registry = self.registry.lock().unwrap();
+            registry.kill_tmux_session(session_name)
+        };
+
+        match result {
+            Ok(()) => Response::success(req_id, json!({ "ok": true })),
+            Err(TerminalError::Missing(msg)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
+            }
+            Err(TerminalError::Internal(msg)) => {
+                Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
+            }
+            Err(TerminalError::NotFound(_)) => Response::error(
+                req_id,
+                error_codes::SESSION_NOT_FOUND,
+                "session not found",
+            ),
         }
     }
 
@@ -297,6 +437,9 @@ impl ServiceHandler for TerminalService {
             "terminal.session.kill" => self.session_kill(id, params),
             "terminal.session.remove" => self.session_remove(id, params),
             "terminal.session.list" => self.session_list(id),
+            "terminal.tmux.list" => self.tmux_list(id),
+            "terminal.tmux.attach" => self.tmux_attach(id, params),
+            "terminal.tmux.kill" => self.tmux_kill(id, params),
             _ => Response::error(
                 id,
                 error_codes::METHOD_NOT_FOUND,

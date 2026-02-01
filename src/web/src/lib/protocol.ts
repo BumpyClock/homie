@@ -63,3 +63,14 @@ export interface SessionInfo {
   status: "active" | "exited" | "inactive";
   exit_code?: number;
 }
+
+export interface TmuxSessionInfo {
+  name: string;
+  windows: number;
+  attached: boolean;
+}
+
+export interface TmuxListResponse {
+  supported: boolean;
+  sessions: TmuxSessionInfo[];
+}

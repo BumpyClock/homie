@@ -22,6 +22,26 @@
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
+
+    /* Terminal ANSI palette (default light) */
+    --term-black: 240 10% 3.9%;
+    --term-red: 0 84.2% 60.2%;
+    --term-green: 142 71% 45%;
+    --term-yellow: 45 93% 47%;
+    --term-blue: 221 83% 53%;
+    --term-magenta: 262 83% 58%;
+    --term-cyan: 190 90% 40%;
+    --term-white: 240 5% 35%;
+
+    --term-bright-black: 240 4% 55%;
+    --term-bright-red: 0 90% 65%;
+    --term-bright-green: 142 76% 40%;
+    --term-bright-yellow: 45 93% 40%;
+    --term-bright-blue: 221 90% 60%;
+    --term-bright-magenta: 262 88% 65%;
+    --term-bright-cyan: 190 90% 35%;
+    --term-bright-white: 240 5.9% 10%;
+
     --radius: 0.5rem;
   }
 
@@ -46,99 +66,442 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
+
+    /* Terminal ANSI palette (default dark) */
+    --term-black: 240 6% 8%;
+    --term-red: 0 72% 56%;
+    --term-green: 142 64% 45%;
+    --term-yellow: 45 90% 55%;
+    --term-blue: 217 91% 60%;
+    --term-magenta: 262 88% 70%;
+    --term-cyan: 190 90% 45%;
+    --term-white: 0 0% 90%;
+
+    --term-bright-black: 240 5% 40%;
+    --term-bright-red: 0 85% 68%;
+    --term-bright-green: 142 76% 60%;
+    --term-bright-yellow: 45 93% 62%;
+    --term-bright-blue: 217 91% 70%;
+    --term-bright-magenta: 262 90% 78%;
+    --term-bright-cyan: 190 92% 62%;
+    --term-bright-white: 0 0% 98%;
   }
 
-  /* Ocean Scheme */
-  [data-color-scheme="ocean"] {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222 47% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222 47% 11.2%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+  /* Monokai */
+  [data-color-scheme="monokai"] {
+    --background: 60 30% 96.1%;
+    --foreground: 70 8.1% 14.5%;
+    --card: 60 30% 96.1%;
+    --card-foreground: 70 8.1% 14.5%;
+    --popover: 60 30% 96.1%;
+    --popover-foreground: 70 8.1% 14.5%;
+
+    --primary: 338.4 94.6% 56.3%;
+    --primary-foreground: 60 30% 96.1%;
+
+    --secondary: 60 18% 92%;
+    --secondary-foreground: 70 8.1% 14.5%;
+    --muted: 60 18% 92%;
+    --muted-foreground: 49.6 10.9% 41.4%;
+    --accent: 60 18% 92%;
+    --accent-foreground: 70 8.1% 14.5%;
+
+    --border: 60 10% 88%;
+    --input: 60 10% 88%;
+
+    /* Terminal ANSI palette */
+    --term-black: 70 8.1% 14.5%;
+    --term-red: 338.4 94.6% 56.3%;
+    --term-green: 80 75.6% 53.3%;
+    --term-yellow: 54.2 69.5% 67.8%;
+    --term-blue: 189.6 81.1% 66.9%;
+    --term-magenta: 261.4 100% 75.3%;
+    --term-cyan: 171.5 70.9% 78.4%;
+    --term-white: 240 5.9% 10%;
+
+    --term-bright-black: 49.6 10.9% 41.4%;
+    --term-bright-red: 338.4 94.6% 56.3%;
+    --term-bright-green: 80 75.6% 53.3%;
+    --term-bright-yellow: 54.2 69.5% 67.8%;
+    --term-bright-blue: 189.6 81.1% 66.9%;
+    --term-bright-magenta: 261.4 100% 75.3%;
+    --term-bright-cyan: 171.5 70.9% 78.4%;
+    --term-bright-white: 70 8.1% 14.5%;
   }
 
-  [data-color-scheme="ocean"].dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-  }
-  
-  /* Forest Scheme */
-  [data-color-scheme="forest"] {
-    --background: 120 40% 98%;
-    --foreground: 140 47% 11%;
-    --primary: 142 76% 36%;
-    --primary-foreground: 355.7 100% 97.3%;
-    --secondary: 140 30% 96.1%;
-    --secondary-foreground: 140 47% 11.2%;
-    --muted: 140 30% 96.1%;
-    --muted-foreground: 140 10% 46.9%;
-    --accent: 140 30% 96.1%;
-    --accent-foreground: 140 47% 11.2%;
-    --border: 140 20% 91.4%;
-    --input: 140 20% 91.4%;
-  }
-  
-  [data-color-scheme="forest"].dark {
-    --background: 140 30% 10%;
-    --foreground: 140 10% 98%;
-    --primary: 142 70% 50%;
-    --primary-foreground: 144 30% 10%;
-    --secondary: 140 20% 18%;
-    --secondary-foreground: 140 10% 98%;
-    --muted: 140 20% 18%;
-    --muted-foreground: 140 10% 65%;
-    --accent: 140 20% 18%;
-    --accent-foreground: 140 10% 98%;
-    --border: 140 20% 18%;
-    --input: 140 20% 18%;
+  [data-color-scheme="monokai"].dark {
+    --background: 70 8.1% 14.5%;
+    --foreground: 60 30% 96.1%;
+    --card: 70 8.1% 14.5%;
+    --card-foreground: 60 30% 96.1%;
+    --popover: 70 8.1% 14.5%;
+    --popover-foreground: 60 30% 96.1%;
+
+    --primary: 338.4 94.6% 56.3%;
+    --primary-foreground: 70 8.1% 14.5%;
+
+    --secondary: 70 8% 20%;
+    --secondary-foreground: 60 30% 96.1%;
+    --muted: 70 8% 20%;
+    --muted-foreground: 49.6 10.9% 41.4%;
+    --accent: 70 8% 20%;
+    --accent-foreground: 60 30% 96.1%;
+
+    --border: 70 8% 24%;
+    --input: 70 8% 24%;
+
+    /* Terminal ANSI palette */
+    --term-black: 70 8.1% 14.5%;
+    --term-red: 338.4 94.6% 56.3%;
+    --term-green: 80 75.6% 53.3%;
+    --term-yellow: 54.2 69.5% 67.8%;
+    --term-blue: 189.6 81.1% 66.9%;
+    --term-magenta: 261.4 100% 75.3%;
+    --term-cyan: 171.5 70.9% 78.4%;
+    --term-white: 60 30% 96.1%;
+
+    --term-bright-black: 49.6 10.9% 41.4%;
+    --term-bright-red: 338.4 94.6% 56.3%;
+    --term-bright-green: 80 75.6% 53.3%;
+    --term-bright-yellow: 54.2 69.5% 67.8%;
+    --term-bright-blue: 189.6 81.1% 66.9%;
+    --term-bright-magenta: 261.4 100% 75.3%;
+    --term-bright-cyan: 171.5 70.9% 78.4%;
+    --term-bright-white: 60 30% 96.1%;
   }
 
-  /* Sunset Scheme */
-  [data-color-scheme="sunset"] {
-    --background: 20 50% 98%;
-    --foreground: 20 47% 11%;
-    --primary: 15 80% 55%;
-    --primary-foreground: 20 40% 98%;
-    --secondary: 20 40% 96.1%;
-    --secondary-foreground: 20 47% 11.2%;
-    --muted: 20 40% 96.1%;
-    --muted-foreground: 20 16% 46.9%;
-    --accent: 20 40% 96.1%;
-    --accent-foreground: 20 47% 11.2%;
-    --border: 20 30% 91.4%;
-    --input: 20 30% 91.4%;
+  /* One Dark */
+  [data-color-scheme="one-dark"] {
+    --background: 0 0% 98.0%;
+    --foreground: 228.0 8.2% 23.9%;
+    --card: 0 0% 98.0%;
+    --card-foreground: 228.0 8.2% 23.9%;
+    --popover: 0 0% 98.0%;
+    --popover-foreground: 228.0 8.2% 23.9%;
+
+    --primary: 221.1 87.3% 60.0%;
+    --primary-foreground: 0 0% 98.0%;
+
+    --secondary: 50.8 33.3% 92.4%;
+    --secondary-foreground: 228.0 8.2% 23.9%;
+    --muted: 50.8 33.3% 92.4%;
+    --muted-foreground: 231.4 3.8% 64.1%;
+    --accent: 50.8 33.3% 92.4%;
+    --accent-foreground: 228.0 8.2% 23.9%;
+
+    --border: 240.0 2.0% 90.0%;
+    --input: 240.0 2.0% 90.0%;
+
+    /* Terminal ANSI palette (Atom One Light-ish) */
+    --term-black: 228.0 8.2% 23.9%;
+    --term-red: 5.0 74.2% 59.0%;
+    --term-green: 119.3 34.2% 47.1%;
+    --term-yellow: 40.9 99.0% 38.0%;
+    --term-blue: 221.1 87.3% 60.0%;
+    --term-magenta: 300.9 62.7% 40.0%;
+    --term-cyan: 198.0 98.9% 37.1%;
+    --term-white: 0 0% 20%;
+
+    --term-bright-black: 227.1 6.3% 43.9%;
+    --term-bright-red: 5.0 74.2% 59.0%;
+    --term-bright-green: 119.3 34.2% 47.1%;
+    --term-bright-yellow: 40.9 99.0% 38.0%;
+    --term-bright-blue: 221.1 87.3% 60.0%;
+    --term-bright-magenta: 300.9 62.7% 40.0%;
+    --term-bright-cyan: 198.0 98.9% 37.1%;
+    --term-bright-white: 228.0 8.2% 23.9%;
   }
 
-  [data-color-scheme="sunset"].dark {
-    --background: 20 40% 10%;
-    --foreground: 20 10% 98%;
-    --primary: 15 85% 60%;
-    --primary-foreground: 20 40% 10%;
-    --secondary: 20 30% 18%;
-    --secondary-foreground: 20 10% 98%;
-    --muted: 20 30% 18%;
-    --muted-foreground: 20 10% 65%;
-    --accent: 20 30% 18%;
-    --accent-foreground: 20 10% 98%;
-    --border: 20 30% 18%;
-    --input: 20 30% 18%;
+  [data-color-scheme="one-dark"].dark {
+    --background: 220.0 13.0% 18.0%;
+    --foreground: 219.0 13.5% 71.0%;
+    --card: 220.0 13.0% 18.0%;
+    --card-foreground: 219.0 13.5% 71.0%;
+    --popover: 220.0 13.0% 18.0%;
+    --popover-foreground: 219.0 13.5% 71.0%;
+
+    --primary: 207.0 81.6% 65.9%;
+    --primary-foreground: 220.0 13.0% 18.0%;
+
+    --secondary: 220.0 13.0% 22%;
+    --secondary-foreground: 219.0 13.5% 71.0%;
+    --muted: 220.0 13.0% 22%;
+    --muted-foreground: 219.0 9.8% 40.0%;
+    --accent: 220.0 13.0% 22%;
+    --accent-foreground: 219.0 13.5% 71.0%;
+
+    --border: 220.0 13.0% 24%;
+    --input: 220.0 13.0% 24%;
+
+    /* Terminal ANSI palette (One Dark) */
+    --term-black: 220.0 13.0% 18.0%;
+    --term-red: 355.3 65.2% 65.1%;
+    --term-green: 94.9 38.1% 62.0%;
+    --term-yellow: 39.1 67.1% 69.0%;
+    --term-blue: 207.0 81.6% 65.9%;
+    --term-magenta: 286.3 59.8% 66.9%;
+    --term-cyan: 186.7 47.0% 54.9%;
+    --term-white: 219.0 13.5% 71.0%;
+
+    --term-bright-black: 219.0 9.8% 40.0%;
+    --term-bright-red: 355.3 65.2% 65.1%;
+    --term-bright-green: 94.9 38.1% 62.0%;
+    --term-bright-yellow: 39.1 67.1% 69.0%;
+    --term-bright-blue: 207.0 81.6% 65.9%;
+    --term-bright-magenta: 286.3 59.8% 66.9%;
+    --term-bright-cyan: 186.7 47.0% 54.9%;
+    --term-bright-white: 219.0 13.5% 71.0%;
+  }
+
+  /* Flexoki */
+  [data-color-scheme="flexoki"] {
+    --background: 48.0 100% 97.1%;
+    --foreground: 0.0 3.2% 6.1%;
+    --card: 48.0 100% 97.1%;
+    --card-foreground: 0.0 3.2% 6.1%;
+    --popover: 48.0 100% 97.1%;
+    --popover-foreground: 0.0 3.2% 6.1%;
+
+    --primary: 212.2 67.7% 38.8%;
+    --primary-foreground: 48.0 100% 97.1%;
+
+    --secondary: 50.8 33.3% 92.4%;
+    --secondary-foreground: 0.0 3.2% 6.1%;
+    --muted: 50.8 33.3% 92.4%;
+    --muted-foreground: 0.0 0.0% 40%;
+    --accent: 50.8 33.3% 92.4%;
+    --accent-foreground: 0.0 3.2% 6.1%;
+
+    --border: 50.8 20% 88%;
+    --input: 50.8 20% 88%;
+
+    /* Terminal ANSI palette (Flexoki light) */
+    --term-black: 0.0 3.2% 6.1%;
+    --term-red: 3.1 62.0% 42.4%;
+    --term-green: 73.3 84.2% 27.3%;
+    --term-yellow: 45.3 98.9% 34.1%;
+    --term-blue: 212.2 67.7% 38.8%;
+    --term-magenta: 259.4 42.1% 43.3%;
+    --term-cyan: 174.9 56.9% 32.7%;
+    --term-white: 228.0 8.2% 23.9%;
+
+    --term-bright-black: 0.0 0.0% 40%;
+    --term-bright-red: 3.1 62.0% 42.4%;
+    --term-bright-green: 73.3 84.2% 27.3%;
+    --term-bright-yellow: 45.3 98.9% 34.1%;
+    --term-bright-blue: 212.2 67.7% 38.8%;
+    --term-bright-magenta: 259.4 42.1% 43.3%;
+    --term-bright-cyan: 174.9 56.9% 32.7%;
+    --term-bright-white: 0.0 3.2% 6.1%;
+  }
+
+  [data-color-scheme="flexoki"].dark {
+    --background: 0.0 3.2% 6.1%;
+    --foreground: 54.5 10.1% 78.6%;
+    --card: 30.0 3.7% 10.6%;
+    --card-foreground: 54.5 10.1% 78.6%;
+    --popover: 30.0 3.7% 10.6%;
+    --popover-foreground: 54.5 10.1% 78.6%;
+
+    --primary: 207.8 48.6% 50.4%;
+    --primary-foreground: 0.0 3.2% 6.1%;
+
+    --secondary: 30.0 3.7% 10.6%;
+    --secondary-foreground: 54.5 10.1% 78.6%;
+    --muted: 30.0 3.7% 10.6%;
+    --muted-foreground: 232.5 12.0% 39.2%;
+    --accent: 30.0 3.7% 10.6%;
+    --accent-foreground: 54.5 10.1% 78.6%;
+
+    --border: 30.0 3.7% 14%;
+    --input: 30.0 3.7% 14%;
+
+    /* Terminal ANSI palette (Flexoki dark) */
+    --term-black: 0.0 3.2% 6.1%;
+    --term-red: 5.0 61.0% 53.7%;
+    --term-green: 71.8 46.0% 41.4%;
+    --term-yellow: 45.2 81.7% 44.9%;
+    --term-blue: 207.8 48.6% 50.4%;
+    --term-magenta: 250.5 40.2% 63.9%;
+    --term-cyan: 174.6 48.9% 44.5%;
+    --term-white: 54.5 10.1% 78.6%;
+
+    --term-bright-black: 232.5 12.0% 39.2%;
+    --term-bright-red: 5.0 61.0% 53.7%;
+    --term-bright-green: 71.8 46.0% 41.4%;
+    --term-bright-yellow: 45.2 81.7% 44.9%;
+    --term-bright-blue: 207.8 48.6% 50.4%;
+    --term-bright-magenta: 250.5 40.2% 63.9%;
+    --term-bright-cyan: 174.6 48.9% 44.5%;
+    --term-bright-white: 54.5 10.1% 78.6%;
+  }
+
+  /* Dracula */
+  [data-color-scheme="dracula"] {
+    --background: 60.0 30.0% 96.1%;
+    --foreground: 231.4 14.9% 18.4%;
+    --card: 60.0 30.0% 96.1%;
+    --card-foreground: 231.4 14.9% 18.4%;
+    --popover: 60.0 30.0% 96.1%;
+    --popover-foreground: 231.4 14.9% 18.4%;
+
+    --primary: 264.7 89.5% 77.6%;
+    --primary-foreground: 231.4 14.9% 18.4%;
+
+    --secondary: 220.0 23.1% 94.9%;
+    --secondary-foreground: 231.4 14.9% 18.4%;
+    --muted: 220.0 23.1% 94.9%;
+    --muted-foreground: 225.5 26.6% 51.4%;
+    --accent: 220.0 23.1% 94.9%;
+    --accent-foreground: 231.4 14.9% 18.4%;
+
+    --border: 220.0 18% 88%;
+    --input: 220.0 18% 88%;
+
+    /* Terminal ANSI palette (Dracula light-ish) */
+    --term-black: 231.4 14.9% 18.4%;
+    --term-red: 0.0 100% 66.7%;
+    --term-green: 135.2 94.4% 64.7%;
+    --term-yellow: 64.9 91.7% 76.5%;
+    --term-blue: 225.5 26.6% 51.4%;
+    --term-magenta: 325.5 100% 73.7%;
+    --term-cyan: 190.5 96.6% 76.9%;
+    --term-white: 231.4 14.9% 18.4%;
+
+    --term-bright-black: 225.5 26.6% 51.4%;
+    --term-bright-red: 0.0 100% 66.7%;
+    --term-bright-green: 135.2 94.4% 64.7%;
+    --term-bright-yellow: 64.9 91.7% 76.5%;
+    --term-bright-blue: 225.5 26.6% 51.4%;
+    --term-bright-magenta: 325.5 100% 73.7%;
+    --term-bright-cyan: 190.5 96.6% 76.9%;
+    --term-bright-white: 231.4 14.9% 18.4%;
+  }
+
+  [data-color-scheme="dracula"].dark {
+    --background: 231.4 14.9% 18.4%;
+    --foreground: 60.0 30.0% 96.1%;
+    --card: 231.4 14.9% 18.4%;
+    --card-foreground: 60.0 30.0% 96.1%;
+    --popover: 231.4 14.9% 18.4%;
+    --popover-foreground: 60.0 30.0% 96.1%;
+
+    --primary: 264.7 89.5% 77.6%;
+    --primary-foreground: 231.4 14.9% 18.4%;
+
+    --secondary: 231.8 13.9% 31.0%;
+    --secondary-foreground: 60.0 30.0% 96.1%;
+    --muted: 231.8 13.9% 31.0%;
+    --muted-foreground: 225.5 26.6% 51.4%;
+    --accent: 231.8 13.9% 31.0%;
+    --accent-foreground: 60.0 30.0% 96.1%;
+
+    --border: 231.8 13.9% 34%;
+    --input: 231.8 13.9% 34%;
+
+    /* Terminal ANSI palette (Dracula) */
+    --term-black: 231.4 14.9% 18.4%;
+    --term-red: 0.0 100% 66.7%;
+    --term-green: 135.2 94.4% 64.7%;
+    --term-yellow: 64.9 91.7% 76.5%;
+    --term-blue: 225.5 26.6% 51.4%;
+    --term-magenta: 325.5 100% 73.7%;
+    --term-cyan: 190.5 96.6% 76.9%;
+    --term-white: 60.0 30.0% 96.1%;
+
+    --term-bright-black: 231.8 13.9% 31.0%;
+    --term-bright-red: 0.0 100% 66.7%;
+    --term-bright-green: 135.2 94.4% 64.7%;
+    --term-bright-yellow: 64.9 91.7% 76.5%;
+    --term-bright-blue: 225.5 26.6% 51.4%;
+    --term-bright-magenta: 325.5 100% 73.7%;
+    --term-bright-cyan: 190.5 96.6% 76.9%;
+    --term-bright-white: 60.0 30.0% 96.1%;
+  }
+
+  /* Catppuccin */
+  [data-color-scheme="catppuccin"] {
+    /* Latte */
+    --background: 220.0 23.1% 94.9%;
+    --foreground: 233.8 16.0% 35.5%;
+    --card: 220.0 22.0% 92.0%;
+    --card-foreground: 233.8 16.0% 35.5%;
+    --popover: 220.0 23.1% 94.9%;
+    --popover-foreground: 233.8 16.0% 35.5%;
+
+    --primary: 219.9 91.5% 53.9%;
+    --primary-foreground: 220.0 23.1% 94.9%;
+
+    --secondary: 220.0 22.0% 92.0%;
+    --secondary-foreground: 233.8 16.0% 35.5%;
+    --muted: 220.0 22.0% 92.0%;
+    --muted-foreground: 232.8 10.4% 47.3%;
+    --accent: 220.0 22.0% 92.0%;
+    --accent-foreground: 233.8 16.0% 35.5%;
+
+    --border: 220.0 15% 88%;
+    --input: 220.0 15% 88%;
+
+    /* Terminal ANSI palette (Latte) */
+    --term-black: 233.8 16.0% 35.5%;
+    --term-red: 347.1 86.7% 44.1%;
+    --term-green: 109.2 57.6% 39.8%;
+    --term-yellow: 34.9 77.0% 49.4%;
+    --term-blue: 219.9 91.5% 53.9%;
+    --term-magenta: 266.0 85.0% 58.0%;
+    --term-cyan: 183.2 73.9% 34.5%;
+    --term-white: 233.8 16.0% 35.5%;
+
+    --term-bright-black: 228.0 11.2% 65.1%;
+    --term-bright-red: 347.1 86.7% 44.1%;
+    --term-bright-green: 109.2 57.6% 39.8%;
+    --term-bright-yellow: 34.9 77.0% 49.4%;
+    --term-bright-blue: 219.9 91.5% 53.9%;
+    --term-bright-magenta: 266.0 85.0% 58.0%;
+    --term-bright-cyan: 183.2 73.9% 34.5%;
+    --term-bright-white: 233.8 16.0% 35.5%;
+  }
+
+  [data-color-scheme="catppuccin"].dark {
+    /* Mocha */
+    --background: 240.0 21.1% 14.9%;
+    --foreground: 226.2 63.9% 88.0%;
+    --card: 236.8 16.2% 22.9%;
+    --card-foreground: 226.2 63.9% 88.0%;
+    --popover: 236.8 16.2% 22.9%;
+    --popover-foreground: 226.2 63.9% 88.0%;
+
+    --primary: 217.2 91.9% 75.9%;
+    --primary-foreground: 240.0 21.1% 14.9%;
+
+    --secondary: 236.8 16.2% 22.9%;
+    --secondary-foreground: 226.2 63.9% 88.0%;
+    --muted: 236.8 16.2% 22.9%;
+    --muted-foreground: 232.5 12.0% 39.2%;
+    --accent: 236.8 16.2% 22.9%;
+    --accent-foreground: 226.2 63.9% 88.0%;
+
+    --border: 236.8 16.2% 26%;
+    --input: 236.8 16.2% 26%;
+
+    /* Terminal ANSI palette (Mocha) */
+    --term-black: 240.0 21.1% 14.9%;
+    --term-red: 343.3 81.2% 74.9%;
+    --term-green: 115.5 54.1% 76.1%;
+    --term-yellow: 41.4 86.0% 83.1%;
+    --term-blue: 217.2 91.9% 75.9%;
+    --term-magenta: 267.4 83.5% 81.0%;
+    --term-cyan: 170.0 57.4% 73.3%;
+    --term-white: 226.2 63.9% 88.0%;
+
+    --term-bright-black: 234.3 13.2% 31.2%;
+    --term-bright-red: 343.3 81.2% 74.9%;
+    --term-bright-green: 115.5 54.1% 76.1%;
+    --term-bright-yellow: 41.4 86.0% 83.1%;
+    --term-bright-blue: 217.2 91.9% 75.9%;
+    --term-bright-magenta: 267.4 83.5% 81.0%;
+    --term-bright-cyan: 170.0 57.4% 73.3%;
+    --term-bright-white: 226.2 63.9% 88.0%;
   }
 }
 
@@ -172,5 +535,26 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@keyframes homie-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.homie-popover {
+  animation: homie-popover-in 180ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .homie-popover {
+    animation: none;
   }
 }
