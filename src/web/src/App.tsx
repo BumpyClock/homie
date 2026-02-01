@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGateway, type ConnectionStatus } from '@/hooks/use-gateway'
 import { useTargets } from '@/hooks/use-targets'
 import { TargetSelector } from '@/components/target-selector'
 import { SessionList } from '@/components/session-list'
 import { TerminalView, type AttachedSession } from '@/components/terminal-view'
 import { ThemeSelector } from '@/components/theme-selector'
-import { ArrowLeft, ChevronDown, Check, Trash2, X, RefreshCw, Plus } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Check, Trash2, X, RefreshCw, Plus, Terminal as TerminalIcon } from 'lucide-react';
 import { PREVIEW_OPTIONS, PREVIEW_REFRESH_KEY, type PreviewRefresh, sessionDisplayName, shortSessionId } from '@/lib/session-utils';
+import type { SessionInfo } from '@/lib/protocol';
 
 function StatusDot({ status, className }: { status: ConnectionStatus; className?: string }) {
   const color =
@@ -52,6 +53,31 @@ function App() {
   });
   const [refreshToken, setRefreshToken] = useState(0);
 
+  const [terminalFocusSessionId, setTerminalFocusSessionId] = useState<string | null>(null);
+
+  const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
+  const sessionMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const sessionMenuRef = useRef<HTMLDivElement | null>(null);
+  const sessionMenuFirstItemRef = useRef<HTMLButtonElement | null>(null);
+  const [runningSessions, setRunningSessions] = useState<SessionInfo[]>([]);
+  const [runningSessionsLoading, setRunningSessionsLoading] = useState(false);
+  const [runningSessionsError, setRunningSessionsError] = useState<string | null>(null);
+
+  const fetchRunningSessions = useCallback(async () => {
+    if (status !== 'connected') return;
+    setRunningSessionsLoading(true);
+    try {
+      const res = await call('terminal.session.list') as { sessions?: SessionInfo[] };
+      setRunningSessions(res.sessions ?? []);
+      setRunningSessionsError(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setRunningSessionsError(msg || 'Failed to list sessions');
+    } finally {
+      setRunningSessionsLoading(false);
+    }
+  }, [call, status]);
+
   const [isTargetOpen, setIsTargetOpen] = useState(false);
   const targetTriggerRef = useRef<HTMLButtonElement | null>(null);
   const targetPanelRef = useRef<HTMLDivElement | null>(null);
@@ -70,6 +96,12 @@ function App() {
   }, [activeTargetId]);
 
   useEffect(() => {
+    if (attachedSessions.length > 0) return;
+    setIsSessionMenuOpen(false);
+    setTerminalFocusSessionId(null);
+  }, [attachedSessions.length]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(PREVIEW_REFRESH_KEY, previewRefresh);
   }, [previewRefresh]);
@@ -86,6 +118,42 @@ function App() {
     if (!isTargetOpen) return;
     targetPanelRef.current?.focus();
   }, [isTargetOpen]);
+
+  useEffect(() => {
+    if (!isSessionMenuOpen) return;
+    sessionMenuFirstItemRef.current?.focus();
+  }, [isSessionMenuOpen]);
+
+  useEffect(() => {
+    if (!isSessionMenuOpen) return;
+    void fetchRunningSessions();
+  }, [isSessionMenuOpen, fetchRunningSessions, refreshToken]);
+
+  useEffect(() => {
+    if (!isSessionMenuOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsSessionMenuOpen(false);
+        sessionMenuTriggerRef.current?.focus();
+      }
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+
+      const inside = sessionMenuRef.current?.contains(t) || sessionMenuTriggerRef.current?.contains(t);
+      if (!inside) setIsSessionMenuOpen(false);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [isSessionMenuOpen]);
 
   useEffect(() => {
     if (!isTargetOpen) return;
@@ -205,6 +273,7 @@ function App() {
         };
         if (info?.session_id) {
           handleAttach({ session_id: info.session_id, shell: info.shell ?? "", name: info.name });
+          setTerminalFocusSessionId(info.session_id);
         }
       }
     } catch (err: unknown) {
@@ -216,6 +285,31 @@ function App() {
 
   // If we have attached sessions, show the Terminal View (Full Screen)
   if (attachedSessions.length > 0) {
+      const runningActive = runningSessions.filter((s) => s.status === 'active');
+
+      const handleOpenSession = async (session: SessionInfo) => {
+        setIsSessionMenuOpen(false);
+
+        if (attachedSessions.some((s) => s.id === session.session_id)) {
+          setTerminalFocusSessionId(session.session_id);
+          return;
+        }
+
+        try {
+          const info = await call('terminal.session.attach', { session_id: session.session_id }) as {
+            session_id?: string;
+            shell?: string;
+            name?: string | null;
+          };
+          handleAttach({ session_id: info?.session_id ?? session.session_id, shell: info?.shell ?? session.shell, name: info?.name ?? session.name });
+          setTerminalFocusSessionId(session.session_id);
+        } catch (err: unknown) {
+          console.error('Failed to attach session', err);
+          const msg = err instanceof Error ? err.message : String(err);
+          alert('Failed to attach session: ' + msg);
+        }
+      };
+
       return (
           <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
               <div className="flex items-center justify-between p-2 bg-muted/50 border-b border-border shrink-0">
@@ -230,7 +324,86 @@ function App() {
                     </button>
                     <h1 className="text-sm font-bold text-foreground">Homie Terminal</h1>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="relative flex items-center gap-2">
+                      <button
+                        ref={sessionMenuTriggerRef}
+                        type="button"
+                        onClick={() => setIsSessionMenuOpen((v) => !v)}
+                        disabled={status !== 'connected'}
+                        className="p-2 min-h-[44px] min-w-[44px] rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+                        aria-haspopup="menu"
+                        aria-expanded={isSessionMenuOpen}
+                        aria-label="Open sessions menu"
+                        title="Sessions"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+
+                      {isSessionMenuOpen && (
+                        <div
+                          ref={sessionMenuRef}
+                          tabIndex={-1}
+                          role="menu"
+                          aria-label="Sessions"
+                          className="absolute right-0 top-full mt-2 w-[min(360px,calc(100vw-2rem))] max-h-[70vh] overflow-auto bg-popover border border-border rounded-lg shadow-lg outline-none origin-top-right homie-popover"
+                        >
+                          <div className="p-2">
+                            <button
+                              ref={sessionMenuFirstItemRef}
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setIsSessionMenuOpen(false);
+                                void handleStartSession();
+                              }}
+                              disabled={status !== 'connected'}
+                              className="w-full flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span className="text-sm font-medium">New session</span>
+                            </button>
+
+                            <div className="mt-3 px-3 text-[11px] uppercase tracking-wide text-muted-foreground">Running sessions</div>
+
+                            {runningSessionsError && (
+                              <div className="mt-2 px-3 py-2 text-xs text-destructive">
+                                {runningSessionsError}
+                              </div>
+                            )}
+
+                            {runningSessionsLoading ? (
+                              <div className="mt-2 px-3 py-2 text-xs text-muted-foreground">Loading…</div>
+                            ) : runningActive.length === 0 ? (
+                              <div className="mt-2 px-3 py-2 text-xs text-muted-foreground">No running sessions</div>
+                            ) : (
+                              <div className="mt-1">
+                                {runningActive.map((session) => {
+                                  const label = sessionDisplayName(session);
+                                  const isOpen = attachedSessions.some((s) => s.id === session.session_id);
+                                  return (
+                                    <button
+                                      key={session.session_id}
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => void handleOpenSession(session)}
+                                      className="w-full flex items-center justify-between gap-3 px-3 py-2 min-h-[44px] rounded-md hover:bg-muted/60 transition-colors text-left"
+                                    >
+                                      <span className="flex items-center gap-2 min-w-0">
+                                        <TerminalIcon className="w-4 h-4 text-muted-foreground" />
+                                        <span className="text-sm text-foreground truncate">{label}</span>
+                                      </span>
+                                      {isOpen && (
+                                        <span className="text-[11px] text-muted-foreground">Open</span>
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       <ThemeSelector />
                       <StatusDot status={status} className="h-2.5 w-2.5" />
                   </div>
@@ -242,6 +415,7 @@ function App() {
                     call={call}
                     onBinaryMessage={onBinaryMessage}
                     previewNamespace={previewNamespace}
+                    focusSessionId={terminalFocusSessionId}
                   />
               </div>
           </div>

@@ -15,12 +15,19 @@ interface TerminalViewProps {
   call: (method: string, params?: unknown) => Promise<unknown>;
   onBinaryMessage: (cb: (data: ArrayBuffer) => void) => () => void;
   previewNamespace: string;
+  focusSessionId?: string | null;
 }
 
-export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage, previewNamespace }: TerminalViewProps) {
+export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage, previewNamespace, focusSessionId }: TerminalViewProps) {
   const [userActiveSessionId, setUserActiveSessionId] = useState<string | null>(null);
 
   const attachedSessionIds = attachedSessions.map((session) => session.id);
+
+  useEffect(() => {
+    if (!focusSessionId) return;
+    if (!attachedSessionIds.includes(focusSessionId)) return;
+    setUserActiveSessionId(focusSessionId);
+  }, [focusSessionId, attachedSessionIds]);
 
   // Derive the effective active session ID
   const activeSessionId = (userActiveSessionId && attachedSessionIds.includes(userActiveSessionId))
