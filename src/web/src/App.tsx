@@ -318,7 +318,7 @@ function App() {
 
   // Dashboard View
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden">
       <GatewayHeader
         status={status}
         serverHello={serverHello}
@@ -350,7 +350,11 @@ function App() {
         hasChatService={hasChatService}
       />
 
-      <main className="flex-1 min-h-0 px-6 py-6 space-y-6">
+      <main
+        className={`flex-1 min-h-0 px-6 py-6 flex flex-col gap-6 ${
+          activeTab === "chat" ? "overflow-hidden" : "overflow-y-auto"
+        }`}
+      >
         {activeTab === "terminals" && (
           <section className="min-h-[400px]">
             {serverHello && (
@@ -368,7 +372,7 @@ function App() {
         )}
 
         {activeTab === "chat" && hasChatService && (
-          <section className="min-h-[400px] h-full">
+          <section className="min-h-0 flex-1 overflow-hidden">
             <ChatPanel
               status={status}
               call={call}

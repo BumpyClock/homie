@@ -31,6 +31,7 @@ export interface ChatItem {
   role?: "user" | "assistant";
   requestId?: number;
   reason?: string;
+  optimistic?: boolean;
   raw?: unknown;
 }
 
@@ -486,8 +487,23 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
           setActiveThread((prev) => {
             if (!prev) return prev;
             const nextItem = itemsFromThread({ turns: [{ id: getTurnId(params), items: [item] }] })[0];
-            if (nextItem?.kind === "assistant" && nextItem.text) {
+            if (!nextItem) return prev;
+            if (nextItem.kind === "assistant" && nextItem.text) {
               messageBufferRef.current.set(nextItem.id, nextItem.text);
+            }
+            if (nextItem.kind === "user") {
+              const text = nextItem.text?.trim() ?? "";
+              const optimisticIndex = prev.items.findIndex(
+                (existing) =>
+                  existing.kind === "user" &&
+                  existing.optimistic &&
+                  (existing.text?.trim() ?? "") === text
+              );
+              if (optimisticIndex >= 0) {
+                const next = [...prev.items];
+                next[optimisticIndex] = { ...nextItem, optimistic: false };
+                return { ...prev, items: next };
+              }
             }
             const idx = prev.items.findIndex((it) => it.id === itemId);
             if (idx >= 0) {
@@ -688,7 +704,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     const localId = uuid();
     setActiveThread((prev) => prev ? {
       ...prev,
-      items: [...prev.items, { id: localId, kind: "user", role: "user", text: trimmed }],
+      items: [...prev.items, { id: localId, kind: "user", role: "user", text: trimmed, optimistic: true }],
     } : prev);
     if (!overridesRef.current[activeThread.chatId]) {
       const autoTitle = truncateText(trimmed, 42);
