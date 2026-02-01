@@ -1,9 +1,11 @@
 
-export enum StreamType {
-  Stdout = 0,
-  Stderr = 1,
-  Stdin = 2,
-}
+export const StreamType = {
+  Stdout: 0,
+  Stderr: 1,
+  Stdin: 2,
+} as const;
+
+export type StreamType = typeof StreamType[keyof typeof StreamType];
 
 export const BINARY_HEADER_SIZE = 17;
 

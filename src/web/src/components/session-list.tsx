@@ -105,7 +105,7 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
   return (
     <div className="mt-6 w-full">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold flex items-center gap-2 text-gray-200">
+        <h2 className="text-xl font-semibold flex items-center gap-2 text-foreground">
            <Terminal className="w-5 h-5" />
            Sessions
         </h2>
@@ -113,14 +113,14 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
             <button 
                 onClick={fetchSessions} 
                 disabled={loading}
-                className="p-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-200 disabled:opacity-50 transition-colors"
+                className="p-2 bg-muted hover:bg-muted/80 rounded text-muted-foreground disabled:opacity-50 transition-colors"
                 title="Refresh"
             >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button 
                 onClick={handleStart}
-                className="flex items-center gap-1 px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded text-white text-sm font-medium transition-colors"
+                className="flex items-center gap-1 px-3 py-2 bg-primary hover:bg-primary/90 rounded text-primary-foreground text-sm font-medium transition-colors"
             >
                 <Play className="w-4 h-4" />
                 New Session
@@ -129,39 +129,39 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
       </div>
 
       {error && (
-          <div className="mb-4 p-3 bg-red-900/30 border border-red-800 rounded text-red-200 text-sm">
+          <div className="mb-4 p-3 bg-destructive/20 border border-destructive rounded text-destructive-foreground text-sm">
               {error}
           </div>
       )}
 
       {sessions.length === 0 ? (
-          <div className="text-center py-8 text-gray-500 bg-gray-800/50 rounded-lg border border-gray-700 border-dashed">
+          <div className="text-center py-8 text-muted-foreground bg-muted/30 rounded-lg border border-border border-dashed">
               No active sessions
           </div>
       ) : (
           <div className="space-y-3">
               {sessions.map(session => (
-                  <div key={session.session_id} className="bg-gray-800 p-4 rounded-lg border border-gray-700 flex items-center justify-between shadow-sm">
+                  <div key={session.session_id} className="bg-card p-4 rounded-lg border border-border flex items-center justify-between shadow-sm">
                       <div>
                           <div className="flex items-center gap-2 mb-1">
-                              <span className={`w-2 h-2 rounded-full ${session.status === 'Active' ? 'bg-green-500' : 'bg-gray-500'}`} title={session.status} />
-                              <span className="font-mono text-sm text-gray-300" title={session.session_id}>{session.session_id.substring(0, 8)}...</span>
-                              <span className="text-xs px-2 py-0.5 bg-gray-700 rounded text-gray-400 font-mono">{session.shell}</span>
+                              <span className={`w-2 h-2 rounded-full ${session.status === 'Active' ? 'bg-green-500' : 'bg-muted-foreground'}`} title={session.status} />
+                              <span className="font-mono text-sm text-foreground" title={session.session_id}>{session.session_id.substring(0, 8)}...</span>
+                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">{session.shell}</span>
                           </div>
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-muted-foreground">
                               Started: {session.started_at} | Size: {session.cols}x{session.rows}
                           </div>
                       </div>
                       <div className="flex gap-2">
                            <button 
                                 onClick={() => handleAttach(session.session_id)}
-                                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs font-medium text-gray-200 transition-colors"
+                                className="px-3 py-1.5 bg-muted hover:bg-muted/80 rounded text-xs font-medium text-foreground transition-colors"
                            >
                                Attach
                            </button>
                            <button 
                                 onClick={() => handleKill(session.session_id)}
-                                className="p-1.5 text-red-400 hover:bg-red-900/30 hover:text-red-300 rounded transition-colors"
+                                className="p-1.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive rounded transition-colors"
                                 title="Kill Session"
                            >
                                <X className="w-4 h-4" />

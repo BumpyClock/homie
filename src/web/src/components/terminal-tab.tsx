@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import { useTheme } from "@/hooks/use-theme";
 
 interface TerminalTabProps {
   sessionId: string;
@@ -13,7 +14,14 @@ interface TerminalTabProps {
   onResize: (cols: number, rows: number) => void;
   registerDataListener: (listener: (data: Uint8Array) => void) => () => void;
   active: boolean;
-  theme?: "light" | "dark";
+}
+
+// Helper to get HSL color string from CSS variable
+function getThemeColor(variable: string): string {
+  const root = document.documentElement;
+  const value = getComputedStyle(root).getPropertyValue(variable);
+  if (!value) return "#000000";
+  return `hsl(${value})`;
 }
 
 export function TerminalTab({
@@ -22,22 +30,47 @@ export function TerminalTab({
   onResize,
   registerDataListener,
   active,
-  theme = "dark",
 }: TerminalTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const { resolvedTheme, colorScheme } = useTheme();
+
+  // Update theme when it changes
+  useEffect(() => {
+    if (!terminalRef.current) return;
+    
+    const bg = getThemeColor("--background");
+    const fg = getThemeColor("--foreground");
+    const cursor = getThemeColor("--primary");
+    // const selection = getThemeColor("--primary"); // with opacity usually, but xterm handles selection style separately
+
+    terminalRef.current.options.theme = {
+        background: bg,
+        foreground: fg,
+        cursor: cursor,
+        selectionBackground: resolvedTheme === 'dark' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+    };
+  }, [resolvedTheme, colorScheme]);
 
   useEffect(() => {
     if (!containerRef.current) return;
+
+    // Initial theme setup
+    const bg = getThemeColor("--background");
+    const fg = getThemeColor("--foreground");
+    const cursor = getThemeColor("--primary");
 
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       fontSize: 14,
-      theme: theme === "light" 
-        ? { background: "#ffffff", foreground: "#000000", cursor: "#333" } 
-        : { background: "#1a1b26", foreground: "#a9b1d6", cursor: "#c0caf5" }, // Tokyo Night-ish
+      theme: {
+        background: bg,
+        foreground: fg,
+        cursor: cursor,
+        selectionBackground: resolvedTheme === 'dark' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+      },
       allowProposedApi: true,
     });
 
@@ -72,7 +105,8 @@ export function TerminalTab({
       cleanup();
       term.dispose();
     };
-  }, [sessionId, onInput, onResize, registerDataListener, theme]); // Re-init if sessionId changes (shouldn't happen for same component instance usually)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, onInput, onResize, registerDataListener]); // Removed theme deps from init to avoid re-creation
 
   // Handle resizing and visibility
   useEffect(() => {

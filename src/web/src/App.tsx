@@ -4,6 +4,7 @@ import { useTargets } from '@/hooks/use-targets'
 import { TargetSelector } from '@/components/target-selector'
 import { SessionList } from '@/components/session-list'
 import { TerminalView } from '@/components/terminal-view'
+import { ThemeSelector } from '@/components/theme-selector'
 import { ArrowLeft } from 'lucide-react';
 
 function StatusBadge({ status }: { status: ConnectionStatus }) {
@@ -12,8 +13,8 @@ function StatusBadge({ status }: { status: ConnectionStatus }) {
     connecting: "bg-yellow-500",
     handshaking: "bg-blue-500",
     connected: "bg-green-500",
-    error: "bg-red-500",
-    rejected: "bg-red-700",
+    error: "bg-destructive",
+    rejected: "bg-destructive",
   };
 
   return (
@@ -42,19 +43,22 @@ function App() {
   // If we have attached sessions, show the Terminal View (Full Screen)
   if (attachedSessionIds.length > 0) {
       return (
-          <div className="h-screen w-screen flex flex-col bg-gray-900 overflow-hidden">
-              <div className="flex items-center justify-between p-2 bg-gray-800 border-b border-gray-700 shrink-0">
+          <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
+              <div className="flex items-center justify-between p-2 bg-muted/50 border-b border-border shrink-0">
                   <div className="flex items-center gap-4">
                     <button 
                         onClick={() => setAttachedSessionIds([])}
-                        className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                        className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground"
                         title="Back to Dashboard"
                     >
                         <ArrowLeft size={20} />
                     </button>
-                    <h1 className="text-sm font-bold text-gray-300">Homie Terminal</h1>
+                    <h1 className="text-sm font-bold text-foreground">Homie Terminal</h1>
                   </div>
-                  <StatusBadge status={status} />
+                  <div className="flex items-center gap-4">
+                      <ThemeSelector />
+                      <StatusBadge status={status} />
+                  </div>
               </div>
               <div className="flex-1 min-h-0">
                   <TerminalView 
@@ -70,9 +74,12 @@ function App() {
 
   // Dashboard View
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col items-center justify-center p-4">
-      <div className="max-w-md w-full bg-gray-800 rounded-lg shadow-xl p-6 border border-gray-700">
-        <h1 className="text-2xl font-bold mb-6 text-center">Homie Web</h1>
+    <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-4">
+      <div className="max-w-md w-full bg-card rounded-lg shadow-xl p-6 border border-border">
+        <div className="flex justify-between items-center mb-6">
+            <h1 className="text-2xl font-bold text-center flex-1">Homie Web</h1>
+            <ThemeSelector />
+        </div>
         
         <div className="space-y-6">
           <TargetSelector 
@@ -83,30 +90,30 @@ function App() {
             onDelete={removeTarget}
           />
 
-          <div className="flex justify-between items-center border-b border-gray-700 pb-4">
-             <span className="text-gray-400">Status</span>
+          <div className="flex justify-between items-center border-b border-border pb-4">
+             <span className="text-muted-foreground">Status</span>
              <StatusBadge status={status} />
           </div>
 
           {serverHello && (
             <>
-                <div className="mt-4 p-4 bg-gray-900 rounded-md text-sm">
-                  <h3 className="font-semibold mb-2 text-green-400">Gateway Info</h3>
+                <div className="mt-4 p-4 bg-muted/50 rounded-md text-sm">
+                  <h3 className="font-semibold mb-2 text-primary">Gateway Info</h3>
                   <div className="grid grid-cols-2 gap-2">
-                     <span className="text-gray-500">ID:</span>
+                     <span className="text-muted-foreground">ID:</span>
                      <span>{serverHello.server_id}</span>
-                     <span className="text-gray-500">Protocol:</span>
+                     <span className="text-muted-foreground">Protocol:</span>
                      <span>v{serverHello.protocol_version}</span>
                      {serverHello.identity && (
                          <>
-                            <span className="text-gray-500">Identity:</span>
+                            <span className="text-muted-foreground">Identity:</span>
                             <span>{serverHello.identity}</span>
                          </>
                      )}
                   </div>
                   
-                  <h4 className="font-semibold mt-3 mb-1 text-gray-300">Services</h4>
-                  <ul className="list-disc list-inside text-gray-400">
+                  <h4 className="font-semibold mt-3 mb-1 text-foreground">Services</h4>
+                  <ul className="list-disc list-inside text-muted-foreground">
                       {serverHello.services.map((s, i) => (
                           <li key={i}>{s.service} (v{s.version})</li>
                       ))}
@@ -118,7 +125,7 @@ function App() {
           )}
 
           {rejection && (
-              <div className="mt-4 p-4 bg-red-900/20 border border-red-700 rounded-md text-sm text-red-200">
+              <div className="mt-4 p-4 bg-destructive/20 border border-destructive rounded-md text-sm text-destructive-foreground">
                   <h3 className="font-semibold mb-1">Connection Rejected</h3>
                   <p>Reason: {rejection.reason}</p>
                   <p className="text-xs mt-1 opacity-70">Code: {rejection.code}</p>
@@ -126,7 +133,7 @@ function App() {
           )}
           
           {error && status === 'error' && (
-               <div className="mt-4 p-4 bg-red-900/20 border border-red-700 rounded-md text-sm text-red-200">
+               <div className="mt-4 p-4 bg-destructive/20 border border-destructive rounded-md text-sm text-destructive-foreground">
                    <p>Connection failed. Retrying...</p>
                </div>
           )}

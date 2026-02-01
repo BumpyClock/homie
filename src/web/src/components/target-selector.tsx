@@ -33,12 +33,12 @@ export function TargetSelector({ targets, activeTargetId, onSelect, onAdd, onDel
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center border-b border-gray-700 pb-2">
-        <span className="text-gray-400 font-medium">Target</span>
+      <div className="flex justify-between items-center border-b border-border pb-2">
+        <span className="text-muted-foreground font-medium">Target</span>
         {!isAdding && (
           <button 
             onClick={() => setIsAdding(true)}
-            className="text-xs flex items-center gap-1 bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded transition-colors"
+            className="text-xs flex items-center gap-1 bg-muted hover:bg-muted/80 text-foreground px-2 py-1 rounded transition-colors"
           >
             <Plus size={14} /> Add
           </button>
@@ -46,40 +46,40 @@ export function TargetSelector({ targets, activeTargetId, onSelect, onAdd, onDel
       </div>
 
       {isAdding ? (
-        <form onSubmit={handleSubmit} className="bg-gray-900/50 p-3 rounded-md border border-gray-700 space-y-3">
+        <form onSubmit={handleSubmit} className="bg-muted/50 p-3 rounded-md border border-border space-y-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Name</label>
+            <label className="block text-xs text-muted-foreground mb-1">Name</label>
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Home Server"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
+              className="w-full bg-background border border-border rounded px-2 py-1 text-sm text-foreground focus:outline-none focus:border-primary"
               autoFocus
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">WS URL</label>
+            <label className="block text-xs text-muted-foreground mb-1">WS URL</label>
             <input
               type="text"
               value={newUrl}
               onChange={(e) => setNewUrl(e.target.value)}
               placeholder="wss://..."
-              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
+              className="w-full bg-background border border-border rounded px-2 py-1 text-sm text-foreground focus:outline-none focus:border-primary"
             />
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={handleCancel}
-              className="text-xs px-2 py-1 text-gray-400 hover:text-gray-200"
+              className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!newName || !newUrl}
-              className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-1 rounded flex items-center gap-1"
+              className="text-xs bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-primary-foreground px-3 py-1 rounded flex items-center gap-1"
             >
               <Check size={14} /> Save
             </button>
@@ -93,21 +93,21 @@ export function TargetSelector({ targets, activeTargetId, onSelect, onAdd, onDel
               className={`
                 group flex items-center justify-between p-2 rounded-md border cursor-pointer transition-all
                 ${target.id === activeTargetId 
-                  ? 'bg-blue-900/20 border-blue-500/50 ring-1 ring-blue-500/20' 
-                  : 'bg-gray-800 border-gray-700 hover:border-gray-600'
+                  ? 'bg-primary/10 border-primary/50 ring-1 ring-primary/20' 
+                  : 'bg-card border-border hover:border-muted-foreground'
                 }
               `}
               onClick={() => onSelect(target.id)}
             >
               <div className="flex items-center gap-3 overflow-hidden">
-                <div className={`p-1.5 rounded-full ${target.id === activeTargetId ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-700 text-gray-400'}`}>
+                <div className={`p-1.5 rounded-full ${target.id === activeTargetId ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'}`}>
                   {target.type === 'local' ? <Server size={14} /> : <Globe size={14} />}
                 </div>
                 <div className="flex flex-col overflow-hidden">
-                  <span className={`text-sm font-medium truncate ${target.id === activeTargetId ? 'text-blue-100' : 'text-gray-300'}`}>
+                  <span className={`text-sm font-medium truncate ${target.id === activeTargetId ? 'text-primary' : 'text-card-foreground'}`}>
                     {target.name}
                   </span>
-                  <span className="text-xs text-gray-500 truncate" title={target.url}>
+                  <span className="text-xs text-muted-foreground truncate" title={target.url}>
                     {target.url}
                   </span>
                 </div>
@@ -119,7 +119,7 @@ export function TargetSelector({ targets, activeTargetId, onSelect, onAdd, onDel
                     e.stopPropagation();
                     onDelete(target.id);
                   }}
-                  className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded opacity-0 group-hover:opacity-100 transition-all"
+                  className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/20 rounded opacity-0 group-hover:opacity-100 transition-all"
                   title="Remove target"
                 >
                   <Trash2 size={14} />

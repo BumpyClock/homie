@@ -19,11 +19,6 @@ export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessa
     ? userActiveSessionId
     : (attachedSessionIds.length > 0 ? attachedSessionIds[0] : null);
 
-  // Binary message routing
-  // We need a way to distribute messages to the correct tab.
-  // Since listeners are registered per tab, we can use an event emitter pattern or context.
-  // Or simply, the parent (this view) receives all binary messages and dispatches them.
-  
   const tabListeners = useRef<Map<string, (data: Uint8Array) => void>>(new Map());
 
   useEffect(() => {
@@ -85,19 +80,19 @@ export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessa
   };
 
   if (attachedSessionIds.length === 0) {
-    return <div className="text-gray-500 text-center p-10">No active terminal sessions</div>;
+    return <div className="text-muted-foreground text-center p-10">No active terminal sessions</div>;
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-black">
+    <div className="flex flex-col h-full w-full bg-background">
       {/* Tab Bar */}
-      <div className="flex items-center bg-gray-900 border-b border-gray-800 overflow-x-auto">
+      <div className="flex items-center bg-muted/50 border-b border-border overflow-x-auto">
         {attachedSessionIds.map((sessionId) => (
           <div
             key={sessionId}
             className={`
               flex items-center gap-2 px-4 py-2 text-sm cursor-pointer select-none
-              ${activeSessionId === sessionId ? "bg-gray-800 text-white border-t-2 border-blue-500" : "text-gray-400 hover:bg-gray-800/50"}
+              ${activeSessionId === sessionId ? "bg-card text-foreground border-t-2 border-primary" : "text-muted-foreground hover:bg-muted/80"}
             `}
             onClick={() => setUserActiveSessionId(sessionId)}
           >
@@ -108,16 +103,12 @@ export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessa
                 e.stopPropagation();
                 onDetach(sessionId);
               }}
-              className="p-1 hover:bg-gray-700 rounded-full"
+              className="p-1 hover:bg-muted rounded-full"
             >
               <X size={12} />
             </button>
           </div>
         ))}
-        {/* Placeholder for "Add Session" if we want to allow going back to list to add */}
-        {/* <button className="p-2 text-gray-400 hover:text-white">
-          <Plus size={16} />
-        </button> */}
       </div>
 
       {/* Terminal Content */}
@@ -135,24 +126,17 @@ export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessa
       </div>
 
       {/* Keybar */}
-      <div className="bg-gray-900 border-t border-gray-800 p-2 flex gap-2 overflow-x-auto">
+      <div className="bg-muted/50 border-t border-border p-2 flex gap-2 overflow-x-auto">
           <KeyButton label="ESC" onClick={() => handleKeybarAction("esc")} />
           <KeyButton label="TAB" onClick={() => handleKeybarAction("tab")} />
           <KeyButton label="CTRL+C" onClick={() => handleKeybarAction("ctrl+c")} />
           <KeyButton label="PASTE" onClick={() => handleKeybarAction("paste")} />
-          <div className="w-px bg-gray-700 mx-1" />
+          <div className="w-px bg-border mx-1" />
           <KeyButton label="←" onClick={() => handleKeybarAction("left")} />
           <KeyButton label="↓" onClick={() => handleKeybarAction("down")} />
           <KeyButton label="↑" onClick={() => handleKeybarAction("up")} />
           <KeyButton label="→" onClick={() => handleKeybarAction("right")} />
       </div>
-      
-      {/* Toggle Keybar (Optional) */}
-      {/* <div className="absolute bottom-20 right-4">
-          <button onClick={() => setShowKeybar(!showKeybar)} className="p-2 bg-gray-700 rounded-full opacity-50 hover:opacity-100">
-              <Keyboard size={20} />
-          </button>
-      </div> */}
     </div>
   );
 }
@@ -161,7 +145,7 @@ function KeyButton({ label, onClick }: { label: string; onClick: () => void }) {
     return (
         <button 
             onClick={onClick}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded text-xs font-mono font-bold shadow-sm active:transform active:scale-95 transition-all"
+            className="px-4 py-2 bg-card hover:bg-muted text-foreground border border-border rounded text-xs font-mono font-bold shadow-sm active:transform active:scale-95 transition-all"
         >
             {label}
         </button>
