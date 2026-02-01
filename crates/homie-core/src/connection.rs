@@ -12,6 +12,7 @@ use homie_protocol::{
 };
 
 use crate::auth::AuthOutcome;
+use crate::terminal::TerminalService;
 
 /// Represents an authenticated WS connection after handshake.
 #[derive(Debug)]
@@ -127,8 +128,15 @@ async fn run_message_loop(
     let mut heartbeat = tokio::time::interval(heartbeat_interval);
     heartbeat.tick().await; // consume immediate first tick
 
-    // Outbound channel for sending messages from handlers.
-    let (_outbound_tx, mut outbound_rx) = mpsc::channel::<Message>(64);
+    // Outbound channel: terminal service pushes PTY output + events here.
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<Message>(256);
+
+    // Create the terminal service for this connection.
+    let mut terminal = TerminalService::new(outbound_tx);
+
+    // Reap interval: check for exited sessions periodically.
+    let mut reap_interval = tokio::time::interval(Duration::from_secs(2));
+    reap_interval.tick().await;
 
     loop {
         tokio::select! {
@@ -137,11 +145,11 @@ async fn run_message_loop(
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
-                        handle_text_message(sink, &text).await;
+                        handle_text_message(sink, &text, &mut terminal).await;
                     }
                     Some(Ok(Message::Binary(data))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
-                        handle_binary_message(sink, &data).await;
+                        handle_binary_message(&data, &mut terminal);
                     }
                     Some(Ok(Message::Ping(data))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
@@ -157,7 +165,7 @@ async fn run_message_loop(
                     }
                 }
             }
-            // Outbound messages from internal handlers.
+            // Outbound messages from terminal service (PTY output frames).
             msg = outbound_rx.recv() => {
                 match msg {
                     Some(m) => { let _ = sink.send(m).await; }
@@ -181,21 +189,53 @@ async fn run_message_loop(
                     .await;
                 break;
             }
+            // Reap exited sessions.
+            _ = reap_interval.tick() => {
+                let exited = terminal.reap_exited();
+                for (session_id, exit_code) in exited {
+                    tracing::info!(%session_id, exit_code, "session exited");
+                    let evt = ProtoMessage::Event(homie_protocol::Event {
+                        topic: "terminal.session.exit".into(),
+                        params: Some(serde_json::json!({
+                            "session_id": session_id,
+                            "exit_code": exit_code,
+                        })),
+                    });
+                    if let Ok(json) = encode_message(&evt) {
+                        let _ = sink.send(Message::Text(json.into())).await;
+                    }
+                }
+            }
         }
     }
+
+    // Connection closing — clean up all terminal sessions.
+    terminal.shutdown_all();
 }
 
-async fn handle_text_message(sink: &mut SplitSink<WebSocket, Message>, text: &str) {
+async fn handle_text_message(
+    sink: &mut SplitSink<WebSocket, Message>,
+    text: &str,
+    terminal: &mut TerminalService,
+) {
     match decode_message(text) {
         Ok(ProtoMessage::Request(req)) => {
             tracing::debug!(method = %req.method, id = %req.id, "request");
-            // Placeholder: method routing will be added in US-004.
-            let resp = ProtoMessage::Response(homie_protocol::Response::error(
-                req.id,
-                homie_protocol::error_codes::METHOD_NOT_FOUND,
-                format!("unknown method: {}", req.method),
-            ));
-            if let Ok(json) = encode_message(&resp) {
+
+            let resp = if req.method.starts_with("terminal.") {
+                terminal
+                    .handle_request(req.id, &req.method, req.params)
+                    .await
+            } else {
+                homie_protocol::Response::error(
+                    req.id,
+                    homie_protocol::error_codes::METHOD_NOT_FOUND,
+                    format!("unknown method: {}", req.method),
+                )
+            };
+
+            let msg = ProtoMessage::Response(resp);
+            if let Ok(json) = encode_message(&msg) {
                 let _ = sink.send(Message::Text(json.into())).await;
             }
         }
@@ -208,11 +248,16 @@ async fn handle_text_message(sink: &mut SplitSink<WebSocket, Message>, text: &st
     }
 }
 
-async fn handle_binary_message(_sink: &mut SplitSink<WebSocket, Message>, data: &[u8]) {
-    // Placeholder: binary frame routing will be added in US-003.
+fn handle_binary_message(data: &[u8], terminal: &mut TerminalService) {
     match homie_protocol::BinaryFrame::decode(data) {
         Ok(frame) => {
-            tracing::debug!(session = %frame.session_id, stream = ?frame.stream, len = frame.payload.len(), "binary frame");
+            tracing::debug!(
+                session = %frame.session_id,
+                stream = ?frame.stream,
+                len = frame.payload.len(),
+                "binary frame"
+            );
+            terminal.handle_binary(&frame);
         }
         Err(e) => {
             tracing::warn!("invalid binary frame: {e}");

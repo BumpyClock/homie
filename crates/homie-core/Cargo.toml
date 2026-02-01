@@ -17,6 +17,7 @@ tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 futures.workspace = true
+portable-pty.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
