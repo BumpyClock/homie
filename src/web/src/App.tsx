@@ -1,17 +1,6 @@
-import { useState } from 'react'
 import { useGateway, ConnectionStatus } from '@/hooks/use-gateway'
-
-function getGatewayUrl() {
-  // For development, we might point to a specific port if strictly defined.
-  // I'll default to localhost:3000 if dev, else same origin.
-  if (import.meta.env.DEV) {
-      return "ws://127.0.0.1:3000"; 
-  }
-  
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = window.location.host;
-  return `${protocol}//${host}`;
-}
+import { useTargets } from '@/hooks/use-targets'
+import { TargetSelector } from '@/components/target-selector'
 
 function StatusBadge({ status }: { status: ConnectionStatus }) {
   const colors: Record<ConnectionStatus, string> = {
@@ -32,19 +21,22 @@ function StatusBadge({ status }: { status: ConnectionStatus }) {
 }
 
 function App() {
-  const [url] = useState(getGatewayUrl());
-  const { status, serverHello, rejection, error } = useGateway({ url });
+  const { targets, activeTarget, activeTargetId, setActiveTargetId, addTarget, removeTarget } = useTargets();
+  const { status, serverHello, rejection, error } = useGateway({ url: activeTarget.url });
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col items-center justify-center p-4">
       <div className="max-w-md w-full bg-gray-800 rounded-lg shadow-xl p-6 border border-gray-700">
         <h1 className="text-2xl font-bold mb-6 text-center">Homie Web</h1>
         
-        <div className="space-y-4">
-          <div className="flex justify-between items-center border-b border-gray-700 pb-4">
-            <span className="text-gray-400">Target</span>
-            <code className="bg-gray-900 px-2 py-1 rounded text-sm">{url}</code>
-          </div>
+        <div className="space-y-6">
+          <TargetSelector 
+            targets={targets}
+            activeTargetId={activeTargetId}
+            onSelect={setActiveTargetId}
+            onAdd={addTarget}
+            onDelete={removeTarget}
+          />
 
           <div className="flex justify-between items-center border-b border-gray-700 pb-4">
              <span className="text-gray-400">Status</span>
