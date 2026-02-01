@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use homie_core::{ServerConfig, SqliteStore, TailscaleIdentity, TailscaleWhois};
+use homie_core::{Role, ServerConfig, SqliteStore, TailscaleIdentity, TailscaleWhois};
 use homie_protocol::{
     ClientHello, HandshakeResponse, HelloRejectCode, Request, VersionRange, PROTOCOL_VERSION,
 };
@@ -100,6 +100,23 @@ async fn expect_close(ws: &mut WsStream, timeout: Duration) -> bool {
                 return false;
             }
         }
+    }
+}
+
+async fn rpc_err(
+    ws: &mut WsStream,
+    method: &str,
+    params: Option<serde_json::Value>,
+) -> homie_protocol::RpcError {
+    let req = homie_protocol::Message::Request(Request::new(method, params));
+    let json = homie_protocol::encode_message(&req).unwrap();
+    ws.send(text_msg(json)).await.unwrap();
+
+    let t = next_text(ws).await;
+    let msg: homie_protocol::Message = serde_json::from_str(&t).unwrap();
+    match msg {
+        homie_protocol::Message::Response(r) => r.error.expect("expected error response"),
+        other => panic!("expected response, got {other:?}"),
     }
 }
 
@@ -229,4 +246,20 @@ async fn idle_timeout_closes_connection() {
         expect_close(&mut ws, Duration::from_secs(5)).await,
         "expected connection to close due to idle timeout"
     );
+}
+
+#[tokio::test]
+async fn unauthorized_requests_are_rejected_for_viewer_role() {
+    let config = ServerConfig {
+        local_role: Role::Viewer,
+        ..Default::default()
+    };
+    let addr = start_server(config).await;
+    let mut ws = connect_ws(addr).await;
+
+    ws.send(text_msg(client_hello(1, 1))).await.unwrap();
+    let _ = next_text(&mut ws).await;
+
+    let err = rpc_err(&mut ws, "terminal.session.start", None).await;
+    assert_eq!(err.code, homie_protocol::error_codes::UNAUTHORIZED);
 }

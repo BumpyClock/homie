@@ -1,0 +1,13 @@
+[package]
+name = "homie-gateway"
+description = "Homie gateway server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+homie-core = { path = "../homie-core" }
+tokio.workspace = true
+axum.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

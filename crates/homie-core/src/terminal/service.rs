@@ -11,6 +11,7 @@ use uuid::Uuid;
 use homie_protocol::{error_codes, BinaryFrame, Response, StreamType};
 
 use super::runtime::SessionRuntime;
+use crate::outbound::OutboundMessage;
 use crate::router::{ReapEvent, ServiceHandler};
 use crate::storage::{SessionStatus, Store, TerminalRecord};
 
@@ -38,12 +39,12 @@ struct ActiveSession {
 /// drops, all sessions are cleaned up.
 pub struct TerminalService {
     sessions: HashMap<Uuid, ActiveSession>,
-    outbound_tx: mpsc::Sender<WsMessage>,
+    outbound_tx: mpsc::Sender<OutboundMessage>,
     store: Arc<dyn Store>,
 }
 
 impl TerminalService {
-    pub fn new(outbound_tx: mpsc::Sender<WsMessage>, store: Arc<dyn Store>) -> Self {
+    pub fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
         Self {
             sessions: HashMap::new(),
             outbound_tx,
@@ -455,7 +456,7 @@ impl Drop for TerminalService {
 async fn forward_pty_output(
     session_id: Uuid,
     mut output_rx: mpsc::Receiver<Vec<u8>>,
-    outbound_tx: mpsc::Sender<WsMessage>,
+    outbound_tx: mpsc::Sender<OutboundMessage>,
 ) {
     let mut dropped_frames: u64 = 0;
 
@@ -466,7 +467,7 @@ async fn forward_pty_output(
             payload: data,
         };
         let encoded = frame.encode();
-        match outbound_tx.try_send(WsMessage::Binary(encoded.into())) {
+        match outbound_tx.try_send(OutboundMessage::raw(WsMessage::Binary(encoded.into()))) {
             Ok(()) => {
                 if dropped_frames > 0 {
                     tracing::warn!(

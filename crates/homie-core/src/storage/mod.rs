@@ -2,7 +2,10 @@ mod sqlite;
 mod types;
 
 pub use sqlite::SqliteStore;
-pub use types::{ChatRecord, SessionStatus, TerminalRecord};
+pub use types::{
+    ChatRecord, JobRecord, JobStatus, NotificationEvent, NotificationSubscription, PairingRecord,
+    PairingStatus, SessionStatus, TerminalRecord,
+};
 
 use uuid::Uuid;
 
@@ -35,4 +38,46 @@ pub trait Store: Send + Sync + 'static {
 
     /// Mark all active sessions as inactive (used on server restart).
     fn mark_all_inactive(&self) -> Result<(), String>;
+
+    /// Persist or update a job record.
+    fn upsert_job(&self, job: &JobRecord) -> Result<(), String>;
+
+    /// Get a job by ID.
+    fn get_job(&self, job_id: &str) -> Result<Option<JobRecord>, String>;
+
+    /// List all jobs, ordered by created_at descending.
+    fn list_jobs(&self) -> Result<Vec<JobRecord>, String>;
+
+    /// Remove expired or excess jobs.
+    fn prune_jobs(&self, retention_days: u64, max_jobs: usize) -> Result<(), String>;
+
+    /// Persist or update a pairing record.
+    fn upsert_pairing(&self, pairing: &PairingRecord) -> Result<(), String>;
+
+    /// Get a pairing by ID.
+    fn get_pairing(&self, pairing_id: &str) -> Result<Option<PairingRecord>, String>;
+
+    /// List all pairings, ordered by created_at descending.
+    fn list_pairings(&self) -> Result<Vec<PairingRecord>, String>;
+
+    /// Remove expired pairings beyond retention window.
+    fn prune_pairings(&self, retention_secs: u64) -> Result<(), String>;
+
+    /// Persist or update a notification subscription.
+    fn upsert_notification_subscription(
+        &self,
+        subscription: &NotificationSubscription,
+    ) -> Result<(), String>;
+
+    /// List notification subscriptions.
+    fn list_notification_subscriptions(&self) -> Result<Vec<NotificationSubscription>, String>;
+
+    /// Check if any subscription exists for a target.
+    fn has_notification_target(&self, target: &str) -> Result<bool, String>;
+
+    /// Insert a notification event for audit/retention.
+    fn insert_notification_event(&self, event: &NotificationEvent) -> Result<(), String>;
+
+    /// Remove notification records beyond retention window.
+    fn prune_notifications(&self, retention_days: u64) -> Result<(), String>;
 }

@@ -385,6 +385,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "homie-gateway"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "homie-core",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "homie-protocol"
 version = "0.1.0"
 dependencies = [

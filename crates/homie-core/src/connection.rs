@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -16,6 +16,13 @@ use homie_protocol::{
 
 use crate::agent::AgentService;
 use crate::auth::AuthOutcome;
+use crate::authz::{context_for_outcome, scope_for_method, AuthContext, Scope};
+use crate::config::ServerConfig;
+use crate::jobs::JobsService;
+use crate::notifications::NotificationsService;
+use crate::outbound::OutboundMessage;
+use crate::pairing::PairingService;
+use crate::presence::{NodeRegistry, PresenceService};
 use crate::router::{MessageRouter, ServiceRegistry, SubscriptionManager};
 use crate::storage::Store;
 use crate::terminal::TerminalService;
@@ -28,16 +35,45 @@ pub struct Connection {
     pub negotiated_version: u16,
 }
 
-/// Run the full connection lifecycle: handshake → message loop with
-/// heartbeat + idle timeout.
-pub async fn run_connection(
-    socket: WebSocket,
-    auth: AuthOutcome,
+/// Parameters required to run a connection session.
+/// Parameters required to run a connection session.
+#[derive(Clone)]
+pub struct ConnectionParams {
+    pub config: ServerConfig,
+    pub heartbeat_interval: Duration,
+    pub idle_timeout: Duration,
+    pub registry: ServiceRegistry,
+    pub store: Arc<dyn Store>,
+    pub nodes: Arc<Mutex<NodeRegistry>>,
+    pub pairing_default_ttl_secs: u64,
+    pub pairing_retention_secs: u64,
+}
+
+/// Parameters required for the message loop lifecycle.
+#[derive(Clone)]
+struct MessageLoopParams {
     heartbeat_interval: Duration,
     idle_timeout: Duration,
-    registry: ServiceRegistry,
+    authz: AuthContext,
     store: Arc<dyn Store>,
-) {
+    nodes: Arc<Mutex<NodeRegistry>>,
+    pairing_default_ttl_secs: u64,
+    pairing_retention_secs: u64,
+}
+
+/// Run the full connection lifecycle: handshake → message loop with
+/// heartbeat + idle timeout.
+pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: ConnectionParams) {
+    let ConnectionParams {
+        config,
+        heartbeat_interval,
+        idle_timeout,
+        registry,
+        store,
+        nodes,
+        pairing_default_ttl_secs,
+        pairing_retention_secs,
+    } = params;
     let conn_id = Uuid::new_v4();
     let span = tracing::info_span!("conn", id = %conn_id);
     let _enter = span.enter();
@@ -87,6 +123,7 @@ pub async fn run_connection(
     };
 
     let identity = auth.identity_string();
+    let authz = context_for_outcome(&auth, &config);
 
     let server_hello = HandshakeResponse::Hello(ServerHello {
         protocol_version: negotiated,
@@ -118,14 +155,17 @@ pub async fn run_connection(
 
     // ── Phase 2: Message loop with heartbeat + idle timeout ──────────
     drop(_enter);
-    run_message_loop(
-        &mut sink,
-        &mut stream,
+    let loop_params = MessageLoopParams {
         heartbeat_interval,
         idle_timeout,
+        authz,
         store,
-    )
-    .await;
+        nodes,
+        pairing_default_ttl_secs,
+        pairing_retention_secs,
+    };
+
+    run_message_loop(&mut sink, &mut stream, loop_params).await;
 
     tracing::info!(conn_id = %conn.id, "connection closed");
 }
@@ -133,17 +173,24 @@ pub async fn run_connection(
 async fn run_message_loop(
     sink: &mut SplitSink<WebSocket, Message>,
     stream: &mut futures::stream::SplitStream<WebSocket>,
-    heartbeat_interval: Duration,
-    idle_timeout: Duration,
-    store: Arc<dyn Store>,
+    params: MessageLoopParams,
 ) {
+    let MessageLoopParams {
+        heartbeat_interval,
+        idle_timeout,
+        authz,
+        store,
+        nodes,
+        pairing_default_ttl_secs,
+        pairing_retention_secs,
+    } = params;
     let mut idle_deadline = tokio::time::Instant::now() + idle_timeout;
     let mut heartbeat = tokio::time::interval(heartbeat_interval);
     heartbeat.tick().await; // consume immediate first tick
 
     // Outbound channel: services push PTY output + events here.
     // Bounded for backpressure — services use try_send to avoid blocking.
-    let (outbound_tx, mut outbound_rx) = mpsc::channel::<Message>(256);
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<OutboundMessage>(256);
 
     // Build the router with services.
     let mut router = MessageRouter::new();
@@ -151,7 +198,21 @@ async fn run_message_loop(
         outbound_tx.clone(),
         store.clone(),
     )));
-    router.register(Box::new(AgentService::new(outbound_tx, store)));
+    router.register(Box::new(AgentService::new(
+        outbound_tx.clone(),
+        store.clone(),
+    )));
+    router.register(Box::new(PresenceService::new(nodes)));
+    router.register(Box::new(JobsService::new(store.clone())));
+    router.register(Box::new(PairingService::new(
+        store.clone(),
+        pairing_default_ttl_secs,
+        pairing_retention_secs,
+    )));
+    router.register(Box::new(NotificationsService::new(
+        store.clone(),
+        outbound_tx.clone(),
+    )));
 
     // Per-connection subscription manager.
     let mut subscriptions = SubscriptionManager::new();
@@ -170,24 +231,28 @@ async fn run_message_loop(
                         handle_text_message(
                             sink,
                             &text,
+                            authz,
                             &mut router,
                             &mut subscriptions,
                         ).await;
                     }
                     Some(Ok(Message::Binary(data))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
-                        router.route_binary(
-                            &homie_protocol::BinaryFrame::decode(&data)
-                                .unwrap_or_else(|e| {
-                                    tracing::warn!("invalid binary frame: {e}");
-                                    // Return a dummy frame that will be ignored.
-                                    homie_protocol::BinaryFrame {
-                                        session_id: Uuid::nil(),
-                                        stream: homie_protocol::StreamType::Stdout,
-                                        payload: vec![],
-                                    }
-                                }),
-                        );
+                        if authz.allows(Scope::TerminalWrite) {
+                            router.route_binary(
+                                &homie_protocol::BinaryFrame::decode(&data)
+                                    .unwrap_or_else(|e| {
+                                        tracing::warn!("invalid binary frame: {e}");
+                                        homie_protocol::BinaryFrame {
+                                            session_id: Uuid::nil(),
+                                            stream: homie_protocol::StreamType::Stdout,
+                                            payload: vec![],
+                                        }
+                                    }),
+                            );
+                        } else {
+                            tracing::debug!("unauthorized binary frame ignored");
+                        }
                     }
                     Some(Ok(Message::Ping(data))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
@@ -206,7 +271,18 @@ async fn run_message_loop(
             // Outbound messages from services (PTY output frames).
             msg = outbound_rx.recv() => {
                 match msg {
-                    Some(m) => { let _ = sink.send(m).await; }
+                    Some(OutboundMessage::Raw(m)) => { let _ = sink.send(m).await; }
+                    Some(OutboundMessage::Event { topic, params }) => {
+                        if subscriptions.matches(&topic) {
+                            let evt = ProtoMessage::Event(homie_protocol::Event {
+                                topic,
+                                params,
+                            });
+                            if let Ok(json) = encode_message(&evt) {
+                                let _ = sink.send(Message::Text(json.into())).await;
+                            }
+                        }
+                    }
                     None => break,
                 }
             }
@@ -254,6 +330,7 @@ async fn run_message_loop(
 async fn handle_text_message(
     sink: &mut SplitSink<WebSocket, Message>,
     text: &str,
+    authz: AuthContext,
     router: &mut MessageRouter,
     subscriptions: &mut SubscriptionManager,
 ) {
@@ -261,10 +338,25 @@ async fn handle_text_message(
         Ok(ProtoMessage::Request(req)) => {
             tracing::debug!(method = %req.method, id = %req.id, "request");
 
+            if let Some(scope) = scope_for_method(&req.method) {
+                if !authz.allows(scope) {
+                    let resp = Response::error(req.id, error_codes::UNAUTHORIZED, "unauthorized");
+                    let msg = ProtoMessage::Response(resp);
+                    if let Ok(json) = encode_message(&msg) {
+                        let _ = sink.send(Message::Text(json.into())).await;
+                    }
+                    return;
+                }
+            }
+
             // Handle built-in subscription methods.
             let resp = match req.method.as_str() {
                 "events.subscribe" => handle_subscribe(req.id, req.params, subscriptions),
                 "events.unsubscribe" => handle_unsubscribe(req.id, req.params, subscriptions),
+                "agent.chat.event.subscribe" | "agent.codex.event.subscribe" => {
+                    let params = agent_subscribe_params(req.params);
+                    handle_subscribe(req.id, params, subscriptions)
+                }
                 _ => router.route_request(req.id, &req.method, req.params).await,
             };
 
@@ -343,6 +435,18 @@ fn handle_unsubscribe(
             error_codes::INVALID_PARAMS,
             "missing or invalid 'subscription_id'",
         ),
+    }
+}
+
+fn agent_subscribe_params(params: Option<serde_json::Value>) -> Option<serde_json::Value> {
+    let mut params = params.unwrap_or_else(|| json!({}));
+    match params.as_object_mut() {
+        Some(map) => {
+            map.entry("topic".to_string())
+                .or_insert_with(|| json!("agent.chat.*"));
+            Some(params)
+        }
+        None => Some(json!({ "topic": "agent.chat.*" })),
     }
 }
 

@@ -1,7 +1,13 @@
 pub mod agent;
 mod auth;
+mod authz;
 mod config;
 mod connection;
+pub mod jobs;
+pub mod notifications;
+mod outbound;
+pub mod pairing;
+pub mod presence;
 pub mod router;
 mod server;
 pub mod storage;
@@ -9,8 +15,13 @@ pub mod terminal;
 
 pub use agent::AgentService;
 pub use auth::{AuthOutcome, LiveWhois, TailscaleIdentity, TailscaleWhois};
+pub use authz::{context_for_outcome, scope_for_method, AuthContext, Role, Scope};
 pub use config::ServerConfig;
 pub use connection::Connection;
+pub use jobs::JobsService;
+pub use notifications::NotificationsService;
+pub use outbound::OutboundMessage;
+pub use pairing::PairingService;
 pub use router::{MessageRouter, ServiceHandler, ServiceRegistry, SubscriptionManager};
 pub use server::build_router;
 pub use storage::{ChatRecord, SessionStatus, SqliteStore, Store, TerminalRecord};

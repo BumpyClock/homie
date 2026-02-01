@@ -2,16 +2,14 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use axum::extract::ws::Message as WsMessage;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use homie_protocol::{
-    encode_message, error_codes, BinaryFrame, Event, Message as ProtoMessage, Response,
-};
+use homie_protocol::{error_codes, BinaryFrame, Response};
 
 use super::process::{CodexEvent, CodexProcess};
+use crate::outbound::OutboundMessage;
 use crate::router::{ReapEvent, ServiceHandler};
 use crate::storage::{ChatRecord, SessionStatus, Store};
 
@@ -50,7 +48,7 @@ fn codex_method_to_topic(method: &str) -> Option<&'static str> {
 /// Service spawns Codex, runs the handshake, sends `thread/start`, and
 /// returns `{"chat_id":"<thread_id>"}`.
 pub struct AgentService {
-    outbound_tx: mpsc::Sender<WsMessage>,
+    outbound_tx: mpsc::Sender<OutboundMessage>,
     process: Option<CodexProcess>,
     event_forwarder: Option<tokio::task::JoinHandle<()>>,
     reap_events: Vec<ReapEvent>,
@@ -59,7 +57,7 @@ pub struct AgentService {
 }
 
 impl AgentService {
-    pub fn new(outbound_tx: mpsc::Sender<WsMessage>, store: Arc<dyn Store>) -> Self {
+    pub fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
         Self {
             outbound_tx,
             process: None,
@@ -80,7 +78,8 @@ impl AgentService {
         process.initialize().await?;
 
         let outbound = self.outbound_tx.clone();
-        let forwarder = tokio::spawn(event_forwarder_loop(event_rx, outbound));
+        let store = self.store.clone();
+        let forwarder = tokio::spawn(event_forwarder_loop(event_rx, outbound, store));
         self.event_forwarder = Some(forwarder);
         self.process = Some(process);
         Ok(())
@@ -293,8 +292,17 @@ impl ServiceHandler for AgentService {
         params: Option<Value>,
     ) -> Pin<Box<dyn std::future::Future<Output = Response> + Send + '_>> {
         let method = method.to_string();
+        let canonical = match method.as_str() {
+            "agent.codex.create" => "agent.chat.create",
+            "agent.codex.message.send" => "agent.chat.message.send",
+            "agent.codex.cancel" => "agent.chat.cancel",
+            "agent.codex.approval.respond" => "agent.chat.approval.respond",
+            "agent.codex.list" => "agent.chat.list",
+            other => other,
+        }
+        .to_string();
         Box::pin(async move {
-            match method.as_str() {
+            match canonical.as_str() {
                 "agent.chat.create" => self.chat_create(id).await,
                 "agent.chat.message.send" => self.chat_message_send(id, params).await,
                 "agent.chat.cancel" => self.chat_cancel(id, params).await,
@@ -349,7 +357,8 @@ impl Drop for AgentService {
 /// messages via the outbound WS channel.
 async fn event_forwarder_loop(
     mut event_rx: mpsc::Receiver<CodexEvent>,
-    outbound_tx: mpsc::Sender<WsMessage>,
+    outbound_tx: mpsc::Sender<OutboundMessage>,
+    store: Arc<dyn Store>,
 ) {
     while let Some(event) = event_rx.recv().await {
         let topic = match codex_method_to_topic(&event.method) {
@@ -368,20 +377,14 @@ async fn event_forwarder_loop(
             }
         }
 
-        let proto_event = ProtoMessage::Event(Event {
-            topic: topic.to_string(),
-            params: Some(event_params),
-        });
-
-        let json = match encode_message(&proto_event) {
-            Ok(j) => j,
-            Err(e) => {
-                tracing::warn!("failed to encode agent event: {e}");
-                continue;
+        if let Some(thread_id) = extract_thread_id(&event_params) {
+            if let Ok(Some(chat)) = store.get_chat(&thread_id) {
+                let next = chat.event_pointer.saturating_add(1);
+                let _ = store.update_event_pointer(&chat.chat_id, next);
             }
-        };
+        }
 
-        match outbound_tx.try_send(WsMessage::Text(json.into())) {
+        match outbound_tx.try_send(OutboundMessage::event(topic, Some(event_params))) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
                 tracing::warn!(topic, "backpressure: dropping agent event");
@@ -423,9 +426,18 @@ fn parse_approval_params(params: &Option<Value>) -> Option<(u64, String)> {
     Some((codex_request_id, decision))
 }
 
+fn extract_thread_id(params: &Value) -> Option<String> {
+    params
+        .get("threadId")
+        .and_then(|v| v.as_str())
+        .or_else(|| params.get("thread_id").and_then(|v| v.as_str()))
+        .map(|s| s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::outbound::OutboundMessage;
     use crate::storage::SqliteStore;
 
     fn make_store() -> Arc<dyn Store> {
@@ -559,7 +571,7 @@ mod tests {
 
     #[tokio::test]
     async fn agent_service_returns_error_for_unknown_method() {
-        let (tx, _rx) = mpsc::channel(16);
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
         let mut svc = AgentService::new(tx, make_store());
         let id = Uuid::new_v4();
         let resp = svc.handle_request(id, "agent.unknown.method", None).await;
@@ -569,21 +581,21 @@ mod tests {
 
     #[test]
     fn agent_service_namespace_is_agent() {
-        let (tx, _rx) = mpsc::channel(16);
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
         let svc = AgentService::new(tx, make_store());
         assert_eq!(svc.namespace(), "agent");
     }
 
     #[test]
     fn agent_service_reap_returns_empty_initially() {
-        let (tx, _rx) = mpsc::channel(16);
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
         let mut svc = AgentService::new(tx, make_store());
         assert!(svc.reap().is_empty());
     }
 
     #[tokio::test]
     async fn chat_list_returns_empty_initially() {
-        let (tx, _rx) = mpsc::channel(16);
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
         let mut svc = AgentService::new(tx, make_store());
         let id = Uuid::new_v4();
         let resp = svc.handle_request(id, "agent.chat.list", None).await;
