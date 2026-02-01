@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use homie_protocol::{error_codes, BinaryFrame, Response};
 
-use super::process::{CodexEvent, CodexProcess};
+use super::process::{CodexEvent, CodexProcess, CodexRequestId};
 use crate::outbound::OutboundMessage;
 use crate::router::{ReapEvent, ServiceHandler};
 use crate::storage::{ChatRecord, SessionStatus, Store};
@@ -806,7 +806,7 @@ async fn event_forwarder_loop(
 
         if let Some(codex_id) = event.id {
             if let Some(obj) = event_params.as_object_mut() {
-                obj.insert("codex_request_id".into(), json!(codex_id));
+                obj.insert("codex_request_id".into(), codex_id.to_json());
             }
         }
 
@@ -952,9 +952,21 @@ fn parse_thread_rename_params(params: &Option<Value>) -> Option<(String, Option<
     Some((chat_id, thread_id, title))
 }
 
-fn parse_approval_params(params: &Option<Value>) -> Option<(u64, String)> {
+fn parse_approval_params(params: &Option<Value>) -> Option<(CodexRequestId, String)> {
     let p = params.as_ref()?;
-    let codex_request_id = p.get("codex_request_id")?.as_u64()?;
+    let raw = p.get("codex_request_id")?;
+    let codex_request_id = if let Some(num) = raw.as_u64() {
+        CodexRequestId::Number(num)
+    } else if let Some(num) = raw.as_i64() {
+        if num < 0 {
+            return None;
+        }
+        CodexRequestId::Number(num as u64)
+    } else if let Some(text) = raw.as_str() {
+        CodexRequestId::Text(text.to_string())
+    } else {
+        return None;
+    };
     let decision = p.get("decision")?.as_str()?.to_string();
     Some((codex_request_id, decision))
 }
@@ -1090,7 +1102,7 @@ mod tests {
             "decision": "accept"
         }));
         let (id, decision) = parse_approval_params(&params).unwrap();
-        assert_eq!(id, 42);
+        assert!(matches!(id, CodexRequestId::Number(42)));
         assert_eq!(decision, "accept");
     }
 
@@ -1098,8 +1110,19 @@ mod tests {
     fn parse_approval_params_returns_none_for_invalid_input() {
         assert!(parse_approval_params(&None).is_none());
         assert!(
-            parse_approval_params(&Some(json!({"codex_request_id": "not_a_number"}))).is_none()
+            parse_approval_params(&Some(json!({"codex_request_id": { "bad": true } }))).is_none()
         );
+    }
+
+    #[test]
+    fn parse_approval_params_accepts_string_id() {
+        let params = Some(json!({
+            "codex_request_id": "abc-123",
+            "decision": "decline"
+        }));
+        let (id, decision) = parse_approval_params(&params).unwrap();
+        assert!(matches!(id, CodexRequestId::Text(ref s) if s == "abc-123"));
+        assert_eq!(decision, "decline");
     }
 
     #[tokio::test]

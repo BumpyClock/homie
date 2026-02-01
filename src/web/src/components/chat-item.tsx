@@ -2,7 +2,7 @@ import type { ChatItem } from "@/hooks/use-chat";
 
 interface ChatItemProps {
   item: ChatItem;
-  onApprove?: (requestId: number, decision: "accept" | "decline") => void;
+  onApprove?: (requestId: number | string, decision: "accept" | "decline") => void;
 }
 
 export function ChatItemView({ item, onApprove }: ChatItemProps) {
@@ -41,14 +41,20 @@ export function ChatItemView({ item, onApprove }: ChatItemProps) {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => item.requestId && onApprove?.(item.requestId, "accept")}
+            onClick={() => {
+              if (item.requestId === undefined) return;
+              onApprove?.(item.requestId, "accept");
+            }}
             className="px-3 py-2 min-h-[44px] rounded-md bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors"
           >
             Approve
           </button>
           <button
             type="button"
-            onClick={() => item.requestId && onApprove?.(item.requestId, "decline")}
+            onClick={() => {
+              if (item.requestId === undefined) return;
+              onApprove?.(item.requestId, "decline");
+            }}
             className="px-3 py-2 min-h-[44px] rounded-md border border-amber-300 text-amber-700 dark:text-amber-200 hover:bg-amber-100/70 dark:hover:bg-amber-500/20 transition-colors"
           >
             Decline

@@ -29,7 +29,7 @@ export interface ChatItem {
   status?: string;
   turnId?: string;
   role?: "user" | "assistant";
-  requestId?: number;
+  requestId?: number | string;
   reason?: string;
   optimistic?: boolean;
   raw?: unknown;
@@ -574,7 +574,10 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
         }
       }
       if (evt.topic === "chat.approval.required") {
-        const requestId = typeof params.codex_request_id === "number" ? params.codex_request_id : undefined;
+        const requestId =
+          typeof params.codex_request_id === "number" || typeof params.codex_request_id === "string"
+            ? params.codex_request_id
+            : undefined;
         const itemId = getItemId(params) ?? uuid();
         const reason = typeof params.reason === "string" ? params.reason : undefined;
         const command = typeof params.command === "string" ? params.command : undefined;
@@ -764,7 +767,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     }
   }, [call, updateOverrides]);
 
-  const respondApproval = useCallback(async (requestId: number, decision: "accept" | "decline") => {
+  const respondApproval = useCallback(async (requestId: number | string, decision: "accept" | "decline") => {
     try {
       await call("chat.approval.respond", { codex_request_id: requestId, decision });
     } catch (err: unknown) {

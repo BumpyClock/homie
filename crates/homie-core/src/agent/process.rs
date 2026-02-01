@@ -7,11 +7,27 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 
+/// Request IDs can be numbers or strings in JSON-RPC.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodexRequestId {
+    Number(u64),
+    Text(String),
+}
+
+impl CodexRequestId {
+    pub fn to_json(&self) -> Value {
+        match self {
+            Self::Number(n) => Value::from(*n),
+            Self::Text(s) => Value::from(s.clone()),
+        }
+    }
+}
+
 /// A notification or request received from the Codex app-server stdout.
 #[derive(Debug, Clone)]
 pub struct CodexEvent {
     pub method: String,
-    pub id: Option<u64>,
+    pub id: Option<CodexRequestId>,
     pub params: Option<Value>,
 }
 
@@ -157,9 +173,9 @@ impl CodexProcess {
     }
 
     /// Send a raw JSON-RPC response (used for approval replies).
-    pub async fn send_response(&self, id: u64, result: Value) -> Result<(), String> {
+    pub async fn send_response(&self, id: CodexRequestId, result: Value) -> Result<(), String> {
         let msg = serde_json::json!({
-            "id": id,
+            "id": id.to_json(),
             "result": result,
         });
 
@@ -260,10 +276,29 @@ fn dispatch_line(
     };
 
     let has_method = obj.get("method").and_then(|v| v.as_str()).is_some();
-    let id = obj.get("id").and_then(|v| v.as_u64());
+    let id_value = obj.get("id").and_then(|v| {
+        if let Some(num) = v.as_u64() {
+            Some(CodexRequestId::Number(num))
+        } else if let Some(num) = v.as_i64() {
+            if num >= 0 {
+                Some(CodexRequestId::Number(num as u64))
+            } else {
+                None
+            }
+        } else if let Some(text) = v.as_str() {
+            Some(CodexRequestId::Text(text.to_string()))
+        } else {
+            None
+        }
+    });
+    let numeric_id = match &id_value {
+        Some(CodexRequestId::Number(n)) => Some(*n),
+        Some(CodexRequestId::Text(s)) => s.parse::<u64>().ok(),
+        None => None,
+    };
 
     if !has_method {
-        if let Some(resp_id) = id {
+        if let Some(resp_id) = numeric_id {
             if let Some(tx) = pending.remove(&resp_id) {
                 let result = obj.get("result").cloned().unwrap_or_else(|| obj.clone());
                 let _ = tx.send(result);
@@ -277,7 +312,11 @@ fn dispatch_line(
     let method = obj["method"].as_str().unwrap_or_default().to_string();
     let params = obj.get("params").cloned();
 
-    let event = CodexEvent { method, id, params };
+    let event = CodexEvent {
+        method,
+        id: id_value,
+        params,
+    };
 
     if event_tx.try_send(event).is_err() {
         tracing::warn!("codex event channel full, dropping event");
@@ -348,7 +387,7 @@ mod tests {
             .try_recv()
             .expect("should receive approval request");
         assert_eq!(event.method, "item/commandExecution/requestApproval");
-        assert_eq!(event.id, Some(7));
+        assert_eq!(event.id, Some(CodexRequestId::Number(7)));
     }
 
     #[test]
