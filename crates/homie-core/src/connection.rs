@@ -211,6 +211,7 @@ async fn run_message_loop(
         conn_id,
         terminal_registry,
         outbound_tx.clone(),
+        event_tx.clone(),
     )));
     let (chat_service, agent_service) =
         ChatService::new_shared(outbound_tx.clone(), store.clone());

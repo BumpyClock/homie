@@ -16,6 +16,7 @@ pub struct TerminalService {
     registry: Arc<Mutex<TerminalRegistry>>,
     outbound_tx: mpsc::Sender<OutboundMessage>,
     subscriber_id: Uuid,
+    event_tx: tokio::sync::broadcast::Sender<ReapEvent>,
     attached: HashSet<Uuid>,
 }
 
@@ -24,11 +25,13 @@ impl TerminalService {
         subscriber_id: Uuid,
         registry: Arc<Mutex<TerminalRegistry>>,
         outbound_tx: mpsc::Sender<OutboundMessage>,
+        event_tx: tokio::sync::broadcast::Sender<ReapEvent>,
     ) -> Self {
         Self {
             registry,
             outbound_tx,
             subscriber_id,
+            event_tx,
             attached: HashSet::new(),
         }
     }
@@ -48,6 +51,17 @@ impl TerminalService {
         match info {
             Ok(info) => {
                 self.attached.insert(info.session_id);
+                let _ = self.event_tx.send(ReapEvent::new(
+                    "terminal.session.start",
+                    Some(json!({
+                        "session_id": info.session_id,
+                        "name": info.name,
+                        "shell": info.shell,
+                        "cols": info.cols,
+                        "rows": info.rows,
+                        "started_at": info.started_at,
+                    })),
+                ));
                 Response::success(req_id, json!({ "session_id": info.session_id }))
             }
             Err(TerminalError::Missing(msg)) => {
@@ -296,13 +310,20 @@ impl TerminalService {
             }
         };
 
+        let name_for_event = name.clone();
         let result = {
             let mut registry = self.registry.lock().unwrap();
             registry.rename_session(session_id, name)
         };
 
         match result {
-            Ok(()) => Response::success(req_id, json!({ "ok": true })),
+            Ok(()) => {
+                let _ = self.event_tx.send(ReapEvent::new(
+                    "terminal.session.rename",
+                    Some(json!({ "session_id": session_id, "name": name_for_event })),
+                ));
+                Response::success(req_id, json!({ "ok": true }))
+            }
             Err(TerminalError::NotFound(_)) => Response::error(
                 req_id,
                 error_codes::SESSION_NOT_FOUND,
@@ -380,6 +401,17 @@ impl TerminalService {
         match result {
             Ok(info) => {
                 self.attached.insert(info.session_id);
+                let _ = self.event_tx.send(ReapEvent::new(
+                    "terminal.session.start",
+                    Some(json!({
+                        "session_id": info.session_id,
+                        "name": info.name,
+                        "shell": info.shell,
+                        "cols": info.cols,
+                        "rows": info.rows,
+                        "started_at": info.started_at,
+                    })),
+                ));
                 Response::success(req_id, serde_json::to_value(&info).unwrap_or(json!({})))
             }
             Err(TerminalError::Missing(msg)) => {

@@ -150,8 +150,19 @@ function App() {
 
     void call("events.subscribe", { topic: "terminal.*" }).catch(() => {});
     const cleanup = onEvent((evt) => {
-      if (evt.topic === "terminal.session.exit") {
+      if (
+        evt.topic === "terminal.session.exit" ||
+        evt.topic === "terminal.session.start" ||
+        evt.topic === "terminal.session.rename"
+      ) {
         setRefreshToken((t) => t + 1);
+      }
+
+      if (evt.topic === "terminal.session.rename") {
+        const p = evt.params as { session_id?: string; name?: string | null } | undefined;
+        if (p?.session_id) {
+          handleRename(p.session_id, p.name ?? null);
+        }
       }
     });
 

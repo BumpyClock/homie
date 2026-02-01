@@ -12,7 +12,8 @@ import {
 } from '@/lib/session-utils';
 import { Pencil, Terminal, Trash2, X } from 'lucide-react';
 
-const SESSION_LIST_POLL_MS = 5_000;
+// Low-frequency reconcile; real-time updates come from gateway events.
+const SESSION_LIST_POLL_MS = 60_000;
 const PREVIEW_TICK_MAX = 2;
 const PREVIEW_CATCHUP_DELAY_MS = 1_000;
 

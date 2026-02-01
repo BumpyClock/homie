@@ -163,16 +163,31 @@ async fn rpc(
     let json = homie_protocol::encode_message(&req).unwrap();
     ws.send(text_msg(json)).await.unwrap();
 
-    let t = next_text(ws).await;
-    let msg: homie_protocol::Message = serde_json::from_str(&t).unwrap();
-    match msg {
-        homie_protocol::Message::Response(r) => {
-            if let Some(err) = r.error {
-                panic!("rpc error: {} (code {})", err.message, err.code);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        tokio::select! {
+            msg = next_msg(ws) => {
+                match msg {
+                    WsMsg::Text(t) => {
+                        let parsed: homie_protocol::Message = serde_json::from_str(&t).unwrap();
+                        match parsed {
+                            homie_protocol::Message::Response(r) => {
+                                if let Some(err) = r.error {
+                                    panic!("rpc error: {} (code {})", err.message, err.code);
+                                }
+                                return r.result.unwrap_or(json!(null));
+                            }
+                            homie_protocol::Message::Event(_) => continue,
+                            other => panic!("expected response, got {other:?}"),
+                        }
+                    }
+                    WsMsg::Binary(_) => continue,
+                }
             }
-            r.result.unwrap_or(json!(null))
+            _ = tokio::time::sleep_until(deadline) => {
+                panic!("timeout waiting for rpc response");
+            }
         }
-        other => panic!("expected response, got {other:?}"),
     }
 }
 
@@ -186,11 +201,26 @@ async fn rpc_err(
     let json = homie_protocol::encode_message(&req).unwrap();
     ws.send(text_msg(json)).await.unwrap();
 
-    let t = next_text(ws).await;
-    let msg: homie_protocol::Message = serde_json::from_str(&t).unwrap();
-    match msg {
-        homie_protocol::Message::Response(r) => r.error.expect("expected error response"),
-        other => panic!("expected response, got {other:?}"),
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        tokio::select! {
+            msg = next_msg(ws) => {
+                match msg {
+                    WsMsg::Text(t) => {
+                        let parsed: homie_protocol::Message = serde_json::from_str(&t).unwrap();
+                        match parsed {
+                            homie_protocol::Message::Response(r) => return r.error.expect("expected error response"),
+                            homie_protocol::Message::Event(_) => continue,
+                            other => panic!("expected response, got {other:?}"),
+                        }
+                    }
+                    WsMsg::Binary(_) => continue,
+                }
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                panic!("timeout waiting for rpc error response");
+            }
+        }
     }
 }
 
