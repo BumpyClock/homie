@@ -27,6 +27,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
   const [error, setError] = useState<Event | null>(null);
   
   const wsRef = useRef<WebSocket | null>(null);
+  const binaryListeners = useRef<Set<(data: ArrayBuffer) => void>>(new Set());
   const retryCount = useRef(0);
   const mounted = useRef(true);
   const handshakeCompleted = useRef(false);
@@ -72,12 +73,20 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
             ws.onmessage = (event) => {
                 if (!mounted.current) return;
 
+                if (event.data instanceof Blob) {
+                    event.data.arrayBuffer().then((buffer) => {
+                        binaryListeners.current.forEach((listener) => listener(buffer));
+                    });
+                    return;
+                }
+                
+                if (event.data instanceof ArrayBuffer) {
+                    binaryListeners.current.forEach((listener) => listener(event.data));
+                    return;
+                }
+
                 let data;
                 try {
-                     if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
-                         // TODO: Handle binary stream data
-                         return;
-                     }
                      data = JSON.parse(event.data);
                 } catch (e) {
                      console.error("Failed to parse message", e);
@@ -175,5 +184,18 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
       });
   }, []);
 
-  return { status, serverHello, rejection, error, call };
+  const sendBinary = useCallback((data: Uint8Array | ArrayBuffer) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && handshakeCompleted.current) {
+        wsRef.current.send(data);
+    }
+  }, []);
+
+  const onBinaryMessage = useCallback((callback: (data: ArrayBuffer) => void) => {
+      binaryListeners.current.add(callback);
+      return () => {
+          binaryListeners.current.delete(callback);
+      };
+  }, []);
+
+  return { status, serverHello, rejection, error, call, sendBinary, onBinaryMessage };
 }

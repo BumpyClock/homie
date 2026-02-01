@@ -1,0 +1,169 @@
+
+import { useState, useEffect, useCallback, useRef } from "react";
+import { TerminalTab } from "./terminal-tab";
+import { parseBinaryFrame, StreamType } from "@/lib/binary-protocol";
+import { X, Terminal } from "lucide-react";
+
+interface TerminalViewProps {
+  attachedSessionIds: string[];
+  onDetach: (sessionId: string) => void;
+  call: (method: string, params?: unknown) => Promise<unknown>;
+  onBinaryMessage: (cb: (data: ArrayBuffer) => void) => () => void;
+}
+
+export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessage }: TerminalViewProps) {
+  const [userActiveSessionId, setUserActiveSessionId] = useState<string | null>(null);
+
+  // Derive the effective active session ID
+  const activeSessionId = (userActiveSessionId && attachedSessionIds.includes(userActiveSessionId))
+    ? userActiveSessionId
+    : (attachedSessionIds.length > 0 ? attachedSessionIds[0] : null);
+
+  // Binary message routing
+  // We need a way to distribute messages to the correct tab.
+  // Since listeners are registered per tab, we can use an event emitter pattern or context.
+  // Or simply, the parent (this view) receives all binary messages and dispatches them.
+  
+  const tabListeners = useRef<Map<string, (data: Uint8Array) => void>>(new Map());
+
+  useEffect(() => {
+    const cleanup = onBinaryMessage((buffer) => {
+      try {
+        const frame = parseBinaryFrame(buffer);
+        // Only handle stdout/stderr for display
+        if (frame.stream === StreamType.Stdout || frame.stream === StreamType.Stderr) {
+             const listener = tabListeners.current.get(frame.sessionId);
+             if (listener) {
+                 listener(frame.payload);
+             }
+        }
+      } catch (e) {
+        console.error("Failed to parse binary frame", e);
+      }
+    });
+    return cleanup;
+  }, [onBinaryMessage]);
+
+  const registerTabListener = useCallback((sessionId: string, listener: (data: Uint8Array) => void) => {
+    tabListeners.current.set(sessionId, listener);
+    return () => {
+      tabListeners.current.delete(sessionId);
+    };
+  }, []);
+
+  const handleInput = useCallback((sessionId: string, data: string) => {
+    call("terminal.session.input", { session_id: sessionId, data });
+  }, [call]);
+
+  const handleResize = useCallback((sessionId: string, cols: number, rows: number) => {
+    call("terminal.session.resize", { session_id: sessionId, cols, rows });
+  }, [call]);
+
+  const handleKeybarAction = async (action: string) => {
+    if (!activeSessionId) return;
+    
+    let sequence = "";
+    switch (action) {
+        case "esc": sequence = "\x1b"; break;
+        case "tab": sequence = "\t"; break;
+        case "up": sequence = "\x1b[A"; break;
+        case "down": sequence = "\x1b[B"; break;
+        case "left": sequence = "\x1b[D"; break;
+        case "right": sequence = "\x1b[C"; break;
+        case "ctrl+c": sequence = "\x03"; break;
+        case "paste":
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text) handleInput(activeSessionId, text);
+            } catch (err) {
+                console.error("Failed to read clipboard", err);
+            }
+            return;
+        default: return;
+    }
+    handleInput(activeSessionId, sequence);
+  };
+
+  if (attachedSessionIds.length === 0) {
+    return <div className="text-gray-500 text-center p-10">No active terminal sessions</div>;
+  }
+
+  return (
+    <div className="flex flex-col h-full w-full bg-black">
+      {/* Tab Bar */}
+      <div className="flex items-center bg-gray-900 border-b border-gray-800 overflow-x-auto">
+        {attachedSessionIds.map((sessionId) => (
+          <div
+            key={sessionId}
+            className={`
+              flex items-center gap-2 px-4 py-2 text-sm cursor-pointer select-none
+              ${activeSessionId === sessionId ? "bg-gray-800 text-white border-t-2 border-blue-500" : "text-gray-400 hover:bg-gray-800/50"}
+            `}
+            onClick={() => setUserActiveSessionId(sessionId)}
+          >
+            <Terminal size={14} />
+            <span className="max-w-[150px] truncate">{sessionId.slice(0, 8)}...</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDetach(sessionId);
+              }}
+              className="p-1 hover:bg-gray-700 rounded-full"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ))}
+        {/* Placeholder for "Add Session" if we want to allow going back to list to add */}
+        {/* <button className="p-2 text-gray-400 hover:text-white">
+          <Plus size={16} />
+        </button> */}
+      </div>
+
+      {/* Terminal Content */}
+      <div className="flex-1 relative min-h-0">
+        {attachedSessionIds.map((sessionId) => (
+          <TerminalTab
+            key={sessionId}
+            sessionId={sessionId}
+            active={activeSessionId === sessionId}
+            onInput={(data) => handleInput(sessionId, data)}
+            onResize={(cols, rows) => handleResize(sessionId, cols, rows)}
+            registerDataListener={(listener) => registerTabListener(sessionId, listener)}
+          />
+        ))}
+      </div>
+
+      {/* Keybar */}
+      <div className="bg-gray-900 border-t border-gray-800 p-2 flex gap-2 overflow-x-auto">
+          <KeyButton label="ESC" onClick={() => handleKeybarAction("esc")} />
+          <KeyButton label="TAB" onClick={() => handleKeybarAction("tab")} />
+          <KeyButton label="CTRL+C" onClick={() => handleKeybarAction("ctrl+c")} />
+          <KeyButton label="PASTE" onClick={() => handleKeybarAction("paste")} />
+          <div className="w-px bg-gray-700 mx-1" />
+          <KeyButton label="←" onClick={() => handleKeybarAction("left")} />
+          <KeyButton label="↓" onClick={() => handleKeybarAction("down")} />
+          <KeyButton label="↑" onClick={() => handleKeybarAction("up")} />
+          <KeyButton label="→" onClick={() => handleKeybarAction("right")} />
+      </div>
+      
+      {/* Toggle Keybar (Optional) */}
+      {/* <div className="absolute bottom-20 right-4">
+          <button onClick={() => setShowKeybar(!showKeybar)} className="p-2 bg-gray-700 rounded-full opacity-50 hover:opacity-100">
+              <Keyboard size={20} />
+          </button>
+      </div> */}
+    </div>
+  );
+}
+
+function KeyButton({ label, onClick }: { label: string; onClick: () => void }) {
+    return (
+        <button 
+            onClick={onClick}
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded text-xs font-mono font-bold shadow-sm active:transform active:scale-95 transition-all"
+        >
+            {label}
+        </button>
+    )
+}

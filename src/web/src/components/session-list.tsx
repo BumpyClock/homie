@@ -5,13 +5,14 @@ import { Terminal, Play, X, RefreshCw } from 'lucide-react';
 interface SessionListProps {
   call: (method: string, params?: unknown) => Promise<unknown>;
   status: string;
+  onAttach: (sessionId: string) => void;
 }
 
 interface SessionListResponse {
   sessions: SessionInfo[];
 }
 
-export function SessionList({ call, status }: SessionListProps) {
+export function SessionList({ call, status, onAttach }: SessionListProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,12 +44,19 @@ export function SessionList({ call, status }: SessionListProps) {
 
   const handleStart = async () => {
     try {
-        await call('terminal.session.start', {
+        const session = await call('terminal.session.start', {
             shell: '/bin/bash', // or default
             cols: 80,
             rows: 24
-        });
+        }) as SessionInfo;
+        
+        // Refresh list
         fetchSessions();
+        
+        // Auto-attach
+        if (session && session.session_id) {
+            onAttach(session.session_id);
+        }
     } catch (err: unknown) {
         console.error("Failed to start session", err);
         const msg = err instanceof Error ? err.message : String(err);
@@ -56,12 +64,16 @@ export function SessionList({ call, status }: SessionListProps) {
         // If /bin/bash fails, try /bin/sh
         if (msg && msg.includes("spawn")) {
             try {
-                 await call('terminal.session.start', {
+                 const session = await call('terminal.session.start', {
                     shell: '/bin/sh',
                     cols: 80,
                     rows: 24
-                });
+                }) as SessionInfo;
+                
                 fetchSessions();
+                if (session && session.session_id) {
+                    onAttach(session.session_id);
+                }
                 return;
             } catch (retryErr) {
                 console.error("Failed to start session with /bin/sh", retryErr);
@@ -83,9 +95,7 @@ export function SessionList({ call, status }: SessionListProps) {
   };
 
   const handleAttach = (id: string) => {
-      // For now, just alert or console log as we don't have the terminal UI yet
-      console.log('Attaching to session:', id);
-      alert(`Attach to session ${id} coming soon!`);
+      onAttach(id);
   };
 
   if (status !== 'connected') {
