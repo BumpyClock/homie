@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SessionInfo, SessionPreviewResponse, TmuxListResponse, TmuxSessionInfo } from '@/lib/protocol';
 import { loadPreview, removePreview, savePreview } from '@/lib/session-previews';
 import {
@@ -11,6 +11,10 @@ import {
   type PreviewRefresh,
 } from '@/lib/session-utils';
 import { Pencil, Terminal, Trash2, X } from 'lucide-react';
+
+const SESSION_LIST_POLL_MS = 5_000;
+const PREVIEW_TICK_MAX = 2;
+const PREVIEW_CATCHUP_DELAY_MS = 1_000;
 
 interface SessionListProps {
   call: (method: string, params?: unknown) => Promise<unknown>;
@@ -28,6 +32,16 @@ interface SessionListResponse {
 
 export function SessionList({ call, status, onAttach, onRename, previewNamespace, previewRefresh, refreshToken }: SessionListProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const sessionsRef = useRef<SessionInfo[]>([]);
+  const statusRef = useRef(status);
+  const previewRefreshRef = useRef(previewRefresh);
+  const previewNamespaceRef = useRef(previewNamespace);
+
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewNextAtRef = useRef<number | null>(null);
+  const previewRunningRef = useRef(false);
+  const runPreviewTickRef = useRef<() => void>(() => {});
+
   const [error, setError] = useState<string | null>(null);
   const [tmuxSessions, setTmuxSessions] = useState<TmuxSessionInfo[]>([]);
   const [tmuxSupported, setTmuxSupported] = useState(false);
@@ -66,52 +80,105 @@ export function SessionList({ call, status, onAttach, onRename, previewNamespace
     }
   }, [call, status]);
 
-  const previewCadenceMs = useCallback(() => {
-    const match = PREVIEW_OPTIONS.find((o) => o.value === previewRefresh);
-    return match?.ms ?? null;
-  }, [previewRefresh]);
+  const schedulePreviewTick = (delayMs: number) => {
+    if (statusRef.current !== "connected") return;
+    const at = Date.now() + delayMs;
+    const currentAt = previewNextAtRef.current;
+    if (currentAt !== null && currentAt <= at) return;
 
-  const fetchPreview = useCallback(async (sessionId: string) => {
+    previewNextAtRef.current = at;
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = setTimeout(() => {
+      previewNextAtRef.current = null;
+      runPreviewTickRef.current();
+    }, Math.max(0, at - Date.now()));
+  };
+
+  const fetchPreview = useCallback(async (namespace: string, sessionId: string) => {
     try {
       const res = await call('terminal.session.preview', { session_id: sessionId, max_bytes: PREVIEW_MAX_BYTES }) as SessionPreviewResponse;
       if (typeof res?.text === "string") {
         const text = res.text.trimEnd();
-        savePreview(previewNamespace, sessionId, text);
+        savePreview(namespace, sessionId, text);
       }
     } catch {
       return;
     }
-  }, [call, previewNamespace]);
+  }, [call]);
 
-  const syncPreviews = useCallback(async (items: SessionInfo[]) => {
-    const cadence = previewCadenceMs();
-    const now = Date.now();
-    for (const session of items) {
-      if (session.status !== "active") continue;
-      const existing = loadPreview(previewNamespace, session.session_id);
-      if (!existing) {
-        await fetchPreview(session.session_id);
-        continue;
+  const runPreviewTick = useCallback(async () => {
+    if (previewRunningRef.current) return;
+    if (statusRef.current !== "connected") return;
+
+    previewRunningRef.current = true;
+    try {
+      const cadence = PREVIEW_OPTIONS.find((o) => o.value === previewRefreshRef.current)?.ms ?? null;
+      const namespace = previewNamespaceRef.current;
+      const items = sessionsRef.current;
+      const now = Date.now();
+
+      const missing: string[] = [];
+      const due: string[] = [];
+
+      for (const session of items) {
+        if (session.status !== "active") continue;
+        const existing = loadPreview(namespace, session.session_id);
+        if (!existing) {
+          missing.push(session.session_id);
+          continue;
+        }
+        if (cadence === null) continue;
+        if (now - existing.capturedAt >= cadence) {
+          due.push(session.session_id);
+        }
       }
-      if (cadence === null) continue;
-      if (now - existing.capturedAt >= cadence) {
-        await fetchPreview(session.session_id);
+
+      const toFetch = [...missing, ...due].slice(0, PREVIEW_TICK_MAX);
+      for (const id of toFetch) {
+        if (statusRef.current !== "connected") return;
+        await fetchPreview(namespace, id);
       }
+
+      const remaining = missing.length + due.length - toFetch.length;
+      if (remaining > 0) {
+        schedulePreviewTick(PREVIEW_CATCHUP_DELAY_MS);
+      } else if (cadence !== null) {
+        schedulePreviewTick(cadence);
+      }
+    } finally {
+      previewRunningRef.current = false;
     }
-  }, [fetchPreview, previewCadenceMs, previewNamespace]);
+  }, [fetchPreview]);
+
+  useEffect(() => {
+    runPreviewTickRef.current = () => {
+      void runPreviewTick();
+    };
+  }, [runPreviewTick]);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    previewRefreshRef.current = previewRefresh;
+  }, [previewRefresh]);
+
+  useEffect(() => {
+    previewNamespaceRef.current = previewNamespace;
+  }, [previewNamespace]);
 
   useEffect(() => {
     if (status !== 'connected') return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const cadence = previewCadenceMs();
 
     const poll = async () => {
       if (cancelled) return;
       await fetchSessions();
       await fetchTmux();
-      if (cancelled || cadence === null) return;
-      timer = setTimeout(poll, cadence);
+      if (cancelled) return;
+      timer = setTimeout(poll, SESSION_LIST_POLL_MS);
     };
 
     void poll();
@@ -119,23 +186,23 @@ export function SessionList({ call, status, onAttach, onRename, previewNamespace
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [status, fetchSessions, fetchTmux, previewCadenceMs]);
+  }, [status, fetchSessions, fetchTmux]);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+    schedulePreviewTick(0);
+  }, [sessions]);
 
   useEffect(() => {
     if (status !== "connected") return;
-    if (sessions.length === 0) return;
-    void syncPreviews(sessions);
-  }, [sessions, status, syncPreviews]);
-
-  useEffect(() => {
-    if (status !== "connected") return;
-    const cadence = previewCadenceMs();
-    if (!cadence) return;
-    const interval = setInterval(() => {
-      void syncPreviews(sessions);
-    }, cadence);
-    return () => clearInterval(interval);
-  }, [status, previewCadenceMs, sessions, syncPreviews]);
+    schedulePreviewTick(0);
+    return () => {
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+      previewNextAtRef.current = null;
+      previewRunningRef.current = false;
+    };
+  }, [status, previewRefresh, previewNamespace]);
 
   const handleTmuxAttach = async (name: string) => {
     try {
@@ -245,8 +312,8 @@ export function SessionList({ call, status, onAttach, onRename, previewNamespace
   const handleRefresh = useCallback(() => {
     fetchSessions();
     fetchTmux();
-    void syncPreviews(sessions);
-  }, [fetchSessions, fetchTmux, syncPreviews, sessions]);
+    schedulePreviewTick(0);
+  }, [fetchSessions, fetchTmux]);
 
   useEffect(() => {
     if (refreshToken === undefined) return;
