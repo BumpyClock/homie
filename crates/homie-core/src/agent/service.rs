@@ -90,13 +90,12 @@ impl CodexChatCore {
         }
 
         let process = self.process.as_ref().unwrap();
-        match process.send_request("thread/start", None).await {
+        let params = json!({ "model": codex_model() });
+        match process.send_request("thread/start", Some(params)).await {
             Ok(result) => {
-                let thread_id = result
-                    .get("threadId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
+                let thread_id =
+                    extract_id_from_result(&result, &["threadId", "thread_id"], &[("thread", "id")])
+                        .unwrap_or_default();
                 let thread_id_value = thread_id.clone();
                 let chat_id = if thread_id.is_empty() {
                     Uuid::new_v4().to_string()
@@ -161,11 +160,12 @@ impl CodexChatCore {
         let params = json!({ "threadId": thread_id });
         match process.send_request("thread/resume", Some(params)).await {
             Ok(result) => {
-                let resolved = result
-                    .get("threadId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(&thread_id)
-                    .to_string();
+                let resolved = extract_id_from_result(
+                    &result,
+                    &["threadId", "thread_id"],
+                    &[("thread", "id")],
+                )
+                .unwrap_or_else(|| thread_id.clone());
                 self.thread_ids.insert(chat_id.clone(), resolved.clone());
 
                 let rec = match self.store.get_chat(&chat_id).ok().flatten() {
@@ -231,11 +231,9 @@ impl CodexChatCore {
         let process = self.process.as_ref().unwrap();
         match process.send_request("turn/start", Some(codex_params)).await {
             Ok(result) => {
-                let turn_id = result
-                    .get("turnId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
+                let turn_id =
+                    extract_id_from_result(&result, &["turnId", "turn_id"], &[("turn", "id")])
+                        .unwrap_or_default();
                 Response::success(req_id, json!({ "chat_id": chat_id, "turn_id": turn_id }))
             }
             Err(e) => Response::error(
@@ -756,6 +754,36 @@ fn chrono_now() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     format!("{}s", dur.as_secs())
+}
+
+fn codex_model() -> String {
+    std::env::var("HOMIE_CODEX_MODEL").unwrap_or_else(|_| "gpt-5.1-codex".to_string())
+}
+
+fn extract_id_from_result(
+    value: &Value,
+    direct_keys: &[&str],
+    nested_keys: &[(&str, &str)],
+) -> Option<String> {
+    for key in direct_keys {
+        if let Some(id) = value.get(*key).and_then(|v| v.as_str()) {
+            if !id.is_empty() {
+                return Some(id.to_string());
+            }
+        }
+    }
+    for (outer, inner) in nested_keys {
+        if let Some(id) = value
+            .get(*outer)
+            .and_then(|v| v.get(*inner))
+            .and_then(|v| v.as_str())
+        {
+            if !id.is_empty() {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
 }
 
 // -- Param parsing helpers ------------------------------------------------

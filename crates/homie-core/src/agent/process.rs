@@ -400,9 +400,13 @@ mod tests {
             .expect("account/read");
         assert!(account.is_object(), "account/read returns an object");
 
-        let thread = with_timeout(Duration::from_secs(10), process.send_request("thread/start", None))
-            .await
-            .expect("thread/start");
+        let thread_params = serde_json::json!({ "model": codex_model() });
+        let thread = with_timeout(
+            Duration::from_secs(10),
+            process.send_request("thread/start", Some(thread_params)),
+        )
+        .await
+        .expect("thread/start");
         let thread_id = extract_id(&thread, &["threadId", "thread_id"], &[("thread", "id")])
             .unwrap_or_else(|| panic!("thread/start returned no thread id: {thread}"));
 
@@ -453,6 +457,10 @@ mod tests {
 
     fn should_run_codex_e2e() -> bool {
         matches!(std::env::var("HOMIE_CODEX_E2E").as_deref(), Ok("1"))
+    }
+
+    fn codex_model() -> String {
+        std::env::var("HOMIE_CODEX_MODEL").unwrap_or_else(|_| "gpt-5.1-codex".to_string())
     }
 
     async fn with_timeout<T>(
