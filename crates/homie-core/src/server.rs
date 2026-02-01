@@ -12,12 +12,14 @@ use axum::Router;
 use crate::auth::{authenticate, AuthOutcome, TailscaleWhois};
 use crate::config::ServerConfig;
 use crate::connection::run_connection;
+use crate::router::ServiceRegistry;
 
 /// Shared state accessible by handlers.
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub config: ServerConfig,
     pub whois: Arc<dyn TailscaleWhois>,
+    pub registry: ServiceRegistry,
 }
 
 /// Build the axum router for the WS server.
@@ -26,9 +28,13 @@ pub(crate) struct AppState {
 /// Callers should use `into_make_service_with_connect_info::<SocketAddr>()`
 /// when binding to get remote address extraction.
 pub fn build_router(config: ServerConfig, whois: impl TailscaleWhois) -> Router {
+    let mut registry = ServiceRegistry::new();
+    registry.register("terminal", "1.0");
+
     let state = AppState {
         config,
         whois: Arc::new(whois),
+        registry,
     };
 
     Router::new()
@@ -82,7 +88,8 @@ async fn ws_upgrade(
 
     let heartbeat = state.config.heartbeat_interval;
     let idle = state.config.idle_timeout;
+    let registry = state.registry.clone();
 
-    ws.on_upgrade(move |socket| run_connection(socket, auth, heartbeat, idle))
+    ws.on_upgrade(move |socket| run_connection(socket, auth, heartbeat, idle, registry))
         .into_response()
 }

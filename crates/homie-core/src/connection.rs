@@ -3,15 +3,18 @@ use std::time::Duration;
 use axum::extract::ws::{Message, WebSocket};
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
+use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use homie_protocol::{
-    decode_message, encode_message, ClientHello, HandshakeResponse, HelloReject, HelloRejectCode,
-    Message as ProtoMessage, ServerHello, ServiceCapability, VersionRange, PROTOCOL_VERSION,
+    decode_message, encode_message, error_codes, ClientHello, HandshakeResponse, HelloReject,
+    HelloRejectCode, Message as ProtoMessage, Response, ServerHello, VersionRange,
+    PROTOCOL_VERSION,
 };
 
 use crate::auth::AuthOutcome;
+use crate::router::{MessageRouter, ServiceRegistry, SubscriptionManager};
 use crate::terminal::TerminalService;
 
 /// Represents an authenticated WS connection after handshake.
@@ -29,6 +32,7 @@ pub async fn run_connection(
     auth: AuthOutcome,
     heartbeat_interval: Duration,
     idle_timeout: Duration,
+    registry: ServiceRegistry,
 ) {
     let conn_id = Uuid::new_v4();
     let span = tracing::info_span!("conn", id = %conn_id);
@@ -84,10 +88,7 @@ pub async fn run_connection(
         protocol_version: negotiated,
         server_id: format!("homie-gateway/{}", env!("CARGO_PKG_VERSION")),
         identity: identity.clone(),
-        services: vec![ServiceCapability {
-            service: "terminal".into(),
-            version: "1.0".into(),
-        }],
+        services: registry.capabilities(),
     });
 
     let json = match serde_json::to_string(&server_hello) {
@@ -128,11 +129,16 @@ async fn run_message_loop(
     let mut heartbeat = tokio::time::interval(heartbeat_interval);
     heartbeat.tick().await; // consume immediate first tick
 
-    // Outbound channel: terminal service pushes PTY output + events here.
+    // Outbound channel: services push PTY output + events here.
+    // Bounded for backpressure — services use try_send to avoid blocking.
     let (outbound_tx, mut outbound_rx) = mpsc::channel::<Message>(256);
 
-    // Create the terminal service for this connection.
-    let mut terminal = TerminalService::new(outbound_tx);
+    // Build the router with the terminal service.
+    let mut router = MessageRouter::new();
+    router.register(Box::new(TerminalService::new(outbound_tx)));
+
+    // Per-connection subscription manager.
+    let mut subscriptions = SubscriptionManager::new();
 
     // Reap interval: check for exited sessions periodically.
     let mut reap_interval = tokio::time::interval(Duration::from_secs(2));
@@ -145,11 +151,27 @@ async fn run_message_loop(
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
-                        handle_text_message(sink, &text, &mut terminal).await;
+                        handle_text_message(
+                            sink,
+                            &text,
+                            &mut router,
+                            &mut subscriptions,
+                        ).await;
                     }
                     Some(Ok(Message::Binary(data))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
-                        handle_binary_message(&data, &mut terminal);
+                        router.route_binary(
+                            &homie_protocol::BinaryFrame::decode(&data)
+                                .unwrap_or_else(|e| {
+                                    tracing::warn!("invalid binary frame: {e}");
+                                    // Return a dummy frame that will be ignored.
+                                    homie_protocol::BinaryFrame {
+                                        session_id: Uuid::nil(),
+                                        stream: homie_protocol::StreamType::Stdout,
+                                        payload: vec![],
+                                    }
+                                }),
+                        );
                     }
                     Some(Ok(Message::Ping(data))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
@@ -165,7 +187,7 @@ async fn run_message_loop(
                     }
                 }
             }
-            // Outbound messages from terminal service (PTY output frames).
+            // Outbound messages from services (PTY output frames).
             msg = outbound_rx.recv() => {
                 match msg {
                     Some(m) => { let _ = sink.send(m).await; }
@@ -189,49 +211,45 @@ async fn run_message_loop(
                     .await;
                 break;
             }
-            // Reap exited sessions.
+            // Reap exited sessions → emit events (filtered by subscriptions).
             _ = reap_interval.tick() => {
-                let exited = terminal.reap_exited();
-                for (session_id, exit_code) in exited {
-                    tracing::info!(%session_id, exit_code, "session exited");
-                    let evt = ProtoMessage::Event(homie_protocol::Event {
-                        topic: "terminal.session.exit".into(),
-                        params: Some(serde_json::json!({
-                            "session_id": session_id,
-                            "exit_code": exit_code,
-                        })),
-                    });
-                    if let Ok(json) = encode_message(&evt) {
-                        let _ = sink.send(Message::Text(json.into())).await;
+                let events = router.reap_all();
+                for reap_event in events {
+                    tracing::info!(topic = %reap_event.topic, "reap event");
+                    // Only send if client has a matching subscription.
+                    if subscriptions.matches(&reap_event.topic) {
+                        let evt = ProtoMessage::Event(homie_protocol::Event {
+                            topic: reap_event.topic,
+                            params: reap_event.params,
+                        });
+                        if let Ok(json) = encode_message(&evt) {
+                            let _ = sink.send(Message::Text(json.into())).await;
+                        }
                     }
                 }
             }
         }
     }
 
-    // Connection closing — clean up all terminal sessions.
-    terminal.shutdown_all();
+    // Connection closing — clean up all services.
+    router.shutdown_all();
 }
 
 async fn handle_text_message(
     sink: &mut SplitSink<WebSocket, Message>,
     text: &str,
-    terminal: &mut TerminalService,
+    router: &mut MessageRouter,
+    subscriptions: &mut SubscriptionManager,
 ) {
     match decode_message(text) {
         Ok(ProtoMessage::Request(req)) => {
             tracing::debug!(method = %req.method, id = %req.id, "request");
 
-            let resp = if req.method.starts_with("terminal.") {
-                terminal
-                    .handle_request(req.id, &req.method, req.params)
-                    .await
-            } else {
-                homie_protocol::Response::error(
-                    req.id,
-                    homie_protocol::error_codes::METHOD_NOT_FOUND,
-                    format!("unknown method: {}", req.method),
-                )
+            // Handle built-in subscription methods.
+            let resp = match req.method.as_str() {
+                "events.subscribe" => handle_subscribe(req.id, req.params, subscriptions),
+                "events.unsubscribe" => handle_unsubscribe(req.id, req.params, subscriptions),
+                _ => router.route_request(req.id, &req.method, req.params).await,
             };
 
             let msg = ProtoMessage::Response(resp);
@@ -248,20 +266,67 @@ async fn handle_text_message(
     }
 }
 
-fn handle_binary_message(data: &[u8], terminal: &mut TerminalService) {
-    match homie_protocol::BinaryFrame::decode(data) {
-        Ok(frame) => {
-            tracing::debug!(
-                session = %frame.session_id,
-                stream = ?frame.stream,
-                len = frame.payload.len(),
-                "binary frame"
-            );
-            terminal.handle_binary(&frame);
+/// Handle `events.subscribe` — add a topic subscription.
+///
+/// Params: `{ "topic": "terminal.*" }` or `{ "topic": "*" }`
+/// Returns: `{ "subscription_id": "<uuid>" }`
+fn handle_subscribe(
+    req_id: Uuid,
+    params: Option<serde_json::Value>,
+    subs: &mut SubscriptionManager,
+) -> Response {
+    let topic = params
+        .as_ref()
+        .and_then(|p| p.get("topic"))
+        .and_then(|v| v.as_str());
+
+    match topic {
+        Some(pattern) => {
+            let sub_id = subs.subscribe(pattern);
+            tracing::debug!(%sub_id, pattern, "subscribed");
+            Response::success(req_id, json!({ "subscription_id": sub_id }))
         }
-        Err(e) => {
-            tracing::warn!("invalid binary frame: {e}");
+        None => Response::error(
+            req_id,
+            error_codes::INVALID_PARAMS,
+            "missing 'topic' parameter",
+        ),
+    }
+}
+
+/// Handle `events.unsubscribe` — remove a topic subscription.
+///
+/// Params: `{ "subscription_id": "<uuid>" }`
+/// Returns: `{ "ok": true }` or error if not found.
+fn handle_unsubscribe(
+    req_id: Uuid,
+    params: Option<serde_json::Value>,
+    subs: &mut SubscriptionManager,
+) -> Response {
+    let sub_id = params
+        .as_ref()
+        .and_then(|p| p.get("subscription_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<Uuid>().ok());
+
+    match sub_id {
+        Some(id) => {
+            if subs.unsubscribe(id) {
+                tracing::debug!(%id, "unsubscribed");
+                Response::success(req_id, json!({ "ok": true }))
+            } else {
+                Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "subscription not found",
+                )
+            }
         }
+        None => Response::error(
+            req_id,
+            error_codes::INVALID_PARAMS,
+            "missing or invalid 'subscription_id'",
+        ),
     }
 }
 

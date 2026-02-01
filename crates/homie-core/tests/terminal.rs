@@ -469,6 +469,14 @@ async fn session_exit_event_on_process_exit() {
     let addr = start_server(ServerConfig::default()).await;
     let mut ws = connect_and_handshake(addr).await;
 
+    // Subscribe to terminal events so we receive exit notifications.
+    let _sub = rpc(
+        &mut ws,
+        "events.subscribe",
+        Some(json!({ "topic": "terminal.*" })),
+    )
+    .await;
+
     // Start a session that will exit quickly.
     let result = rpc(
         &mut ws,

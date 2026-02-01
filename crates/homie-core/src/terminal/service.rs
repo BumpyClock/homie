@@ -7,11 +7,10 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use homie_protocol::{
-    encode_message, error_codes, BinaryFrame, Event, Message as ProtoMessage, Response, StreamType,
-};
+use homie_protocol::{error_codes, BinaryFrame, Response, StreamType};
 
 use super::runtime::SessionRuntime;
+use crate::router::{ReapEvent, ServiceHandler};
 
 /// Metadata for a running session, visible to clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,57 +47,8 @@ impl TerminalService {
         }
     }
 
-    /// Route a JSON-RPC request to the appropriate handler.
-    /// Returns a Response to send back to the client.
-    pub async fn handle_request(
-        &mut self,
-        id: Uuid,
-        method: &str,
-        params: Option<Value>,
-    ) -> Response {
-        match method {
-            "terminal.session.start" => self.session_start(id, params),
-            "terminal.session.attach" => self.session_attach(id, params),
-            "terminal.session.resize" => self.session_resize(id, params),
-            "terminal.session.input" => self.session_input(id, params),
-            "terminal.session.kill" => self.session_kill(id, params),
-            _ => Response::error(
-                id,
-                error_codes::METHOD_NOT_FOUND,
-                format!("unknown method: {method}"),
-            ),
-        }
-    }
-
-    /// Handle an inbound binary frame (stdin data for a session).
-    pub fn handle_binary(&mut self, frame: &BinaryFrame) {
-        if frame.stream != StreamType::Stdin {
-            tracing::debug!(
-                session = %frame.session_id,
-                stream = ?frame.stream,
-                "ignoring non-stdin binary frame"
-            );
-            return;
-        }
-        if let Some(active) = self.sessions.get_mut(&frame.session_id) {
-            if let Err(e) = active.runtime.write_input(&frame.payload) {
-                tracing::warn!(session = %frame.session_id, "write_input error: {e}");
-            }
-        } else {
-            tracing::debug!(session = %frame.session_id, "binary frame for unknown session");
-        }
-    }
-
-    /// Clean up all sessions (called when connection drops).
-    pub fn shutdown_all(&mut self) {
-        let ids: Vec<Uuid> = self.sessions.keys().copied().collect();
-        for id in ids {
-            self.remove_session(id);
-        }
-    }
-
-    /// Check for exited sessions and emit exit events.
-    pub fn reap_exited(&mut self) -> Vec<(Uuid, u32)> {
+    /// Check for exited sessions and return exit info.
+    fn reap_exited(&mut self) -> Vec<(Uuid, u32)> {
         let mut exited = Vec::new();
         for (id, active) in &mut self.sessions {
             if let Some(code) = active.runtime.try_wait() {
@@ -333,19 +283,91 @@ impl TerminalService {
     }
 }
 
-impl Drop for TerminalService {
-    fn drop(&mut self) {
-        self.shutdown_all();
+impl ServiceHandler for TerminalService {
+    fn namespace(&self) -> &str {
+        "terminal"
+    }
+
+    fn handle_request(
+        &mut self,
+        id: Uuid,
+        method: &str,
+        params: Option<Value>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + '_>> {
+        let resp = match method {
+            "terminal.session.start" => self.session_start(id, params),
+            "terminal.session.attach" => self.session_attach(id, params),
+            "terminal.session.resize" => self.session_resize(id, params),
+            "terminal.session.input" => self.session_input(id, params),
+            "terminal.session.kill" => self.session_kill(id, params),
+            _ => Response::error(
+                id,
+                error_codes::METHOD_NOT_FOUND,
+                format!("unknown method: {method}"),
+            ),
+        };
+        Box::pin(async move { resp })
+    }
+
+    fn handle_binary(&mut self, frame: &BinaryFrame) {
+        if frame.stream != StreamType::Stdin {
+            tracing::debug!(
+                session = %frame.session_id,
+                stream = ?frame.stream,
+                "ignoring non-stdin binary frame"
+            );
+            return;
+        }
+        if let Some(active) = self.sessions.get_mut(&frame.session_id) {
+            if let Err(e) = active.runtime.write_input(&frame.payload) {
+                tracing::warn!(session = %frame.session_id, "write_input error: {e}");
+            }
+        } else {
+            tracing::debug!(session = %frame.session_id, "binary frame for unknown session");
+        }
+    }
+
+    fn reap(&mut self) -> Vec<ReapEvent> {
+        self.reap_exited()
+            .into_iter()
+            .map(|(session_id, exit_code)| ReapEvent {
+                topic: "terminal.session.exit".into(),
+                params: Some(json!({
+                    "session_id": session_id,
+                    "exit_code": exit_code,
+                })),
+            })
+            .collect()
+    }
+
+    fn shutdown(&mut self) {
+        let ids: Vec<Uuid> = self.sessions.keys().copied().collect();
+        for id in ids {
+            self.remove_session(id);
+        }
     }
 }
 
-// ── Output forwarding task ───────────────────────────────────────────
+impl Drop for TerminalService {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
 
+// ── Output forwarding task with backpressure ─────────────────────────
+
+/// Forwards PTY output as binary WS frames.
+///
+/// Backpressure: uses `try_send` on the outbound channel. When the channel
+/// is full (client is slow), frames are dropped and a warning is logged.
+/// This prevents a fast PTY from blocking the entire connection.
 async fn forward_pty_output(
     session_id: Uuid,
     mut output_rx: mpsc::Receiver<Vec<u8>>,
     outbound_tx: mpsc::Sender<WsMessage>,
 ) {
+    let mut dropped_frames: u64 = 0;
+
     while let Some(data) = output_rx.recv().await {
         let frame = BinaryFrame {
             session_id,
@@ -353,22 +375,31 @@ async fn forward_pty_output(
             payload: data,
         };
         let encoded = frame.encode();
-        if outbound_tx
-            .send(WsMessage::Binary(encoded.into()))
-            .await
-            .is_err()
-        {
-            break; // connection closed
+        match outbound_tx.try_send(WsMessage::Binary(encoded.into())) {
+            Ok(()) => {
+                if dropped_frames > 0 {
+                    tracing::warn!(
+                        session = %session_id,
+                        dropped_frames,
+                        "backpressure eased, resumed sending"
+                    );
+                    dropped_frames = 0;
+                }
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                dropped_frames += 1;
+                if dropped_frames == 1 || dropped_frames.is_multiple_of(100) {
+                    tracing::warn!(
+                        session = %session_id,
+                        dropped_frames,
+                        "backpressure: dropping PTY output frame"
+                    );
+                }
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                break; // connection closed
+            }
         }
-    }
-
-    // PTY reader exited — send an exit event via JSON.
-    let exit_event = ProtoMessage::Event(Event {
-        topic: "terminal.session.exit".into(),
-        params: Some(json!({ "session_id": session_id })),
-    });
-    if let Ok(json) = encode_message(&exit_event) {
-        let _ = outbound_tx.send(WsMessage::Text(json.into())).await;
     }
 }
 
