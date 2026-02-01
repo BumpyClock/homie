@@ -1,0 +1,87 @@
+{
+  "name": "Homie Web Client (Terminal MVP)",
+  "description": "Web app that provides terminal-only access to the Homie backend. Uses a single WebSocket connection to the gateway, renders PTY output via xterm.js, and offers session list, tabs, and a keybar. Supports light/dark/system themes plus multiple color schemes. Default target is same-origin gateway; user can save additional tailnet targets.",
+  "branchName": "main",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Web app scaffold + gateway connection",
+      "description": "As a user, I want the web app to connect to the gateway over WebSocket so that I can use terminal features from the browser.",
+      "acceptanceCriteria": [
+        "Web app initializes WS connection using same-origin gateway by default",
+        "Shows connection status (connecting/connected/error)",
+        "Performs protocol handshake and rejects incompatible versions",
+        "Reconnect on transient disconnect with backoff"
+      ],
+      "priority": 1,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    },
+    {
+      "id": "US-002",
+      "title": "Target selection + saved endpoints",
+      "description": "As a user, I want to switch between gateway endpoints so that I can access local or tailnet servers.",
+      "acceptanceCriteria": [
+        "Default target is same-origin gateway",
+        "User can add/save custom targets (name + ws/wss URL)",
+        "Switching target reconnects and refreshes session list",
+        "Targets persist in local storage"
+      ],
+      "priority": 2,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    },
+    {
+      "id": "US-003",
+      "title": "Session list + lifecycle controls",
+      "description": "As a user, I want to see terminal sessions and control them so that I can start or end sessions from the web app.",
+      "acceptanceCriteria": [
+        "List sessions with status, title/command, and last activity",
+        "Start new session via `terminal.session.start`",
+        "Attach to session via `terminal.session.attach`",
+        "Kill session via `terminal.session.kill` with confirm"
+      ],
+      "priority": 3,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    },
+    {
+      "id": "US-004",
+      "title": "Terminal view with tabs + keybar",
+      "description": "As a user, I want an interactive terminal view with tabs and a keybar so that I can operate multiple sessions efficiently.",
+      "acceptanceCriteria": [
+        "Render terminal output using xterm.js",
+        "Input, resize, and output streaming wired to `terminal.*` methods",
+        "Tab bar for multiple attached sessions",
+        "Keybar provides ctrl/esc/arrows/tab/paste shortcuts"
+      ],
+      "priority": 4,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    },
+    {
+      "id": "US-005",
+      "title": "Themes + color schemes",
+      "description": "As a user, I want light/dark/system themes and multiple color schemes so that I can choose a comfortable visual style.",
+      "acceptanceCriteria": [
+        "Theme options: light, dark, system",
+        "Multiple color schemes available per theme",
+        "Theme and scheme persist in local storage",
+        "Terminal and surrounding UI reflect selected theme/scheme"
+      ],
+      "priority": 4,
+      "passes": false,
+      "labels": [],
+      "dependsOn": []
+    }
+  ],
+  "metadata": {
+    "createdAt": "2026-02-01T07:58:47.102Z",
+    "version": "1.0.0",
+    "sourcePrd": "plans/phase1/web.prd"
+  }
+}
