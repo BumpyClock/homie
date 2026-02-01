@@ -1,6 +1,7 @@
-import { useGateway, ConnectionStatus } from '@/hooks/use-gateway'
+import { useGateway, type ConnectionStatus } from '@/hooks/use-gateway'
 import { useTargets } from '@/hooks/use-targets'
 import { TargetSelector } from '@/components/target-selector'
+import { SessionList } from '@/components/session-list'
 
 function StatusBadge({ status }: { status: ConnectionStatus }) {
   const colors: Record<ConnectionStatus, string> = {
@@ -22,7 +23,7 @@ function StatusBadge({ status }: { status: ConnectionStatus }) {
 
 function App() {
   const { targets, activeTarget, activeTargetId, setActiveTargetId, addTarget, removeTarget } = useTargets();
-  const { status, serverHello, rejection, error } = useGateway({ url: activeTarget.url });
+  const { status, serverHello, rejection, error, call } = useGateway({ url: activeTarget.url });
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col items-center justify-center p-4">
@@ -44,28 +45,32 @@ function App() {
           </div>
 
           {serverHello && (
-            <div className="mt-4 p-4 bg-gray-900 rounded-md text-sm">
-              <h3 className="font-semibold mb-2 text-green-400">Gateway Info</h3>
-              <div className="grid grid-cols-2 gap-2">
-                 <span className="text-gray-500">ID:</span>
-                 <span>{serverHello.server_id}</span>
-                 <span className="text-gray-500">Protocol:</span>
-                 <span>v{serverHello.protocol_version}</span>
-                 {serverHello.identity && (
-                     <>
-                        <span className="text-gray-500">Identity:</span>
-                        <span>{serverHello.identity}</span>
-                     </>
-                 )}
-              </div>
-              
-              <h4 className="font-semibold mt-3 mb-1 text-gray-300">Services</h4>
-              <ul className="list-disc list-inside text-gray-400">
-                  {serverHello.services.map((s, i) => (
-                      <li key={i}>{s.service} (v{s.version})</li>
-                  ))}
-              </ul>
-            </div>
+            <>
+                <div className="mt-4 p-4 bg-gray-900 rounded-md text-sm">
+                  <h3 className="font-semibold mb-2 text-green-400">Gateway Info</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                     <span className="text-gray-500">ID:</span>
+                     <span>{serverHello.server_id}</span>
+                     <span className="text-gray-500">Protocol:</span>
+                     <span>v{serverHello.protocol_version}</span>
+                     {serverHello.identity && (
+                         <>
+                            <span className="text-gray-500">Identity:</span>
+                            <span>{serverHello.identity}</span>
+                         </>
+                     )}
+                  </div>
+                  
+                  <h4 className="font-semibold mt-3 mb-1 text-gray-300">Services</h4>
+                  <ul className="list-disc list-inside text-gray-400">
+                      {serverHello.services.map((s, i) => (
+                          <li key={i}>{s.service} (v{s.version})</li>
+                      ))}
+                  </ul>
+                </div>
+                
+                <SessionList call={call} status={status} />
+            </>
           )}
 
           {rejection && (

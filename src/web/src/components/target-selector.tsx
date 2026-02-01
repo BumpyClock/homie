@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Plus, Trash2, Globe, Server, Check } from 'lucide-react';
-import { Target } from '@/hooks/use-targets';
+import type { Target } from '@/hooks/use-targets';
 
 interface TargetSelectorProps {
   targets: Target[];

@@ -34,3 +34,30 @@ export type HandshakeResponse =
   | ({ type: "reject" } & HelloReject);
 
 export const PROTOCOL_VERSION = 1;
+
+// RPC Types
+
+export interface JsonRpcRequest {
+  id: string;
+  method: string;
+  params?: unknown;
+}
+
+export interface JsonRpcResponse {
+  id: string;
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+  };
+}
+
+export interface SessionInfo {
+  session_id: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  started_at: string;
+  status: "Active" | "Exited" | "Inactive";
+  exit_code?: number;
+}

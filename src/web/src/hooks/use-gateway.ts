@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  ClientHello,
-  HandshakeResponse,
+  type ClientHello,
+  type HandshakeResponse,
   PROTOCOL_VERSION,
-  ServerHello,
-  HelloReject
+  type ServerHello,
+  type HelloReject
 } from "@/lib/protocol";
 
 export type ConnectionStatus =
@@ -32,6 +32,8 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
   const handshakeCompleted = useRef(false);
   const shouldReconnect = useRef(true);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  const pendingRequests = useRef<Map<string, { resolve: (val: unknown) => void; reject: (err: unknown) => void }>>(new Map());
 
   useEffect(() => {
     mounted.current = true;
@@ -70,12 +72,20 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
             ws.onmessage = (event) => {
                 if (!mounted.current) return;
 
-                if (handshakeCompleted.current) {
-                    return;
+                let data;
+                try {
+                     if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
+                         // TODO: Handle binary stream data
+                         return;
+                     }
+                     data = JSON.parse(event.data);
+                } catch (e) {
+                     console.error("Failed to parse message", e);
+                     return;
                 }
 
-                try {
-                    const response: HandshakeResponse = JSON.parse(event.data);
+                if (!handshakeCompleted.current) {
+                    const response = data as HandshakeResponse;
                     if (response.type === "hello") {
                         handshakeCompleted.current = true;
                         setServerHello(response);
@@ -86,10 +96,16 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                         setStatus("rejected");
                         ws.close(); 
                     }
-                } catch (e) {
-                    console.error("Failed to parse handshake response", e);
-                    setStatus("error");
-                    ws.close();
+                } else {
+                    // RPC Response handling
+                    if (data.id) {
+                         const pending = pendingRequests.current.get(data.id);
+                         if (pending) {
+                             if (data.error) pending.reject(data.error);
+                             else pending.resolve(data.result);
+                             pendingRequests.current.delete(data.id);
+                         }
+                    }
                 }
             };
 
@@ -102,6 +118,12 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
 
             ws.onclose = () => {
                 if (!mounted.current) return;
+
+                // Clear pending requests
+                for (const pending of pendingRequests.current.values()) {
+                    pending.reject(new Error("Connection closed"));
+                }
+                pendingRequests.current.clear();
 
                 if (handshakeCompleted.current) {
                      setStatus("disconnected");
@@ -141,5 +163,17 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
     };
   }, [url, authToken]);
 
-  return { status, serverHello, rejection, error };
+  const call = useCallback((method: string, params?: unknown) => {
+      return new Promise((resolve, reject) => {
+          if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !handshakeCompleted.current) {
+              reject(new Error("Not connected"));
+              return;
+          }
+          const id = crypto.randomUUID();
+          pendingRequests.current.set(id, { resolve, reject });
+          wsRef.current.send(JSON.stringify({ id, method, params }));
+      });
+  }, []);
+
+  return { status, serverHello, rejection, error, call };
 }
