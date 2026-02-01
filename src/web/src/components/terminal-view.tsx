@@ -9,9 +9,10 @@ interface TerminalViewProps {
   onDetach: (sessionId: string) => void;
   call: (method: string, params?: unknown) => Promise<unknown>;
   onBinaryMessage: (cb: (data: ArrayBuffer) => void) => () => void;
+  previewNamespace: string;
 }
 
-export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessage }: TerminalViewProps) {
+export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessage, previewNamespace }: TerminalViewProps) {
   const [userActiveSessionId, setUserActiveSessionId] = useState<string | null>(null);
 
   // Derive the effective active session ID
@@ -122,6 +123,7 @@ export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessa
             onInput={(data) => handleInput(sessionId, data)}
             onResize={(cols, rows) => handleResize(sessionId, cols, rows)}
             registerDataListener={(listener) => registerTabListener(sessionId, listener)}
+            previewNamespace={previewNamespace}
           />
         ))}
       </div>

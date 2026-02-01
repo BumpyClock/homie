@@ -204,6 +204,36 @@ impl TerminalService {
         }
     }
 
+    fn session_remove(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        let session_id = match parse_session_id(&params) {
+            Some(id) => id,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing or invalid session_id",
+                )
+            }
+        };
+
+        let result = {
+            let mut registry = self.registry.lock().unwrap();
+            registry.remove_record(session_id)
+        };
+
+        match result {
+            Ok(()) => Response::success(req_id, json!({ "ok": true })),
+            Err(TerminalError::NotFound(_)) => Response::error(
+                req_id,
+                error_codes::SESSION_NOT_FOUND,
+                format!("session not found: {session_id}"),
+            ),
+            Err(TerminalError::Internal(msg)) => {
+                Response::error(req_id, error_codes::INVALID_PARAMS, msg)
+            }
+        }
+    }
+
     fn session_list(&self, req_id: Uuid) -> Response {
         let records = {
             let registry = self.registry.lock().unwrap();
@@ -265,6 +295,7 @@ impl ServiceHandler for TerminalService {
             "terminal.session.resize" => self.session_resize(id, params),
             "terminal.session.input" => self.session_input(id, params),
             "terminal.session.kill" => self.session_kill(id, params),
+            "terminal.session.remove" => self.session_remove(id, params),
             "terminal.session.list" => self.session_list(id),
             _ => Response::error(
                 id,

@@ -36,6 +36,9 @@ pub trait Store: Send + Sync + 'static {
     /// List all terminal sessions, ordered by started_at descending.
     fn list_terminals(&self) -> Result<Vec<TerminalRecord>, String>;
 
+    /// Delete a terminal session record by ID.
+    fn delete_terminal(&self, session_id: Uuid) -> Result<(), String>;
+
     /// Mark all active sessions as inactive (used on server restart).
     fn mark_all_inactive(&self) -> Result<(), String>;
 

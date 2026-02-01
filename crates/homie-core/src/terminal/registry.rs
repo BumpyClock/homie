@@ -358,6 +358,18 @@ impl TerminalRegistry {
             .collect()
     }
 
+    pub fn remove_record(&mut self, session_id: Uuid) -> Result<(), TerminalError> {
+        if self.sessions.contains_key(&session_id) {
+            return Err(TerminalError::Internal(
+                "session is active; kill it first".into(),
+            ));
+        }
+        self.store
+            .delete_terminal(session_id)
+            .map_err(TerminalError::Internal)?;
+        Ok(())
+    }
+
     fn remove_session(&mut self, id: Uuid) {
         if let Some(mut active) = self.sessions.remove(&id) {
             active.output_task.abort();

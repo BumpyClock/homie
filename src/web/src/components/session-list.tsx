@@ -1,18 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { SessionInfo } from '@/lib/protocol';
-import { Terminal, Play, X, RefreshCw } from 'lucide-react';
+import { loadPreview, removePreview } from '@/lib/session-previews';
+import { Terminal, Play, X, RefreshCw, Trash2 } from 'lucide-react';
 
 interface SessionListProps {
   call: (method: string, params?: unknown) => Promise<unknown>;
   status: string;
   onAttach: (sessionId: string) => void;
+  previewNamespace: string;
 }
 
 interface SessionListResponse {
   sessions: SessionInfo[];
 }
 
-export function SessionList({ call, status, onAttach }: SessionListProps) {
+export function SessionList({ call, status, onAttach, previewNamespace }: SessionListProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +77,18 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
       }
   };
 
+  const handleRemove = async (id: string) => {
+      if (!confirm('Remove this session from history?')) return;
+      try {
+          await call('terminal.session.remove', { session_id: id });
+          removePreview(previewNamespace, id);
+          fetchSessions();
+      } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          alert('Failed to remove session: ' + msg);
+      }
+  };
+
   const handleAttach = async (id: string) => {
       try {
           await call('terminal.session.attach', { session_id: id });
@@ -89,6 +103,9 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
       return null;
   }
 
+  const activeSessions = sessions.filter((s) => s.status === 'active');
+  const inactiveSessions = sessions.filter((s) => s.status !== 'active');
+
   return (
     <div className="mt-6 w-full">
       <div className="flex items-center justify-between mb-4">
@@ -100,7 +117,7 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
             <button 
                 onClick={fetchSessions} 
                 disabled={loading}
-                className="p-2 bg-muted hover:bg-muted/80 rounded text-muted-foreground disabled:opacity-50 transition-colors"
+                className="p-2 min-h-[44px] min-w-[44px] bg-muted hover:bg-muted/80 rounded text-muted-foreground disabled:opacity-50 transition-colors"
                 title="Refresh"
                 aria-label="Refresh sessions"
             >
@@ -108,7 +125,7 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
             </button>
             <button 
                 onClick={handleStart}
-                className="flex items-center gap-1 px-3 py-2 bg-primary hover:bg-primary/90 rounded text-primary-foreground text-sm font-medium transition-colors"
+                className="flex items-center gap-1 px-3 py-2 min-h-[44px] bg-primary hover:bg-primary/90 rounded text-primary-foreground text-sm font-medium transition-colors"
             >
                 <Play className="w-4 h-4" />
                 New Session
@@ -123,42 +140,117 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
       )}
 
       {sessions.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground bg-muted/30 rounded-lg border border-border border-dashed">
-              No active sessions
-          </div>
+        <div className="text-center py-8 text-muted-foreground bg-muted/30 rounded-lg border border-border border-dashed">
+          No sessions yet
+        </div>
       ) : (
-          <div className="space-y-3">
-              {sessions.map(session => (
-                  <div key={session.session_id} className="bg-card p-4 rounded-lg border border-border flex items-center justify-between shadow-sm">
-                      <div>
-                          <div className="flex items-center gap-2 mb-1">
-                              <span className={`w-2 h-2 rounded-full ${session.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'}`} title={session.status} />
-                              <span className="font-mono text-sm text-foreground" title={session.session_id}>{session.session_id.substring(0, 8)}...</span>
-                              <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">{session.shell}</span>
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                              Started: {session.started_at} | Size: {session.cols}x{session.rows}
-                          </div>
+        <div className="space-y-6">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-3">Active Sessions</div>
+            {activeSessions.length === 0 ? (
+              <div className="text-sm text-muted-foreground bg-muted/30 rounded-lg border border-border border-dashed p-4">
+                No active sessions
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {activeSessions.map(session => {
+                  const preview = loadPreview(previewNamespace, session.session_id)?.text ?? "";
+                  return (
+                    <div key={session.session_id} className="bg-card p-4 rounded-lg border border-border shadow-sm flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-green-500" title="active" />
+                          <span className="font-mono text-sm text-foreground" title={session.session_id}>
+                            {session.session_id.substring(0, 8)}...
+                          </span>
+                          <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                            {session.shell}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{session.cols}x{session.rows}</div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Started: {session.started_at}
+                      </div>
+                      <div className="bg-muted/40 border border-border rounded-md p-3 text-xs font-mono text-muted-foreground whitespace-pre-wrap max-h-28 overflow-hidden">
+                        {preview.trim().length > 0 ? preview : "Preview available after first detach."}
                       </div>
                       <div className="flex gap-2">
-                           <button 
-                                onClick={() => handleAttach(session.session_id)}
-                                className="px-3 py-1.5 bg-muted hover:bg-muted/80 rounded text-xs font-medium text-foreground transition-colors"
-                           >
-                               Attach
-                           </button>
-                           <button 
-                                onClick={() => handleKill(session.session_id)}
-                                className="p-1.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive rounded transition-colors"
-                                title="Kill Session"
-                                aria-label="Kill session"
-                           >
-                               <X className="w-4 h-4" />
-                           </button>
+                        <button 
+                          onClick={() => handleAttach(session.session_id)}
+                          className="flex-1 px-3 py-2 min-h-[44px] bg-muted hover:bg-muted/80 rounded text-xs font-medium text-foreground transition-colors"
+                        >
+                          Attach
+                        </button>
+                        <button 
+                          onClick={() => handleKill(session.session_id)}
+                          className="px-3 py-2 min-h-[44px] min-w-[44px] text-muted-foreground hover:bg-destructive/20 hover:text-destructive rounded transition-colors flex items-center justify-center"
+                          title="Kill Session"
+                          aria-label="Kill session"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
-                  </div>
-              ))}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
+
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground mb-3">History</div>
+            {inactiveSessions.length === 0 ? (
+              <div className="text-sm text-muted-foreground bg-muted/30 rounded-lg border border-border border-dashed p-4">
+                No inactive sessions
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {inactiveSessions.map(session => {
+                  const preview = loadPreview(previewNamespace, session.session_id)?.text ?? "";
+                  return (
+                    <div key={session.session_id} className="bg-card p-4 rounded-lg border border-border shadow-sm flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-muted-foreground" title={session.status} />
+                          <span className="font-mono text-sm text-foreground" title={session.session_id}>
+                            {session.session_id.substring(0, 8)}...
+                          </span>
+                          <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+                            {session.shell}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground capitalize">{session.status}</div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Started: {session.started_at} | Size: {session.cols}x{session.rows}
+                      </div>
+                      <div className="bg-muted/40 border border-border rounded-md p-3 text-xs font-mono text-muted-foreground whitespace-pre-wrap max-h-28 overflow-hidden">
+                        {preview.trim().length > 0 ? preview : "No preview captured."}
+                      </div>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => handleAttach(session.session_id)}
+                          className="flex-1 px-3 py-2 min-h-[44px] bg-muted hover:bg-muted/80 rounded text-xs font-medium text-foreground transition-colors"
+                        >
+                          Resume
+                        </button>
+                        <button 
+                          onClick={() => handleRemove(session.session_id)}
+                          className="px-3 py-2 min-h-[44px] min-w-[44px] text-muted-foreground hover:bg-destructive/20 hover:text-destructive rounded transition-colors flex items-center justify-center"
+                          title="Remove from history"
+                          aria-label="Remove from history"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

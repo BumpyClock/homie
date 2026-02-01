@@ -5,6 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { useTheme } from "@/hooks/use-theme";
+import { DEFAULT_PREVIEW_LINES, savePreview } from "@/lib/session-previews";
 
 interface TerminalTabProps {
   sessionId: string;
@@ -14,6 +15,7 @@ interface TerminalTabProps {
   onResize: (cols: number, rows: number) => void;
   registerDataListener: (listener: (data: Uint8Array) => void) => () => void;
   active: boolean;
+  previewNamespace: string;
 }
 
 // Helper to get HSL color string from CSS variable
@@ -30,6 +32,7 @@ export function TerminalTab({
   onResize,
   registerDataListener,
   active,
+  previewNamespace,
 }: TerminalTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -102,6 +105,14 @@ export function TerminalTab({
     });
 
     return () => {
+      try {
+        const snapshot = snapshotTerminal(term, DEFAULT_PREVIEW_LINES);
+        if (snapshot.trim().length > 0) {
+          savePreview(previewNamespace, sessionId, snapshot);
+        }
+      } catch {
+        // ignore snapshot failures
+      }
       cleanup();
       term.dispose();
     };
@@ -137,4 +148,17 @@ export function TerminalTab({
       style={{ minHeight: '0' }}
     />
   );
+}
+
+function snapshotTerminal(term: Terminal, maxLines: number): string {
+  const buffer = term.buffer.active;
+  const total = buffer.length;
+  const start = Math.max(0, total - maxLines);
+  const lines: string[] = [];
+  for (let i = start; i < total; i += 1) {
+    const line = buffer.getLine(i);
+    if (!line) continue;
+    lines.push(line.translateToString(true));
+  }
+  return lines.join("\n").trimEnd();
 }

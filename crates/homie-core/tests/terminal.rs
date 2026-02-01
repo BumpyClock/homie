@@ -328,6 +328,41 @@ async fn session_detach_does_not_kill() {
 }
 
 #[tokio::test]
+async fn session_remove_deletes_inactive_record() {
+    let addr = start_server(ServerConfig::default()).await;
+    let mut ws = connect_and_handshake(addr).await;
+
+    let result = rpc(
+        &mut ws,
+        "terminal.session.start",
+        Some(json!({ "cols": 80, "rows": 24 })),
+    )
+    .await;
+    let sid = extract_session_id(&result);
+
+    let _ = rpc(
+        &mut ws,
+        "terminal.session.kill",
+        Some(json!({ "session_id": sid })),
+    )
+    .await;
+
+    let _ = rpc(
+        &mut ws,
+        "terminal.session.remove",
+        Some(json!({ "session_id": sid })),
+    )
+    .await;
+
+    let list = rpc(&mut ws, "terminal.session.list", None).await;
+    let sessions = list["sessions"].as_array().cloned().unwrap_or_default();
+    assert!(
+        sessions.iter().all(|s| s["session_id"].as_str() != Some(&sid)),
+        "expected session to be removed"
+    );
+}
+
+#[tokio::test]
 async fn session_attach_not_found() {
     let addr = start_server(ServerConfig::default()).await;
     let mut ws = connect_and_handshake(addr).await;

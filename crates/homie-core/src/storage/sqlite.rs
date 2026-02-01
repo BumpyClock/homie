@@ -272,6 +272,13 @@ impl Store for SqliteStore {
             .map_err(|e| format!("list_terminals collect: {e}"))
     }
 
+    fn delete_terminal(&self, session_id: Uuid) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        conn.execute("DELETE FROM terminals WHERE session_id = ?1", [session_id.to_string()])
+            .map_err(|e| format!("delete_terminal: {e}"))?;
+        Ok(())
+    }
+
     fn mark_all_inactive(&self) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         conn.execute_batch(
