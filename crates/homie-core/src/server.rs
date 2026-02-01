@@ -13,6 +13,7 @@ use crate::auth::{authenticate, AuthOutcome, TailscaleWhois};
 use crate::config::ServerConfig;
 use crate::connection::run_connection;
 use crate::router::ServiceRegistry;
+use crate::storage::Store;
 
 /// Shared state accessible by handlers.
 #[derive(Clone)]
@@ -20,6 +21,7 @@ pub(crate) struct AppState {
     pub config: ServerConfig,
     pub whois: Arc<dyn TailscaleWhois>,
     pub registry: ServiceRegistry,
+    pub store: Arc<dyn Store>,
 }
 
 /// Build the axum router for the WS server.
@@ -27,7 +29,19 @@ pub(crate) struct AppState {
 /// The router exposes `/ws` (WebSocket upgrade) and `/health`.
 /// Callers should use `into_make_service_with_connect_info::<SocketAddr>()`
 /// when binding to get remote address extraction.
-pub fn build_router(config: ServerConfig, whois: impl TailscaleWhois) -> Router {
+///
+/// On startup, marks all previously-active sessions as inactive so clients
+/// see them as stale until reattached.
+pub fn build_router(
+    config: ServerConfig,
+    whois: impl TailscaleWhois,
+    store: Arc<dyn Store>,
+) -> Router {
+    // Mark previous sessions inactive on restart.
+    if let Err(e) = store.mark_all_inactive() {
+        tracing::warn!("failed to mark sessions inactive on startup: {e}");
+    }
+
     let mut registry = ServiceRegistry::new();
     registry.register("terminal", "1.0");
     registry.register("agent", "1.0");
@@ -36,6 +50,7 @@ pub fn build_router(config: ServerConfig, whois: impl TailscaleWhois) -> Router 
         config,
         whois: Arc::new(whois),
         registry,
+        store,
     };
 
     Router::new()
@@ -90,7 +105,8 @@ async fn ws_upgrade(
     let heartbeat = state.config.heartbeat_interval;
     let idle = state.config.idle_timeout;
     let registry = state.registry.clone();
+    let store = state.store.clone();
 
-    ws.on_upgrade(move |socket| run_connection(socket, auth, heartbeat, idle, registry))
+    ws.on_upgrade(move |socket| run_connection(socket, auth, heartbeat, idle, registry, store))
         .into_response()
 }

@@ -20,4 +20,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures = "0.3"
 portable-pty = "0.9"
+rusqlite = { version = "0.38", features = ["bundled"] }
 homie-protocol = { path = "crates/homie-protocol" }

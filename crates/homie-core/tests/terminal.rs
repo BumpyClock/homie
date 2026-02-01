@@ -1,10 +1,11 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use homie_core::{ServerConfig, TailscaleIdentity, TailscaleWhois};
+use homie_core::{ServerConfig, SqliteStore, TailscaleIdentity, TailscaleWhois};
 use homie_protocol::{
     BinaryFrame, ClientHello, HandshakeResponse, Request, StreamType, VersionRange,
 };
@@ -26,7 +27,8 @@ impl TailscaleWhois for NoopWhois {
 }
 
 async fn start_server(config: ServerConfig) -> SocketAddr {
-    let app = homie_core::build_router(config, NoopWhois);
+    let store = Arc::new(SqliteStore::open_memory().unwrap());
+    let app = homie_core::build_router(config, NoopWhois, store);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 

@@ -4,6 +4,7 @@ mod config;
 mod connection;
 pub mod router;
 mod server;
+pub mod storage;
 pub mod terminal;
 
 pub use agent::AgentService;
@@ -12,4 +13,5 @@ pub use config::ServerConfig;
 pub use connection::Connection;
 pub use router::{MessageRouter, ServiceHandler, ServiceRegistry, SubscriptionManager};
 pub use server::build_router;
+pub use storage::{ChatRecord, SessionStatus, SqliteStore, Store, TerminalRecord};
 pub use terminal::TerminalService;

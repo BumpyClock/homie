@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use axum::extract::ws::Message as WsMessage;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -11,6 +12,7 @@ use homie_protocol::{error_codes, BinaryFrame, Response, StreamType};
 
 use super::runtime::SessionRuntime;
 use crate::router::{ReapEvent, ServiceHandler};
+use crate::storage::{SessionStatus, Store, TerminalRecord};
 
 /// Metadata for a running session, visible to clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,13 +39,15 @@ struct ActiveSession {
 pub struct TerminalService {
     sessions: HashMap<Uuid, ActiveSession>,
     outbound_tx: mpsc::Sender<WsMessage>,
+    store: Arc<dyn Store>,
 }
 
 impl TerminalService {
-    pub fn new(outbound_tx: mpsc::Sender<WsMessage>) -> Self {
+    pub fn new(outbound_tx: mpsc::Sender<WsMessage>, store: Arc<dyn Store>) -> Self {
         Self {
             sessions: HashMap::new(),
             outbound_tx,
+            store,
         }
     }
 
@@ -55,7 +59,22 @@ impl TerminalService {
                 exited.push((*id, code));
             }
         }
-        for (id, _) in &exited {
+        for (id, code) in &exited {
+            // Persist exit status before removing.
+            if let Some(active) = self.sessions.get(id) {
+                let rec = TerminalRecord {
+                    session_id: *id,
+                    shell: active.info.shell.clone(),
+                    cols: active.info.cols,
+                    rows: active.info.rows,
+                    started_at: active.info.started_at.clone(),
+                    status: SessionStatus::Exited,
+                    exit_code: Some(*code),
+                };
+                if let Err(e) = self.store.upsert_terminal(&rec) {
+                    tracing::warn!(%id, "failed to persist terminal exit: {e}");
+                }
+            }
             self.remove_session(*id);
         }
         exited
@@ -144,6 +163,20 @@ impl TerminalService {
             rows,
             started_at: chrono_now(),
         };
+
+        // Persist terminal session metadata.
+        let rec = TerminalRecord {
+            session_id,
+            shell: info.shell.clone(),
+            cols: info.cols,
+            rows: info.rows,
+            started_at: info.started_at.clone(),
+            status: SessionStatus::Active,
+            exit_code: None,
+        };
+        if let Err(e) = self.store.upsert_terminal(&rec) {
+            tracing::warn!(%session_id, "failed to persist terminal start: {e}");
+        }
 
         // Spawn a tokio task to forward PTY output as binary WS frames.
         let outbound = self.outbound_tx.clone();
@@ -262,7 +295,20 @@ impl TerminalService {
             }
         };
 
-        if self.sessions.contains_key(&session_id) {
+        if let Some(active) = self.sessions.get(&session_id) {
+            // Persist exited status before removing.
+            let rec = TerminalRecord {
+                session_id,
+                shell: active.info.shell.clone(),
+                cols: active.info.cols,
+                rows: active.info.rows,
+                started_at: active.info.started_at.clone(),
+                status: SessionStatus::Exited,
+                exit_code: None,
+            };
+            if let Err(e) = self.store.upsert_terminal(&rec) {
+                tracing::warn!(%session_id, "failed to persist terminal kill: {e}");
+            }
             self.remove_session(session_id);
             tracing::info!(%session_id, "session killed");
             Response::success(req_id, json!({ "ok": true }))
@@ -272,6 +318,34 @@ impl TerminalService {
                 error_codes::SESSION_NOT_FOUND,
                 format!("session not found: {session_id}"),
             )
+        }
+    }
+
+    /// List all persisted terminal sessions from the store.
+    fn session_list(&self, req_id: Uuid) -> Response {
+        match self.store.list_terminals() {
+            Ok(records) => {
+                let sessions: Vec<Value> = records
+                    .into_iter()
+                    .map(|r| {
+                        json!({
+                            "session_id": r.session_id,
+                            "shell": r.shell,
+                            "cols": r.cols,
+                            "rows": r.rows,
+                            "started_at": r.started_at,
+                            "status": r.status,
+                            "exit_code": r.exit_code,
+                        })
+                    })
+                    .collect();
+                Response::success(req_id, json!({ "sessions": sessions }))
+            }
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("list failed: {e}"),
+            ),
         }
     }
 
@@ -300,6 +374,7 @@ impl ServiceHandler for TerminalService {
             "terminal.session.resize" => self.session_resize(id, params),
             "terminal.session.input" => self.session_input(id, params),
             "terminal.session.kill" => self.session_kill(id, params),
+            "terminal.session.list" => self.session_list(id),
             _ => Response::error(
                 id,
                 error_codes::METHOD_NOT_FOUND,
@@ -341,6 +416,22 @@ impl ServiceHandler for TerminalService {
     }
 
     fn shutdown(&mut self) {
+        // Mark all active sessions as inactive in storage on disconnect.
+        for (id, active) in &self.sessions {
+            let rec = TerminalRecord {
+                session_id: *id,
+                shell: active.info.shell.clone(),
+                cols: active.info.cols,
+                rows: active.info.rows,
+                started_at: active.info.started_at.clone(),
+                status: SessionStatus::Inactive,
+                exit_code: None,
+            };
+            if let Err(e) = self.store.upsert_terminal(&rec) {
+                tracing::warn!(%id, "failed to persist terminal disconnect: {e}");
+            }
+        }
+
         let ids: Vec<Uuid> = self.sessions.keys().copied().collect();
         for id in ids {
             self.remove_session(id);

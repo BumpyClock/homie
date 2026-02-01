@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -16,6 +17,7 @@ use homie_protocol::{
 use crate::agent::AgentService;
 use crate::auth::AuthOutcome;
 use crate::router::{MessageRouter, ServiceRegistry, SubscriptionManager};
+use crate::storage::Store;
 use crate::terminal::TerminalService;
 
 /// Represents an authenticated WS connection after handshake.
@@ -34,6 +36,7 @@ pub async fn run_connection(
     heartbeat_interval: Duration,
     idle_timeout: Duration,
     registry: ServiceRegistry,
+    store: Arc<dyn Store>,
 ) {
     let conn_id = Uuid::new_v4();
     let span = tracing::info_span!("conn", id = %conn_id);
@@ -115,7 +118,14 @@ pub async fn run_connection(
 
     // ── Phase 2: Message loop with heartbeat + idle timeout ──────────
     drop(_enter);
-    run_message_loop(&mut sink, &mut stream, heartbeat_interval, idle_timeout).await;
+    run_message_loop(
+        &mut sink,
+        &mut stream,
+        heartbeat_interval,
+        idle_timeout,
+        store,
+    )
+    .await;
 
     tracing::info!(conn_id = %conn.id, "connection closed");
 }
@@ -125,6 +135,7 @@ async fn run_message_loop(
     stream: &mut futures::stream::SplitStream<WebSocket>,
     heartbeat_interval: Duration,
     idle_timeout: Duration,
+    store: Arc<dyn Store>,
 ) {
     let mut idle_deadline = tokio::time::Instant::now() + idle_timeout;
     let mut heartbeat = tokio::time::interval(heartbeat_interval);
@@ -136,8 +147,11 @@ async fn run_message_loop(
 
     // Build the router with services.
     let mut router = MessageRouter::new();
-    router.register(Box::new(TerminalService::new(outbound_tx.clone())));
-    router.register(Box::new(AgentService::new(outbound_tx)));
+    router.register(Box::new(TerminalService::new(
+        outbound_tx.clone(),
+        store.clone(),
+    )));
+    router.register(Box::new(AgentService::new(outbound_tx, store)));
 
     // Per-connection subscription manager.
     let mut subscriptions = SubscriptionManager::new();

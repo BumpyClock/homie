@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use axum::extract::ws::Message as WsMessage;
 use serde_json::{json, Value};
@@ -12,6 +13,7 @@ use homie_protocol::{
 
 use super::process::{CodexEvent, CodexProcess};
 use crate::router::{ReapEvent, ServiceHandler};
+use crate::storage::{ChatRecord, SessionStatus, Store};
 
 /// Maps Codex notification methods to Homie event topics.
 fn codex_method_to_topic(method: &str) -> Option<&'static str> {
@@ -53,16 +55,18 @@ pub struct AgentService {
     event_forwarder: Option<tokio::task::JoinHandle<()>>,
     reap_events: Vec<ReapEvent>,
     thread_ids: HashMap<String, String>,
+    store: Arc<dyn Store>,
 }
 
 impl AgentService {
-    pub fn new(outbound_tx: mpsc::Sender<WsMessage>) -> Self {
+    pub fn new(outbound_tx: mpsc::Sender<WsMessage>, store: Arc<dyn Store>) -> Self {
         Self {
             outbound_tx,
             process: None,
             event_forwarder: None,
             reap_events: Vec::new(),
             thread_ids: HashMap::new(),
+            store,
         }
     }
 
@@ -100,7 +104,20 @@ impl AgentService {
                 } else {
                     thread_id.clone()
                 };
-                self.thread_ids.insert(chat_id.clone(), thread_id);
+                self.thread_ids.insert(chat_id.clone(), thread_id.clone());
+
+                // Persist chat metadata.
+                let rec = ChatRecord {
+                    chat_id: chat_id.clone(),
+                    thread_id,
+                    created_at: chrono_now(),
+                    status: SessionStatus::Active,
+                    event_pointer: 0,
+                };
+                if let Err(e) = self.store.upsert_chat(&rec) {
+                    tracing::warn!(%chat_id, "failed to persist chat create: {e}");
+                }
+
                 Response::success(req_id, json!({ "chat_id": chat_id }))
             }
             Err(e) => Response::error(
@@ -236,6 +253,32 @@ impl AgentService {
             ),
         }
     }
+
+    /// List all persisted chat sessions from the store.
+    fn chat_list(&self, req_id: Uuid) -> Response {
+        match self.store.list_chats() {
+            Ok(records) => {
+                let chats: Vec<Value> = records
+                    .into_iter()
+                    .map(|r| {
+                        json!({
+                            "chat_id": r.chat_id,
+                            "thread_id": r.thread_id,
+                            "created_at": r.created_at,
+                            "status": r.status,
+                            "event_pointer": r.event_pointer,
+                        })
+                    })
+                    .collect();
+                Response::success(req_id, json!({ "chats": chats }))
+            }
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("list failed: {e}"),
+            ),
+        }
+    }
 }
 
 impl ServiceHandler for AgentService {
@@ -256,6 +299,7 @@ impl ServiceHandler for AgentService {
                 "agent.chat.message.send" => self.chat_message_send(id, params).await,
                 "agent.chat.cancel" => self.chat_cancel(id, params).await,
                 "agent.chat.approval.respond" => self.approval_respond(id, params).await,
+                "agent.chat.list" => self.chat_list(id),
                 _ => Response::error(
                     id,
                     error_codes::METHOD_NOT_FOUND,
@@ -274,6 +318,18 @@ impl ServiceHandler for AgentService {
     }
 
     fn shutdown(&mut self) {
+        // Mark all active chats as inactive in storage on disconnect.
+        for chat_id in self.thread_ids.keys() {
+            if let Ok(Some(mut rec)) = self.store.get_chat(chat_id) {
+                if rec.status == SessionStatus::Active {
+                    rec.status = SessionStatus::Inactive;
+                    if let Err(e) = self.store.upsert_chat(&rec) {
+                        tracing::warn!(%chat_id, "failed to persist chat disconnect: {e}");
+                    }
+                }
+            }
+        }
+
         if let Some(h) = self.event_forwarder.take() {
             h.abort();
         }
@@ -337,6 +393,13 @@ async fn event_forwarder_loop(
     tracing::debug!("agent event forwarder exited");
 }
 
+fn chrono_now() -> String {
+    let dur = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}s", dur.as_secs())
+}
+
 // -- Param parsing helpers ------------------------------------------------
 
 fn parse_message_params(params: &Option<Value>) -> Option<(String, String)> {
@@ -363,6 +426,11 @@ fn parse_approval_params(params: &Option<Value>) -> Option<(u64, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::SqliteStore;
+
+    fn make_store() -> Arc<dyn Store> {
+        Arc::new(SqliteStore::open_memory().unwrap())
+    }
 
     #[test]
     fn codex_method_maps_agent_message_delta_to_chat_delta() {
@@ -492,7 +560,7 @@ mod tests {
     #[tokio::test]
     async fn agent_service_returns_error_for_unknown_method() {
         let (tx, _rx) = mpsc::channel(16);
-        let mut svc = AgentService::new(tx);
+        let mut svc = AgentService::new(tx, make_store());
         let id = Uuid::new_v4();
         let resp = svc.handle_request(id, "agent.unknown.method", None).await;
         assert!(resp.error.is_some());
@@ -502,14 +570,26 @@ mod tests {
     #[test]
     fn agent_service_namespace_is_agent() {
         let (tx, _rx) = mpsc::channel(16);
-        let svc = AgentService::new(tx);
+        let svc = AgentService::new(tx, make_store());
         assert_eq!(svc.namespace(), "agent");
     }
 
     #[test]
     fn agent_service_reap_returns_empty_initially() {
         let (tx, _rx) = mpsc::channel(16);
-        let mut svc = AgentService::new(tx);
+        let mut svc = AgentService::new(tx, make_store());
         assert!(svc.reap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_list_returns_empty_initially() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut svc = AgentService::new(tx, make_store());
+        let id = Uuid::new_v4();
+        let resp = svc.handle_request(id, "agent.chat.list", None).await;
+        assert!(resp.error.is_none());
+        let result = resp.result.unwrap();
+        let chats = result["chats"].as_array().unwrap();
+        assert!(chats.is_empty());
     }
 }
