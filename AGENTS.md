@@ -24,3 +24,6 @@ All the projects have open source and permissible liceenses so you can copy thei
 - Corresponding plans for backend, web , and react native apps are in ./plans/phase1/<backend.prd, rn-mobile.prd, and web.prd>
 - organize the code under src/ directory in proper directories, like src/infra , src/gateway, src/apps, src/web etc. 
 
+# Running dev servers
+- If not already running Run each server in a seaparate tmux pane so we can watch logs together and debug. 
+

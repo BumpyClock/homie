@@ -37,13 +37,15 @@ export const PROTOCOL_VERSION = 1;
 
 // RPC Types
 
-export interface JsonRpcRequest {
+export interface RpcRequest {
+  type: "request";
   id: string;
   method: string;
   params?: unknown;
 }
 
-export interface JsonRpcResponse {
+export interface RpcResponse {
+  type: "response";
   id: string;
   result?: unknown;
   error?: {
@@ -58,6 +60,6 @@ export interface SessionInfo {
   cols: number;
   rows: number;
   started_at: string;
-  status: "Active" | "Exited" | "Inactive";
+  status: "active" | "exited" | "inactive";
   exit_code?: number;
 }

@@ -10,9 +10,7 @@ use tokio::net::TcpListener;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
+        .with_env_filter(tracing_filter())
         .init();
 
     let defaults = ServerConfig::default();
@@ -20,6 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bind = parse_socket("HOMIE_BIND", defaults.bind);
     let tailnet_bind = parse_optional_socket("HOMIE_TAILNET_BIND");
     let tailscale_serve = parse_bool("HOMIE_TAILSCALE_SERVE", defaults.tailscale_serve);
+    let allow_lan = parse_bool("HOMIE_ALLOW_LAN", defaults.allow_lan);
     let heartbeat_interval = parse_duration("HOMIE_HEARTBEAT_SECS", defaults.heartbeat_interval);
     let idle_timeout = parse_duration("HOMIE_IDLE_SECS", defaults.idle_timeout);
     let node_timeout = parse_duration("HOMIE_NODE_TIMEOUT_SECS", defaults.node_timeout);
@@ -42,6 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         bind,
         tailnet_bind,
         tailscale_serve,
+        allow_lan,
         heartbeat_interval,
         idle_timeout,
         local_role,
@@ -144,4 +144,18 @@ fn parse_role(key: &str, default: Role) -> Role {
         },
         Err(_) => default,
     }
+}
+
+fn tracing_filter() -> tracing_subscriber::EnvFilter {
+    let explicit = env::var("HOMIE_LOG")
+        .or_else(|_| env::var("RUST_LOG"))
+        .ok();
+    if let Some(filter) = explicit {
+        return tracing_subscriber::EnvFilter::new(filter);
+    }
+    if matches!(env::var("HOMIE_DEBUG").as_deref(), Ok("1" | "true" | "TRUE" | "yes" | "YES"))
+    {
+        return tracing_subscriber::EnvFilter::new("debug");
+    }
+    tracing_subscriber::EnvFilter::new("info")
 }

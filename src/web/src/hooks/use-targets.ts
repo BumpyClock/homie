@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { uuid } from '@/lib/uuid';
 
 export interface Target {
   id: string;
@@ -9,14 +10,36 @@ export interface Target {
 
 const STORAGE_KEY_TARGETS = 'homie-targets';
 const STORAGE_KEY_ACTIVE_TARGET = 'homie-active-target';
+const STORAGE_KEY_HIDE_LOCAL = 'homie-hide-local';
+
+function normalizeGatewayUrl(raw: string) {
+  const trimmed = raw.trim();
+  let value = trimmed;
+  if (value.startsWith("http://")) value = `ws://${value.slice(7)}`;
+  if (value.startsWith("https://")) value = `wss://${value.slice(8)}`;
+  if (!value.startsWith("ws://") && !value.startsWith("wss://")) return value;
+  try {
+    const parsed = new URL(value);
+    if (!parsed.pathname || parsed.pathname === "/") {
+      parsed.pathname = "/ws";
+    } else if (!parsed.pathname.endsWith("/ws")) {
+      parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/ws`;
+    }
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+}
 
 function getLocalGatewayUrl() {
+  const envUrl = import.meta.env.VITE_GATEWAY_URL as string | undefined;
+  if (envUrl) return normalizeGatewayUrl(envUrl);
   if (import.meta.env.DEV) {
-    return "ws://127.0.0.1:3000"; 
+    return normalizeGatewayUrl("ws://127.0.0.1:9800/ws"); 
   }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
-  return `${protocol}//${host}`;
+  return normalizeGatewayUrl(`${protocol}//${host}/ws`);
 }
 
 const DEFAULT_TARGET: Target = {
@@ -27,32 +50,40 @@ const DEFAULT_TARGET: Target = {
 };
 
 export function useTargets() {
-  // Initialize targets from storage or default
-  const [targets, setTargets] = useState<Target[]>(() => {
+  const initialHideLocal = localStorage.getItem(STORAGE_KEY_HIDE_LOCAL) === "1";
+  const initialTargets = (() => {
     const saved = localStorage.getItem(STORAGE_KEY_TARGETS);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Ensure default target always has the correct calculated URL
-        const withUpdatedDefault = parsed.map((t: Target) => 
-          t.type === 'local' ? { ...t, url: getLocalGatewayUrl() } : t
+        const normalized = parsed.map((t: Target) =>
+          t.type === "local"
+            ? { ...t, url: getLocalGatewayUrl() }
+            : { ...t, url: normalizeGatewayUrl(t.url) }
         );
-        // If local target is missing (legacy storage?), add it
-        if (!withUpdatedDefault.some((t: Target) => t.type === 'local')) {
-           return [DEFAULT_TARGET, ...withUpdatedDefault];
+        if (initialHideLocal) {
+          return normalized.filter((t: Target) => t.type !== "local");
         }
-        return withUpdatedDefault;
+        if (!normalized.some((t: Target) => t.type === "local")) {
+          return [DEFAULT_TARGET, ...normalized];
+        }
+        return normalized;
       } catch (e) {
         console.error("Failed to parse saved targets", e);
       }
     }
-    return [DEFAULT_TARGET];
-  });
+    return initialHideLocal ? [] : [DEFAULT_TARGET];
+  })();
 
-  // Initialize active target ID
-  const [activeTargetId, setActiveTargetId] = useState<string>(() => {
-    return localStorage.getItem(STORAGE_KEY_ACTIVE_TARGET) || DEFAULT_TARGET.id;
-  });
+  const initialActiveTargetId = (() => {
+    const stored = localStorage.getItem(STORAGE_KEY_ACTIVE_TARGET);
+    if (stored && initialTargets.some((t) => t.id === stored)) return stored;
+    return initialTargets[0]?.id ?? "";
+  })();
+
+  const [hideLocal, setHideLocal] = useState(initialHideLocal);
+  const [targets, setTargets] = useState<Target[]>(initialTargets);
+  const [activeTargetId, setActiveTargetId] = useState<string>(initialActiveTargetId);
 
   // Persist targets
   useEffect(() => {
@@ -64,11 +95,15 @@ export function useTargets() {
     localStorage.setItem(STORAGE_KEY_ACTIVE_TARGET, activeTargetId);
   }, [activeTargetId]);
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_HIDE_LOCAL, hideLocal ? "1" : "0");
+  }, [hideLocal]);
+
   const addTarget = (name: string, url: string) => {
     const newTarget: Target = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       name,
-      url,
+      url: normalizeGatewayUrl(url),
       type: 'custom'
     };
     setTargets(prev => [...prev, newTarget]);
@@ -76,13 +111,28 @@ export function useTargets() {
   };
 
   const removeTarget = (id: string) => {
-    setTargets(prev => prev.filter(t => t.id !== id));
+    const target = targets.find((t) => t.id === id);
+    const nextTargets = targets.filter((t) => t.id !== id);
+    setTargets(nextTargets);
     if (activeTargetId === id) {
+      setActiveTargetId(nextTargets[0]?.id ?? "");
+    }
+    if (target?.type === "local") {
+      setHideLocal(true);
+    }
+  };
+
+  const restoreLocal = () => {
+    setHideLocal(false);
+    if (!targets.some((t) => t.type === "local")) {
+      setTargets([DEFAULT_TARGET, ...targets]);
+    }
+    if (!activeTargetId) {
       setActiveTargetId(DEFAULT_TARGET.id);
     }
   };
 
-  const activeTarget = targets.find(t => t.id === activeTargetId) || DEFAULT_TARGET;
+  const activeTarget = targets.find(t => t.id === activeTargetId) || targets[0] || null;
 
   return {
     targets,
@@ -90,6 +140,8 @@ export function useTargets() {
     activeTargetId,
     setActiveTargetId,
     addTarget,
-    removeTarget
+    removeTarget,
+    hideLocal,
+    restoreLocal
   };
 }

@@ -8,9 +8,19 @@ interface TargetSelectorProps {
   onSelect: (id: string) => void;
   onAdd: (name: string, url: string) => void;
   onDelete: (id: string) => void;
+  hideLocal: boolean;
+  onRestoreLocal: () => void;
 }
 
-export function TargetSelector({ targets, activeTargetId, onSelect, onAdd, onDelete }: TargetSelectorProps) {
+export function TargetSelector({
+  targets,
+  activeTargetId,
+  onSelect,
+  onAdd,
+  onDelete,
+  hideLocal,
+  onRestoreLocal
+}: TargetSelectorProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
@@ -35,14 +45,24 @@ export function TargetSelector({ targets, activeTargetId, onSelect, onAdd, onDel
     <div className="space-y-4">
       <div className="flex justify-between items-center border-b border-border pb-2">
         <span className="text-muted-foreground font-medium">Target</span>
-        {!isAdding && (
-          <button 
-            onClick={() => setIsAdding(true)}
-            className="text-xs flex items-center gap-1 bg-muted hover:bg-muted/80 text-foreground px-2 py-1 rounded transition-colors"
-          >
-            <Plus size={14} /> Add
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {hideLocal && (
+            <button
+              onClick={onRestoreLocal}
+              className="text-xs flex items-center gap-1 bg-muted hover:bg-muted/80 text-foreground px-2 py-1 rounded transition-colors"
+            >
+              <Server size={14} /> Restore local
+            </button>
+          )}
+          {!isAdding && (
+            <button 
+              onClick={() => setIsAdding(true)}
+              className="text-xs flex items-center gap-1 bg-muted hover:bg-muted/80 text-foreground px-2 py-1 rounded transition-colors"
+            >
+              <Plus size={14} /> Add
+            </button>
+          )}
+        </div>
       </div>
 
       {isAdding ? (
@@ -91,7 +111,7 @@ export function TargetSelector({ targets, activeTargetId, onSelect, onAdd, onDel
             <div 
               key={target.id}
               className={`
-                group flex items-center justify-between p-2 rounded-md border cursor-pointer transition-all
+                group flex items-center justify-between p-2 rounded-md border cursor-pointer transition-colors
                 ${target.id === activeTargetId 
                   ? 'bg-primary/10 border-primary/50 ring-1 ring-primary/20' 
                   : 'bg-card border-border hover:border-muted-foreground'
@@ -113,14 +133,15 @@ export function TargetSelector({ targets, activeTargetId, onSelect, onAdd, onDel
                 </div>
               </div>
 
-              {target.type === 'custom' && (
+              {(target.type === 'custom' || !hideLocal) && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onDelete(target.id);
                   }}
-                  className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/20 rounded opacity-0 group-hover:opacity-100 transition-all"
+                  className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                   title="Remove target"
+                  aria-label="Remove target"
                 >
                   <Trash2 size={14} />
                 </button>

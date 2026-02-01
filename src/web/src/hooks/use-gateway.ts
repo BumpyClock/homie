@@ -6,6 +6,7 @@ import {
   type ServerHello,
   type HelloReject
 } from "@/lib/protocol";
+import { uuid } from "@/lib/uuid";
 
 export type ConnectionStatus =
   | "disconnected"
@@ -18,6 +19,16 @@ export type ConnectionStatus =
 interface UseGatewayOptions {
   url: string;
   authToken?: string;
+}
+
+function readDebugFlag() {
+  if (import.meta.env.VITE_DEBUG_WS === "1") return true;
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem("homie-debug") === "1";
+  } catch {
+    return false;
+  }
 }
 
 export function useGateway({ url, authToken }: UseGatewayOptions) {
@@ -33,18 +44,41 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
   const handshakeCompleted = useRef(false);
   const shouldReconnect = useRef(true);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debug = useRef(false);
   
   const pendingRequests = useRef<Map<string, { resolve: (val: unknown) => void; reject: (err: unknown) => void }>>(new Map());
+
+  const log = useCallback((...args: unknown[]) => {
+    if (debug.current) {
+      console.debug("[gateway]", ...args);
+    }
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
     shouldReconnect.current = true;
     retryCount.current = 0;
+    debug.current = readDebugFlag();
+
+    if (!url) {
+      setStatus("disconnected");
+      setError(null);
+      setRejection(null);
+      setServerHello(null);
+      return () => {
+        mounted.current = false;
+        shouldReconnect.current = false;
+      };
+    }
 
     const connect = () => {
         if (!mounted.current) return;
         
         setStatus("connecting");
+        setError(null);
+        setRejection(null);
+        setServerHello(null);
+        log("connecting", { url, auth: authToken ? "set" : "none" });
         // Ensure we don't have multiple connections
         if (wsRef.current) {
             wsRef.current.close();
@@ -52,6 +86,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
 
         try {
             const ws = new WebSocket(url);
+            ws.binaryType = "arraybuffer";
             wsRef.current = ws;
             handshakeCompleted.current = false;
 
@@ -59,6 +94,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                 if (!mounted.current) return;
                 setStatus("handshaking");
                 retryCount.current = 0;
+                log("open");
 
                 const clientHello: ClientHello = {
                     protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION },
@@ -67,6 +103,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                     capabilities: ["terminal"],
                 };
 
+                log("send hello", { protocol: clientHello.protocol, client_id: clientHello.client_id });
                 ws.send(JSON.stringify(clientHello));
             };
 
@@ -90,6 +127,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                      data = JSON.parse(event.data);
                 } catch (e) {
                      console.error("Failed to parse message", e);
+                     log("parse failed", event.data);
                      return;
                 }
 
@@ -99,21 +137,27 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                         handshakeCompleted.current = true;
                         setServerHello(response);
                         setStatus("connected");
+                        log("handshake ok", { server_id: response.server_id, version: response.protocol_version });
                     } else if (response.type === "reject") {
                         shouldReconnect.current = false;
                         setRejection(response);
                         setStatus("rejected");
+                        log("handshake rejected", response);
                         ws.close(); 
                     }
+                    return;
                 } else {
-                    // RPC Response handling
-                    if (data.id) {
-                         const pending = pendingRequests.current.get(data.id);
+                    if (data?.type === "response" && data.id) {
+                         const id = typeof data.id === "string" ? data.id : String(data.id);
+                         const pending = pendingRequests.current.get(id);
                          if (pending) {
                              if (data.error) pending.reject(data.error);
                              else pending.resolve(data.result);
-                             pendingRequests.current.delete(data.id);
+                             pendingRequests.current.delete(id);
                          }
+                         log("response", { id, ok: !data.error });
+                    } else if (data?.type === "event") {
+                         log("event", { topic: data.topic });
                     }
                 }
             };
@@ -123,20 +167,21 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                 console.error("WebSocket error", e);
                 setError(e);
                 setStatus("error");
+                log("error", e);
             };
 
             ws.onclose = () => {
                 if (!mounted.current) return;
+                log("close");
 
                 // Clear pending requests
                 for (const pending of pendingRequests.current.values()) {
                     pending.reject(new Error("Connection closed"));
                 }
                 pendingRequests.current.clear();
+                handshakeCompleted.current = false;
 
-                if (handshakeCompleted.current) {
-                     setStatus("disconnected");
-                }
+                setStatus((prev) => (prev === "rejected" ? prev : "disconnected"));
 
                 if (shouldReconnect.current) {
                     const delay = Math.min(1000 * Math.pow(2, retryCount.current), 30000);
@@ -150,6 +195,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
         } catch (err) {
             console.error("Failed to create WebSocket", err);
             setStatus("error");
+            log("create failed", err);
             const delay = Math.min(1000 * Math.pow(2, retryCount.current), 30000);
             retryCount.current++;
             reconnectTimeoutRef.current = setTimeout(() => {
@@ -170,7 +216,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
             clearTimeout(reconnectTimeoutRef.current);
         }
     };
-  }, [url, authToken]);
+  }, [url, authToken, log]);
 
   const call = useCallback((method: string, params?: unknown) => {
       return new Promise((resolve, reject) => {
@@ -178,11 +224,12 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
               reject(new Error("Not connected"));
               return;
           }
-          const id = crypto.randomUUID();
+          const id = uuid();
           pendingRequests.current.set(id, { resolve, reject });
-          wsRef.current.send(JSON.stringify({ id, method, params }));
+          log("request", { id, method });
+          wsRef.current.send(JSON.stringify({ type: "request", id, method, params }));
       });
-  }, []);
+  }, [log]);
 
   const sendBinary = useCallback((data: Uint8Array | ArrayBuffer) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && handshakeCompleted.current) {

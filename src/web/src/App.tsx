@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGateway, type ConnectionStatus } from '@/hooks/use-gateway'
 import { useTargets } from '@/hooks/use-targets'
 import { TargetSelector } from '@/components/target-selector'
@@ -19,16 +19,29 @@ function StatusBadge({ status }: { status: ConnectionStatus }) {
 
   return (
     <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-white text-sm font-medium ${colors[status]}`}>
-      <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+      <div className="w-2 h-2 rounded-full bg-white animate-pulse motion-reduce:animate-none" />
       <span className="capitalize">{status}</span>
     </div>
   );
 }
 
 function App() {
-  const { targets, activeTarget, activeTargetId, setActiveTargetId, addTarget, removeTarget } = useTargets();
-  const { status, serverHello, rejection, error, call, onBinaryMessage } = useGateway({ url: activeTarget.url });
+  const {
+    targets,
+    activeTarget,
+    activeTargetId,
+    setActiveTargetId,
+    addTarget,
+    removeTarget,
+    hideLocal,
+    restoreLocal
+  } = useTargets();
+  const { status, serverHello, rejection, error, call, onBinaryMessage } = useGateway({ url: activeTarget?.url ?? "" });
   const [attachedSessionIds, setAttachedSessionIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setAttachedSessionIds([]);
+  }, [activeTargetId]);
 
   const handleAttach = (sessionId: string) => {
     if (!attachedSessionIds.includes(sessionId)) {
@@ -50,6 +63,7 @@ function App() {
                         onClick={() => setAttachedSessionIds([])}
                         className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground"
                         title="Back to Dashboard"
+                        aria-label="Back to dashboard"
                     >
                         <ArrowLeft size={20} />
                     </button>
@@ -88,6 +102,8 @@ function App() {
             onSelect={setActiveTargetId}
             onAdd={addTarget}
             onDelete={removeTarget}
+            hideLocal={hideLocal}
+            onRestoreLocal={restoreLocal}
           />
 
           <div className="flex justify-between items-center border-b border-border pb-4">

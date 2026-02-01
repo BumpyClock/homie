@@ -45,7 +45,6 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
   const handleStart = async () => {
     try {
         const session = await call('terminal.session.start', {
-            shell: '/bin/bash', // or default
             cols: 80,
             rows: 24
         }) as SessionInfo;
@@ -55,30 +54,12 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
         
         // Auto-attach
         if (session && session.session_id) {
+            await call('terminal.session.attach', { session_id: session.session_id });
             onAttach(session.session_id);
         }
     } catch (err: unknown) {
         console.error("Failed to start session", err);
         const msg = err instanceof Error ? err.message : String(err);
-        
-        // If /bin/bash fails, try /bin/sh
-        if (msg && msg.includes("spawn")) {
-            try {
-                 const session = await call('terminal.session.start', {
-                    shell: '/bin/sh',
-                    cols: 80,
-                    rows: 24
-                }) as SessionInfo;
-                
-                fetchSessions();
-                if (session && session.session_id) {
-                    onAttach(session.session_id);
-                }
-                return;
-            } catch (retryErr) {
-                console.error("Failed to start session with /bin/sh", retryErr);
-            }
-        }
         alert('Failed to start session: ' + msg);
     }
   };
@@ -94,8 +75,14 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
       }
   };
 
-  const handleAttach = (id: string) => {
-      onAttach(id);
+  const handleAttach = async (id: string) => {
+      try {
+          await call('terminal.session.attach', { session_id: id });
+          onAttach(id);
+      } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          alert('Failed to attach session: ' + msg);
+      }
   };
 
   if (status !== 'connected') {
@@ -115,8 +102,9 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
                 disabled={loading}
                 className="p-2 bg-muted hover:bg-muted/80 rounded text-muted-foreground disabled:opacity-50 transition-colors"
                 title="Refresh"
+                aria-label="Refresh sessions"
             >
-                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin motion-reduce:animate-none' : ''}`} />
             </button>
             <button 
                 onClick={handleStart}
@@ -144,7 +132,7 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
                   <div key={session.session_id} className="bg-card p-4 rounded-lg border border-border flex items-center justify-between shadow-sm">
                       <div>
                           <div className="flex items-center gap-2 mb-1">
-                              <span className={`w-2 h-2 rounded-full ${session.status === 'Active' ? 'bg-green-500' : 'bg-muted-foreground'}`} title={session.status} />
+                              <span className={`w-2 h-2 rounded-full ${session.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'}`} title={session.status} />
                               <span className="font-mono text-sm text-foreground" title={session.session_id}>{session.session_id.substring(0, 8)}...</span>
                               <span className="text-xs px-2 py-0.5 bg-muted rounded text-muted-foreground font-mono">{session.shell}</span>
                           </div>
@@ -163,6 +151,7 @@ export function SessionList({ call, status, onAttach }: SessionListProps) {
                                 onClick={() => handleKill(session.session_id)}
                                 className="p-1.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive rounded transition-colors"
                                 title="Kill Session"
+                                aria-label="Kill session"
                            >
                                <X className="w-4 h-4" />
                            </button>

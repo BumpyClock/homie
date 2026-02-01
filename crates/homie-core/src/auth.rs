@@ -21,10 +21,19 @@ pub struct TailscaleIdentity {
 pub enum AuthOutcome {
     /// Loopback connection — trusted without identity headers.
     Local,
+    /// LAN connection — trusted without identity headers.
+    Lan,
     /// Tailscale Serve identity verified.
     Tailscale(TailscaleIdentity),
     /// Rejected with reason.
     Rejected(String),
+}
+
+fn is_lan_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_private(),
+        IpAddr::V6(v6) => v6.is_unique_local(),
+    }
 }
 
 impl AuthOutcome {
@@ -37,6 +46,7 @@ impl AuthOutcome {
         match self {
             Self::Tailscale(id) => Some(id.login.clone()),
             Self::Local => Some("local".into()),
+            Self::Lan => Some("lan".into()),
             Self::Rejected(_) => None,
         }
     }
@@ -166,12 +176,15 @@ pub async fn authenticate(
     headers: &HeaderMap,
     remote_ip: IpAddr,
     tailscale_serve: bool,
+    allow_lan: bool,
     whois: &Arc<dyn TailscaleWhois>,
 ) -> AuthOutcome {
     // When not behind Tailscale Serve, only allow loopback.
     if !tailscale_serve {
         return if remote_ip.is_loopback() {
             AuthOutcome::Local
+        } else if allow_lan && is_lan_ip(remote_ip) {
+            AuthOutcome::Lan
         } else {
             AuthOutcome::Rejected("non-loopback without tailscale serve".into())
         };
@@ -182,6 +195,8 @@ pub async fn authenticate(
         return if remote_ip.is_loopback() {
             // Direct loopback access even when serve is enabled.
             AuthOutcome::Local
+        } else if allow_lan && is_lan_ip(remote_ip) {
+            AuthOutcome::Lan
         } else {
             AuthOutcome::Rejected("missing tailscale proxy headers".into())
         };

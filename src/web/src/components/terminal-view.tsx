@@ -104,6 +104,7 @@ export function TerminalView({ attachedSessionIds, onDetach, call, onBinaryMessa
                 onDetach(sessionId);
               }}
               className="p-1 hover:bg-muted rounded-full"
+              aria-label="Close session"
             >
               <X size={12} />
             </button>
@@ -145,7 +146,7 @@ function KeyButton({ label, onClick }: { label: string; onClick: () => void }) {
     return (
         <button 
             onClick={onClick}
-            className="px-4 py-2 bg-card hover:bg-muted text-foreground border border-border rounded text-xs font-mono font-bold shadow-sm active:transform active:scale-95 transition-all"
+            className="px-4 py-2 bg-card hover:bg-muted text-foreground border border-border rounded text-xs font-mono font-bold shadow-sm active:transform active:scale-95 transition-colors"
         >
             {label}
         </button>

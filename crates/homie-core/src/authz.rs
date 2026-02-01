@@ -66,6 +66,7 @@ impl AuthContext {
 pub fn context_for_outcome(outcome: &AuthOutcome, config: &ServerConfig) -> AuthContext {
     let role = match outcome {
         AuthOutcome::Local => config.local_role,
+        AuthOutcome::Lan => config.local_role,
         AuthOutcome::Tailscale(_) => config.tailscale_role,
         AuthOutcome::Rejected(_) => Role::Viewer,
     };

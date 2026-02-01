@@ -37,6 +37,7 @@ export function ThemeSelector() {
         onClick={() => setIsOpen(!isOpen)}
         className="p-2 rounded-md hover:bg-secondary text-secondary-foreground transition-colors flex items-center gap-2"
         title="Theme Settings"
+        aria-label="Theme settings"
       >
         <Palette size={20} />
       </button>
@@ -51,12 +52,13 @@ export function ThemeSelector() {
                   <button
                     key={t.value}
                     onClick={() => setTheme(t.value)}
-                    className={`flex-1 flex items-center justify-center p-1.5 rounded-md text-sm transition-all ${
+                    className={`flex-1 flex items-center justify-center p-1.5 rounded-md text-sm transition-colors ${
                       theme === t.value
                         ? "bg-background shadow-sm text-foreground"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                     title={t.label}
+                    aria-label={t.label}
                   >
                     {t.icon}
                   </button>
@@ -71,12 +73,13 @@ export function ThemeSelector() {
                   <button
                     key={s.value}
                     onClick={() => setColorScheme(s.value)}
-                    className={`group relative flex flex-col items-center gap-1 p-2 rounded-md border-2 transition-all ${
+                    className={`group relative flex flex-col items-center gap-1 p-2 rounded-md border-2 transition-colors ${
                       colorScheme === s.value
                         ? "border-primary bg-muted"
                         : "border-transparent hover:bg-muted"
                     }`}
                     title={s.label}
+                    aria-label={s.label}
                   >
                     <div className={`w-6 h-6 rounded-full ${s.color}`} />
                   </button>

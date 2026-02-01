@@ -12,6 +12,8 @@ pub struct ServerConfig {
     pub tailnet_bind: Option<SocketAddr>,
     /// Whether Tailscale Serve headers should be validated.
     pub tailscale_serve: bool,
+    /// Allow non-loopback LAN connections without Tailscale Serve.
+    pub allow_lan: bool,
     /// Interval between server→client pings.
     pub heartbeat_interval: Duration,
     /// Close the connection after this duration without any message.
@@ -40,6 +42,7 @@ impl Default for ServerConfig {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9800),
             tailnet_bind: None,
             tailscale_serve: false,
+            allow_lan: false,
             heartbeat_interval: Duration::from_secs(15),
             idle_timeout: Duration::from_secs(120),
             local_role: Role::Owner,

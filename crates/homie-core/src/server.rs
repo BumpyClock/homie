@@ -109,10 +109,17 @@ async fn ws_upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
+    tracing::debug!(
+        %remote_ip,
+        tailscale_serve = state.config.tailscale_serve,
+        allow_lan = state.config.allow_lan,
+        "ws upgrade requested"
+    );
     let auth = authenticate(
         &headers,
         remote_ip,
         state.config.tailscale_serve,
+        state.config.allow_lan,
         &state.whois,
     )
     .await;
@@ -121,6 +128,9 @@ async fn ws_upgrade(
         tracing::warn!(%remote_ip, %reason, "ws upgrade rejected");
         return axum::http::StatusCode::UNAUTHORIZED.into_response();
     }
+
+    let identity = auth.identity_string().unwrap_or_else(|| "unknown".into());
+    tracing::info!(%remote_ip, %identity, "ws upgrade accepted");
 
     let heartbeat = state.config.heartbeat_interval;
     let idle = state.config.idle_timeout;

@@ -12,3 +12,5 @@
 - 2026-02-01: Added authz roles/scopes with per-method checks; introduced outbound event filtering; added presence registry/service and stub jobs/pairing/notifications; added homie-gateway binary with env config; event pointer increments on Codex events.
 - 2026-02-01: Implemented in-memory jobs/pairing/notifications services with registries and basic RPCs; notifications.send emits notifications.sent event.
 - 2026-02-01: Jobs/pairings/notifications now persisted in sqlite with retention (jobs: days+max; pairings: TTL+retention; notifications: subs+events retention). jobs.start spec stored as JSON; notifications.send records event + emits notifications.sent.
+- 2026-02-01: Web client must use WS envelope `{type:"request"}`/`{type:"response"}`, connect via `/ws`, and call `terminal.session.attach` before rendering; session status uses lowercase strings.
+- 2026-02-01: Added `HOMIE_ALLOW_LAN=1` to allow non-loopback private IP connections (LAN) without Tailscale Serve.
