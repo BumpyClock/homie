@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGateway, type ConnectionStatus } from '@/hooks/use-gateway'
 import { useTargets } from '@/hooks/use-targets'
 import { TargetSelector } from '@/components/target-selector'
@@ -38,10 +38,22 @@ function App() {
   } = useTargets();
   const { status, serverHello, rejection, error, call, onBinaryMessage } = useGateway({ url: activeTarget?.url ?? "" });
   const [attachedSessionIds, setAttachedSessionIds] = useState<string[]>([]);
+  const prevAttachedRef = useRef<string[]>([]);
 
   useEffect(() => {
     setAttachedSessionIds([]);
   }, [activeTargetId]);
+
+  useEffect(() => {
+    const prev = prevAttachedRef.current;
+    const removed = prev.filter((id) => !attachedSessionIds.includes(id));
+    if (removed.length > 0 && status === "connected") {
+      removed.forEach((id) => {
+        void call("terminal.session.detach", { session_id: id }).catch(() => {});
+      });
+    }
+    prevAttachedRef.current = attachedSessionIds;
+  }, [attachedSessionIds, status, call]);
 
   const handleAttach = (sessionId: string) => {
     if (!attachedSessionIds.includes(sessionId)) {

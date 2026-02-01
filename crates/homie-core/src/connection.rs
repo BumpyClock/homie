@@ -25,7 +25,7 @@ use crate::pairing::PairingService;
 use crate::presence::{NodeRegistry, PresenceService};
 use crate::router::{MessageRouter, ServiceRegistry, SubscriptionManager};
 use crate::storage::Store;
-use crate::terminal::TerminalService;
+use crate::terminal::{TerminalRegistry, TerminalService};
 
 /// Represents an authenticated WS connection after handshake.
 #[derive(Debug)]
@@ -45,6 +45,7 @@ pub struct ConnectionParams {
     pub registry: ServiceRegistry,
     pub store: Arc<dyn Store>,
     pub nodes: Arc<Mutex<NodeRegistry>>,
+    pub terminal_registry: Arc<Mutex<TerminalRegistry>>,
     pub pairing_default_ttl_secs: u64,
     pub pairing_retention_secs: u64,
 }
@@ -52,11 +53,13 @@ pub struct ConnectionParams {
 /// Parameters required for the message loop lifecycle.
 #[derive(Clone)]
 struct MessageLoopParams {
+    conn_id: Uuid,
     heartbeat_interval: Duration,
     idle_timeout: Duration,
     authz: AuthContext,
     store: Arc<dyn Store>,
     nodes: Arc<Mutex<NodeRegistry>>,
+    terminal_registry: Arc<Mutex<TerminalRegistry>>,
     pairing_default_ttl_secs: u64,
     pairing_retention_secs: u64,
 }
@@ -71,6 +74,7 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
         registry,
         store,
         nodes,
+        terminal_registry,
         pairing_default_ttl_secs,
         pairing_retention_secs,
     } = params;
@@ -156,11 +160,13 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
     // ── Phase 2: Message loop with heartbeat + idle timeout ──────────
     drop(_enter);
     let loop_params = MessageLoopParams {
+        conn_id,
         heartbeat_interval,
         idle_timeout,
         authz,
         store,
         nodes,
+        terminal_registry,
         pairing_default_ttl_secs,
         pairing_retention_secs,
     };
@@ -176,11 +182,13 @@ async fn run_message_loop(
     params: MessageLoopParams,
 ) {
     let MessageLoopParams {
+        conn_id,
         heartbeat_interval,
         idle_timeout,
         authz,
         store,
         nodes,
+        terminal_registry,
         pairing_default_ttl_secs,
         pairing_retention_secs,
     } = params;
@@ -195,8 +203,9 @@ async fn run_message_loop(
     // Build the router with services.
     let mut router = MessageRouter::new();
     router.register(Box::new(TerminalService::new(
+        conn_id,
+        terminal_registry,
         outbound_tx.clone(),
-        store.clone(),
     )));
     router.register(Box::new(AgentService::new(
         outbound_tx.clone(),

@@ -270,6 +270,64 @@ async fn session_attach_returns_info() {
 }
 
 #[tokio::test]
+async fn session_survives_disconnect() {
+    let addr = start_server(ServerConfig::default()).await;
+    let mut ws = connect_and_handshake(addr).await;
+
+    let result = rpc(
+        &mut ws,
+        "terminal.session.start",
+        Some(json!({ "cols": 80, "rows": 24 })),
+    )
+    .await;
+
+    let sid = extract_session_id(&result);
+
+    let _ = ws.send(tungstenite::Message::Close(None)).await;
+    drop(ws);
+
+    let mut ws2 = connect_and_handshake(addr).await;
+    let info = rpc(
+        &mut ws2,
+        "terminal.session.attach",
+        Some(json!({ "session_id": sid })),
+    )
+    .await;
+
+    assert_eq!(info["session_id"].as_str().unwrap(), sid);
+}
+
+#[tokio::test]
+async fn session_detach_does_not_kill() {
+    let addr = start_server(ServerConfig::default()).await;
+    let mut ws = connect_and_handshake(addr).await;
+
+    let result = rpc(
+        &mut ws,
+        "terminal.session.start",
+        Some(json!({ "cols": 80, "rows": 24 })),
+    )
+    .await;
+    let sid = extract_session_id(&result);
+
+    let _ = rpc(
+        &mut ws,
+        "terminal.session.detach",
+        Some(json!({ "session_id": sid })),
+    )
+    .await;
+
+    let info = rpc(
+        &mut ws,
+        "terminal.session.attach",
+        Some(json!({ "session_id": sid })),
+    )
+    .await;
+
+    assert_eq!(info["session_id"].as_str().unwrap(), sid);
+}
+
+#[tokio::test]
 async fn session_attach_not_found() {
     let addr = start_server(ServerConfig::default()).await;
     let mut ws = connect_and_handshake(addr).await;

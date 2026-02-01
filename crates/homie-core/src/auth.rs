@@ -278,13 +278,13 @@ mod tests {
 
     #[tokio::test]
     async fn loopback_no_serve_is_local() {
-        let result = authenticate(&HeaderMap::new(), loopback(), false, &stub(None)).await;
+        let result = authenticate(&HeaderMap::new(), loopback(), false, false, &stub(None)).await;
         assert!(matches!(result, AuthOutcome::Local));
     }
 
     #[tokio::test]
     async fn remote_no_serve_is_rejected() {
-        let result = authenticate(&HeaderMap::new(), remote(), false, &stub(None)).await;
+        let result = authenticate(&HeaderMap::new(), remote(), false, false, &stub(None)).await;
         assert!(matches!(result, AuthOutcome::Rejected(_)));
     }
 
@@ -298,7 +298,7 @@ mod tests {
             tailnet: Some("mynet".into()),
         }));
 
-        let result = authenticate(&headers, loopback(), true, &whois).await;
+        let result = authenticate(&headers, loopback(), true, false, &whois).await;
         match result {
             AuthOutcome::Tailscale(id) => {
                 assert_eq!(id.login, "alice");
@@ -318,26 +318,26 @@ mod tests {
             tailnet: None,
         }));
 
-        let result = authenticate(&headers, loopback(), true, &whois).await;
+        let result = authenticate(&headers, loopback(), true, false, &whois).await;
         assert!(matches!(result, AuthOutcome::Rejected(_)));
     }
 
     #[tokio::test]
     async fn tailscale_serve_whois_fails_rejected() {
         let headers = make_tailscale_headers("alice");
-        let result = authenticate(&headers, loopback(), true, &stub(None)).await;
+        let result = authenticate(&headers, loopback(), true, false, &stub(None)).await;
         assert!(matches!(result, AuthOutcome::Rejected(_)));
     }
 
     #[tokio::test]
     async fn serve_enabled_but_direct_loopback_is_local() {
-        let result = authenticate(&HeaderMap::new(), loopback(), true, &stub(None)).await;
+        let result = authenticate(&HeaderMap::new(), loopback(), true, false, &stub(None)).await;
         assert!(matches!(result, AuthOutcome::Local));
     }
 
     #[tokio::test]
     async fn serve_enabled_non_loopback_no_proxy_rejected() {
-        let result = authenticate(&HeaderMap::new(), remote(), true, &stub(None)).await;
+        let result = authenticate(&HeaderMap::new(), remote(), true, false, &stub(None)).await;
         assert!(matches!(result, AuthOutcome::Rejected(_)));
     }
 
@@ -351,7 +351,7 @@ mod tests {
             tailnet: None,
         }));
 
-        let result = authenticate(&headers, loopback(), true, &whois).await;
+        let result = authenticate(&headers, loopback(), true, false, &whois).await;
         assert!(matches!(result, AuthOutcome::Tailscale(_)));
     }
 }

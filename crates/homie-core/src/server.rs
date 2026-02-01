@@ -16,6 +16,7 @@ use crate::connection::{run_connection, ConnectionParams};
 use crate::presence::NodeRegistry;
 use crate::router::ServiceRegistry;
 use crate::storage::Store;
+use crate::terminal::TerminalRegistry;
 
 /// Shared state accessible by handlers.
 #[derive(Clone)]
@@ -25,6 +26,7 @@ pub(crate) struct AppState {
     pub registry: ServiceRegistry,
     pub store: Arc<dyn Store>,
     pub nodes: Arc<Mutex<NodeRegistry>>,
+    pub terminal_registry: Arc<Mutex<TerminalRegistry>>,
 }
 
 /// Build the axum router for the WS server.
@@ -63,6 +65,7 @@ pub fn build_router(
     registry.register("notifications", "0.1");
 
     let nodes = Arc::new(Mutex::new(NodeRegistry::new(config.node_timeout)));
+    let terminal_registry = Arc::new(Mutex::new(TerminalRegistry::new(store.clone())));
 
     let state = AppState {
         config,
@@ -70,6 +73,7 @@ pub fn build_router(
         registry,
         store,
         nodes,
+        terminal_registry,
     };
 
     Router::new()
@@ -138,6 +142,7 @@ async fn ws_upgrade(
     let store = state.store.clone();
     let config = state.config.clone();
     let nodes = state.nodes.clone();
+    let terminal_registry = state.terminal_registry.clone();
     let params = ConnectionParams {
         config,
         heartbeat_interval: heartbeat,
@@ -145,6 +150,7 @@ async fn ws_upgrade(
         registry,
         store,
         nodes,
+        terminal_registry,
         pairing_default_ttl_secs: state.config.pairing_default_ttl_secs,
         pairing_retention_secs: state.config.pairing_retention_secs,
     };

@@ -14,3 +14,5 @@
 - 2026-02-01: Jobs/pairings/notifications now persisted in sqlite with retention (jobs: days+max; pairings: TTL+retention; notifications: subs+events retention). jobs.start spec stored as JSON; notifications.send records event + emits notifications.sent.
 - 2026-02-01: Web client must use WS envelope `{type:"request"}`/`{type:"response"}`, connect via `/ws`, and call `terminal.session.attach` before rendering; session status uses lowercase strings.
 - 2026-02-01: Added `HOMIE_ALLOW_LAN=1` to allow non-loopback private IP connections (LAN) without Tailscale Serve.
+- 2026-02-01: Terminal sessions now live in a shared registry; disconnect detaches but does not kill PTY, enabling reattach after refresh.
+- 2026-02-01: Reattach replays buffered PTY output (size-limited, `HOMIE_HISTORY_BYTES`) so terminals restore on reconnect.
