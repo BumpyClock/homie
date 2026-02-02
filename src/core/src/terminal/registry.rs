@@ -112,8 +112,6 @@ impl TerminalRegistry {
         shell: String,
         cols: u16,
         rows: u16,
-        subscriber_id: Uuid,
-        outbound_tx: mpsc::Sender<OutboundMessage>,
     ) -> Result<SessionInfo, TerminalError> {
         let cmd = CommandBuilder::new(&shell);
         self.start_session_with_command(
@@ -121,8 +119,6 @@ impl TerminalRegistry {
             cmd,
             cols,
             rows,
-            subscriber_id,
-            outbound_tx,
             None,
         )
     }
@@ -181,8 +177,6 @@ impl TerminalRegistry {
         session_name: String,
         cols: u16,
         rows: u16,
-        subscriber_id: Uuid,
-        outbound_tx: mpsc::Sender<OutboundMessage>,
     ) -> Result<SessionInfo, TerminalError> {
         if !tmux_supported() {
             return Err(TerminalError::Internal("tmux not supported".into()));
@@ -202,8 +196,6 @@ impl TerminalRegistry {
             cmd,
             cols,
             rows,
-            subscriber_id,
-            outbound_tx,
             Some(session_name),
         )
     }
@@ -237,8 +229,6 @@ impl TerminalRegistry {
         mut cmd: CommandBuilder,
         cols: u16,
         rows: u16,
-        subscriber_id: Uuid,
-        outbound_tx: mpsc::Sender<OutboundMessage>,
         name: Option<String>,
     ) -> Result<SessionInfo, TerminalError> {
         let pty_system = native_pty_system();
@@ -313,10 +303,7 @@ impl TerminalRegistry {
             tracing::warn!(%session_id, "failed to persist terminal start: {e}");
         }
 
-        let subscribers = Arc::new(Mutex::new(HashMap::from([(
-            subscriber_id,
-            outbound_tx.clone(),
-        )])));
+        let subscribers = Arc::new(Mutex::new(HashMap::new()));
         let history = Arc::new(Mutex::new(HistoryBuffer::new(history_limit_bytes())));
         let output_task = tokio::spawn(forward_pty_output(
             session_id,
@@ -613,8 +600,6 @@ async fn forward_pty_output(
     subscribers: Arc<Mutex<HashMap<Uuid, mpsc::Sender<OutboundMessage>>>>,
     history: Arc<Mutex<HistoryBuffer>>,
 ) {
-    let mut dropped_frames: u64 = 0;
-
     while let Some(data) = output_rx.recv().await {
         if let Ok(mut buffer) = history.lock() {
             buffer.push(&data);
@@ -631,30 +616,12 @@ async fn forward_pty_output(
             guard.iter().map(|(id, tx)| (*id, tx.clone())).collect()
         };
         for (id, tx) in targets {
-            match tx.try_send(OutboundMessage::raw(WsMessage::Binary(encoded.clone().into()))) {
-                Ok(()) => {
-                    if dropped_frames > 0 {
-                        tracing::warn!(
-                            session = %session_id,
-                            dropped_frames,
-                            "backpressure eased, resumed sending"
-                        );
-                        dropped_frames = 0;
-                    }
-                }
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    dropped_frames += 1;
-                    if dropped_frames == 1 || dropped_frames.is_multiple_of(100) {
-                        tracing::warn!(
-                            session = %session_id,
-                            dropped_frames,
-                            "backpressure: dropping PTY output frame"
-                        );
-                    }
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    to_remove.push(id);
-                }
+            if tx
+                .send(OutboundMessage::raw(WsMessage::Binary(encoded.clone().into())))
+                .await
+                .is_err()
+            {
+                to_remove.push(id);
             }
         }
         if !to_remove.is_empty() {

@@ -40,17 +40,10 @@ impl TerminalService {
         let (shell, cols, rows) = parse_start_params(&params);
         let info = {
             let mut registry = self.registry.lock().unwrap();
-            registry.start_session(
-                shell,
-                cols,
-                rows,
-                self.subscriber_id,
-                self.outbound_tx.clone(),
-            )
+            registry.start_session(shell, cols, rows)
         };
         match info {
             Ok(info) => {
-                self.attached.insert(info.session_id);
                 let _ = self.event_tx.send(ReapEvent::new(
                     "terminal.session.start",
                     Some(json!({
@@ -393,14 +386,11 @@ impl TerminalService {
                 session_name,
                 cols,
                 rows,
-                self.subscriber_id,
-                self.outbound_tx.clone(),
             )
         };
 
         match result {
             Ok(info) => {
-                self.attached.insert(info.session_id);
                 let _ = self.event_tx.send(ReapEvent::new(
                     "terminal.session.start",
                     Some(json!({

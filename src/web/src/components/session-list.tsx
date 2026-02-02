@@ -214,6 +214,7 @@ export function SessionList({ call, status, onAttach, onRename, previewNamespace
       }) as SessionInfo;
       fetchSessions();
       if (session && session.session_id) {
+        await call('terminal.session.attach', { session_id: session.session_id });
         onAttach(session);
       }
     } catch (err: unknown) {

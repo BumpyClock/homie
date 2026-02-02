@@ -33,3 +33,4 @@
 - 2026-02-02: Added OpenClaw-inspired next steps to phase1 plan (system prompt assembly, memory search, compaction, hooks, heartbeats).
 - 2026-02-02: Added plan block for replacing Codex CLI app-server with embedded loop + OAuth retention and future provider adapters.
 - 2026-02-02: Reorganized repo layout under src/ (core, gateway, infra) and moved roci submodule to src/infra.
+- 2026-02-02: Windows PTY can emit tiny chunks; if early bytes are dropped (e.g. lone ESC), escape sequences degrade (literal `[6n`) and shells can block waiting for a DSR response. Fix by buffering PTY bytes until the UI listener is ready and ensuring attach can replay startup history (avoid auto-attach on start).

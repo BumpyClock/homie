@@ -52,6 +52,33 @@ export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage
     : (attachedSessionIds.length > 0 ? attachedSessionIds[0] : null);
 
   const tabListeners = useRef<Map<string, (data: Uint8Array) => void>>(new Map());
+  const pendingOutput = useRef<Map<string, { chunks: Uint8Array[]; bytes: number }>>(new Map());
+
+  const flushPending = useCallback((sessionId: string, listener: (data: Uint8Array) => void) => {
+    const entry = pendingOutput.current.get(sessionId);
+    if (!entry || entry.chunks.length === 0) return;
+    pendingOutput.current.delete(sessionId);
+    for (const chunk of entry.chunks) {
+      listener(chunk);
+    }
+  }, []);
+
+  const bufferPending = useCallback((sessionId: string, payload: Uint8Array) => {
+    // Per-session cap: avoid unbounded memory when UI is slow to mount.
+    const MAX_BYTES = 1024 * 1024; // 1MB
+    const copy = payload.slice();
+    const existing = pendingOutput.current.get(sessionId);
+    if (!existing) {
+      pendingOutput.current.set(sessionId, { chunks: [copy], bytes: copy.byteLength });
+      return;
+    }
+    existing.chunks.push(copy);
+    existing.bytes += copy.byteLength;
+    while (existing.chunks.length > 0 && existing.bytes > MAX_BYTES) {
+      const dropped = existing.chunks.shift();
+      if (dropped) existing.bytes -= dropped.byteLength;
+    }
+  }, []);
 
   useEffect(() => {
     const cleanup = onBinaryMessage((buffer) => {
@@ -61,7 +88,10 @@ export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage
         if (frame.stream === StreamType.Stdout || frame.stream === StreamType.Stderr) {
              const listener = tabListeners.current.get(frame.sessionId);
              if (listener) {
+                 flushPending(frame.sessionId, listener);
                  listener(frame.payload);
+             } else {
+                 bufferPending(frame.sessionId, frame.payload);
              }
         }
       } catch (e) {
@@ -69,14 +99,15 @@ export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage
       }
     });
     return cleanup;
-  }, [onBinaryMessage]);
+  }, [onBinaryMessage, bufferPending, flushPending]);
 
   const registerTabListener = useCallback((sessionId: string, listener: (data: Uint8Array) => void) => {
     tabListeners.current.set(sessionId, listener);
+    flushPending(sessionId, listener);
     return () => {
       tabListeners.current.delete(sessionId);
     };
-  }, []);
+  }, [flushPending]);
 
   const handleInput = useCallback((sessionId: string, data: string) => {
     void call("terminal.session.input", { session_id: sessionId, data }).catch(() => {});

@@ -294,6 +294,13 @@ async fn session_start_produces_pty_output() {
     let sid = extract_session_id(&result);
     let session_uuid = uuid::Uuid::parse_str(&sid).unwrap();
 
+    rpc(
+        &mut ws,
+        "terminal.session.attach",
+        Some(json!({ "session_id": sid })),
+    )
+    .await;
+
     // Shell should produce some output (prompt). Read binary frames.
     let data = next_binary(&mut ws).await;
     let frame = BinaryFrame::decode(&data).unwrap();
@@ -486,6 +493,13 @@ async fn session_input_text() {
     let sid = extract_session_id(&result);
     let session_uuid = uuid::Uuid::parse_str(&sid).unwrap();
 
+    rpc(
+        &mut ws,
+        "terminal.session.attach",
+        Some(json!({ "session_id": sid })),
+    )
+    .await;
+
     // Drain initial shell output.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -544,6 +558,13 @@ async fn session_input_binary_frame() {
 
     let sid = extract_session_id(&result);
     let session_uuid = uuid::Uuid::parse_str(&sid).unwrap();
+
+    rpc(
+        &mut ws,
+        "terminal.session.attach",
+        Some(json!({ "session_id": sid })),
+    )
+    .await;
 
     // Drain initial shell output.
     tokio::time::sleep(Duration::from_millis(200)).await;
