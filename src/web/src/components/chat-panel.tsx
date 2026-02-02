@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Folder } from "lucide-react";
-import { ChatItemView } from "@/components/chat-item";
+import { ChatTurns } from "@/components/chat-turns";
 import { ChatComposerBar } from "@/components/chat-composer-bar";
 import { ChatInlineMenu } from "@/components/chat-inline-menu";
 import { ChatThreadList } from "@/components/chat-thread-list";
 import { ChatThreadHeader } from "@/components/chat-thread-header";
+import { ChatComposerInput } from "@/components/chat-composer-input";
 import { useChat } from "@/hooks/use-chat";
 import type { ConnectionStatus } from "@/hooks/use-gateway";
 import type { FileOption, SkillOption } from "@/lib/chat-utils";
@@ -60,6 +61,9 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
 
   const activeTitle = activeThread?.title ?? "";
   const canSend = status === "connected" && !!activeThread;
@@ -104,6 +108,10 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   }, [attachedFolder, activeThread?.chatId]);
 
   useEffect(() => {
+    stickToBottomRef.current = true;
+  }, [activeThread?.chatId]);
+
+  useEffect(() => {
     setMenuIndex(0);
   }, [trigger?.type, trigger?.query, activeMenuItems.length]);
 
@@ -146,10 +154,33 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
 
   const handleSend = async () => {
     if (!draft.trim()) return;
+    stickToBottomRef.current = true;
     await sendMessage(draft);
     setDraft("");
     setTrigger(null);
   };
+
+  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    endRef.current?.scrollIntoView({ behavior, block: "end" });
+  };
+
+  const lastItemSignature = useMemo(() => {
+    if (!activeThread || activeThread.items.length === 0) return "";
+    const last = activeThread.items[activeThread.items.length - 1];
+    return [
+      last.id,
+      last.kind,
+      last.text?.length ?? 0,
+      last.output?.length ?? 0,
+      last.content?.length ?? 0,
+    ].join(":");
+  }, [activeThread]);
+
+  useEffect(() => {
+    if (!activeThread) return;
+    if (!stickToBottomRef.current) return;
+    scrollToBottom("auto");
+  }, [activeThread?.running, lastItemSignature]);
 
   const updateMenuPosition = (value: string, cursorPosition: number) => {
     if (!inputRef.current) return;
@@ -259,7 +290,16 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
           }}
         />
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-4">
+        <div
+          ref={scrollRef}
+          onScroll={() => {
+            const viewport = scrollRef.current;
+            if (!viewport) return;
+            const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+            stickToBottomRef.current = distance < 24;
+          }}
+          className="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-4"
+        >
           {!accountStatus.ok && (
             <div className="rounded-lg border border-amber-400/60 bg-amber-50/70 dark:bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
               {accountStatus.message}
@@ -281,9 +321,12 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
 
           {activeThread ? (
             activeThread.items.length > 0 ? (
-              activeThread.items.map((item) => (
-                <ChatItemView key={item.id} item={item} onApprove={respondApproval} />
-              ))
+              <ChatTurns
+                items={activeThread.items}
+                activeTurnId={activeThread.activeTurnId}
+                running={activeThread.running}
+                onApprove={respondApproval}
+              />
             ) : (
               <div className="text-sm text-muted-foreground">
                 No messages yet. Start the conversation below.
@@ -294,6 +337,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               Select a chat from the left to view its history.
             </div>
           )}
+          <div ref={endRef} />
         </div>
 
         <div className="border-t border-border p-4 bg-card/60 relative">
@@ -378,12 +422,12 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               void handleSend();
             }}
           >
-            <textarea
-              ref={inputRef}
+            <ChatComposerInput
               value={draft}
-              onChange={(e) => {
-                const value = e.target.value;
-                const cursor = e.target.selectionStart ?? value.length;
+              inputRef={inputRef}
+              disabled={!canSend}
+              placeholder={canSend ? "Send a message…" : "Connect to a gateway to chat."}
+              onChange={(value, cursor) => {
                 setDraft(value);
                 updateTrigger(value, cursor);
               }}
@@ -439,9 +483,6 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
                 const cursor = e.currentTarget.selectionStart ?? value.length;
                 updateTrigger(value, cursor);
               }}
-              disabled={!canSend}
-              placeholder={canSend ? "Send a message…" : "Connect to a gateway to chat."}
-              className="flex-1 min-h-[56px] max-h-[180px] resize-y rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-60"
             />
             <button
               type="submit"

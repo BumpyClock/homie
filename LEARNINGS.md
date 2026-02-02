@@ -24,3 +24,7 @@
 - 2026-02-02: File search now expands ~ and resolves relative paths for attached folder before scanning.
 - 2026-02-02: Added chat file search debug logs in gateway + browser to diagnose missing @ results.
 - 2026-02-02: chat.files.search now accepts base_path/basePath override (UI passes attached folder) to avoid missing server settings.
+- 2026-02-02: Composer now renders inline mention badges for [file:...] tokens via overlayed textarea (craft-like UX).
+- 2026-02-02: Caret visibility fixed by using --color-foreground for caret-color on composer textarea.
+- 2026-02-02: Chat rendering now uses Craft-style turns (user bubble + assistant card with collapsible activities + markdown).
+- 2026-02-02: Chat scroll now sticks to bottom when user is at bottom; detaches on scroll up.
