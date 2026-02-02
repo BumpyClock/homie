@@ -26,6 +26,7 @@ use crate::presence::{NodeRegistry, PresenceService};
 use crate::router::{MessageRouter, ServiceRegistry, SubscriptionManager};
 use crate::storage::Store;
 use crate::terminal::{TerminalRegistry, TerminalService};
+use crate::debug_bytes::{fmt_bytes, terminal_debug_enabled_for};
 
 /// Represents an authenticated WS connection after handshake.
 #[derive(Debug)]
@@ -252,17 +253,27 @@ async fn run_message_loop(
                     Some(Ok(Message::Binary(data))) => {
                         idle_deadline = tokio::time::Instant::now() + idle_timeout;
                         if authz.allows(Scope::TerminalWrite) {
-                            router.route_binary(
-                                &homie_protocol::BinaryFrame::decode(&data)
-                                    .unwrap_or_else(|e| {
-                                        tracing::warn!("invalid binary frame: {e}");
-                                        homie_protocol::BinaryFrame {
-                                            session_id: Uuid::nil(),
-                                            stream: homie_protocol::StreamType::Stdout,
-                                            payload: vec![],
-                                        }
-                                    }),
-                            );
+                            let decoded = homie_protocol::BinaryFrame::decode(&data);
+                            match decoded {
+                                Ok(frame) => {
+                                    if terminal_debug_enabled_for(frame.session_id) {
+                                        tracing::info!(
+                                            session = %frame.session_id,
+                                            stream = ?frame.stream,
+                                            msg = %fmt_bytes(&frame.payload, 80),
+                                            "terminal ws in binary"
+                                        );
+                                    }
+                                    router.route_binary(&frame);
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        err = %e,
+                                        msg = %fmt_bytes(&data, 64),
+                                        "invalid binary frame"
+                                    );
+                                }
+                            }
                         } else {
                             tracing::debug!("unauthorized binary frame ignored");
                         }
@@ -295,7 +306,30 @@ async fn run_message_loop(
             // Outbound messages from services (PTY output frames).
             msg = outbound_rx.recv() => {
                 match msg {
-                    Some(OutboundMessage::Raw(m)) => { let _ = sink.send(m).await; }
+                    Some(OutboundMessage::Raw(m)) => {
+                        if let Message::Binary(data) = &m {
+                            match homie_protocol::BinaryFrame::decode(data) {
+                                Ok(frame) => {
+                                    if terminal_debug_enabled_for(frame.session_id) {
+                                        tracing::info!(
+                                            session = %frame.session_id,
+                                            stream = ?frame.stream,
+                                            msg = %fmt_bytes(&frame.payload, 80),
+                                            "terminal ws out binary"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        err = %e,
+                                        msg = %fmt_bytes(data, 64),
+                                        "invalid outbound binary frame"
+                                    );
+                                }
+                            }
+                        }
+                        let _ = sink.send(m).await;
+                    }
                     Some(OutboundMessage::Event { topic, params }) => {
                         if subscriptions.matches(&topic) {
                             let evt = ProtoMessage::Event(homie_protocol::Event {

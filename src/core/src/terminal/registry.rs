@@ -10,6 +10,7 @@ use uuid::Uuid;
 use std::process::Command;
 
 use homie_protocol::{BinaryFrame, StreamType};
+use crate::debug_bytes::{contains_subseq, fmt_bytes, terminal_debug_enabled_for};
 
 use super::runtime::SessionRuntime;
 use crate::outbound::OutboundMessage;
@@ -113,9 +114,9 @@ impl TerminalRegistry {
         cols: u16,
         rows: u16,
     ) -> Result<SessionInfo, TerminalError> {
-        let cmd = CommandBuilder::new(&shell);
+        let (display_shell, cmd) = build_shell_command(&shell);
         self.start_session_with_command(
-            shell.clone(),
+            display_shell,
             cmd,
             cols,
             rows,
@@ -361,6 +362,13 @@ impl TerminalRegistry {
                 let session_id = info.session_id;
                 tokio::spawn(async move {
                     for chunk in slice.chunks(HISTORY_CHUNK_BYTES) {
+                        if terminal_debug_enabled_for(session_id) {
+                            tracing::info!(
+                                session = %session_id,
+                                msg = %fmt_bytes(chunk, 80),
+                                "terminal replay chunk"
+                            );
+                        }
                         let frame = BinaryFrame {
                             session_id,
                             stream: StreamType::Stdout,
@@ -612,6 +620,15 @@ async fn forward_pty_output(
     history: Arc<Mutex<HistoryBuffer>>,
 ) {
     while let Some(data) = output_rx.recv().await {
+        if terminal_debug_enabled_for(session_id) {
+            let has_dsr = contains_subseq(&data, b"\x1b[6n") || contains_subseq(&data, b"[6n");
+            tracing::info!(
+                session = %session_id,
+                dsr = has_dsr,
+                msg = %fmt_bytes(&data, 80),
+                "terminal pty out"
+            );
+        }
         if let Ok(mut buffer) = history.lock() {
             buffer.push(&data);
         }
@@ -683,4 +700,37 @@ fn tmux_has_session(session_name: &str) -> Result<bool, TerminalError> {
         return Ok(false);
     }
     Ok(false)
+}
+
+fn build_shell_command(shell: &str) -> (String, CommandBuilder) {
+    #[cfg(target_os = "windows")]
+    {
+        let raw = shell.trim();
+        let unquoted = raw
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .unwrap_or(raw);
+
+        let lower = unquoted.to_ascii_lowercase();
+        let marker = "cmd.exe";
+        if let Some(pos) = lower.find(marker) {
+            let exe = unquoted[..pos + marker.len()].trim().to_string();
+            let rest = unquoted[pos + marker.len()..].trim();
+
+            // Special-case: allow "cmd.exe /d" to be passed as a single string (common mistake).
+            // Also default to "/d" for cmd to avoid AutoRun side effects.
+            if rest.is_empty() || rest.eq_ignore_ascii_case("/d") {
+                let mut cmd = CommandBuilder::new(&exe);
+                cmd.arg("/d");
+                return (format!("{exe} /d"), cmd);
+            }
+        }
+
+        (shell.to_string(), CommandBuilder::new(shell))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        (shell.to_string(), CommandBuilder::new(shell))
+    }
 }

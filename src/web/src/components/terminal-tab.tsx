@@ -36,6 +36,63 @@ function ensureGhosttyInit(): Promise<void> {
   return ghosttyInitPromise;
 }
 
+const DSR_QUERY = new Uint8Array([0x1b, 0x5b, 0x36, 0x6e]); // ESC [ 6 n
+
+function stripDsrQueriesWithCarry(
+  carry: Uint8Array,
+  chunk: Uint8Array
+): { out: Uint8Array; nextCarry: Uint8Array; saw: boolean } {
+  if (carry.length === 0 && chunk.length === 0) {
+    return { out: chunk, nextCarry: carry, saw: false };
+  }
+
+  const combined = new Uint8Array(carry.length + chunk.length);
+  combined.set(carry, 0);
+  combined.set(chunk, carry.length);
+
+  const out: number[] = [];
+  let saw = false;
+
+  for (let i = 0; i < combined.length; i += 1) {
+    if (
+      combined[i] === DSR_QUERY[0] &&
+      i + 3 < combined.length &&
+      combined[i + 1] === DSR_QUERY[1] &&
+      combined[i + 2] === DSR_QUERY[2] &&
+      combined[i + 3] === DSR_QUERY[3]
+    ) {
+      saw = true;
+      i += 3;
+      continue;
+    }
+    out.push(combined[i]);
+  }
+
+  // Hold back a trailing prefix of DSR_QUERY to handle chunk-splitting.
+  let carryLen = 0;
+  for (let len = Math.min(3, combined.length); len >= 1; len -= 1) {
+    let ok = true;
+    for (let j = 0; j < len; j += 1) {
+      if (combined[combined.length - len + j] !== DSR_QUERY[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      carryLen = len;
+      break;
+    }
+  }
+
+  let nextCarry = new Uint8Array(0);
+  if (carryLen > 0) {
+    nextCarry = combined.slice(combined.length - carryLen);
+    out.splice(out.length - carryLen, carryLen);
+  }
+
+  return { out: new Uint8Array(out), nextCarry, saw };
+}
+
 export function TerminalTab({
   sessionId,
   onInput,
@@ -47,6 +104,7 @@ export function TerminalTab({
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const dsrCarryRef = useRef<Uint8Array>(new Uint8Array(0));
   const { resolvedTheme, colorScheme } = useTheme();
 
   // Update theme when it changes
@@ -160,7 +218,15 @@ export function TerminalTab({
       onResize(term.cols, term.rows);
 
       cleanup = registerDataListener((data) => {
-        term.write(data);
+        const { out, nextCarry, saw } = stripDsrQueriesWithCarry(dsrCarryRef.current, data);
+        dsrCarryRef.current = nextCarry;
+        if (saw) {
+          // ghostty-web does not reliably respond to DSR; reply ourselves to unblock pwsh/PSReadLine.
+          onInput("\x1b[1;1R");
+        }
+        if (out.byteLength > 0) {
+          term.write(out);
+        }
       });
     };
 

@@ -3,6 +3,7 @@ mod auth;
 mod authz;
 mod config;
 mod connection;
+mod debug_bytes;
 pub mod jobs;
 pub mod notifications;
 mod outbound;

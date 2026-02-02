@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use homie_protocol::{error_codes, BinaryFrame, Response, StreamType};
 
+use crate::debug_bytes::{contains_subseq, fmt_bytes, terminal_debug_enabled_for};
 use crate::outbound::OutboundMessage;
 use crate::router::{ReapEvent, ServiceHandler};
 use crate::terminal::{TerminalError, TerminalRegistry};
@@ -174,6 +175,19 @@ impl TerminalService {
                 )
             }
         };
+
+        if terminal_debug_enabled_for(session_id) {
+            let bytes = data.as_bytes();
+            let has_esc = contains_subseq(bytes, b"\x1b[");
+            let dsr_reply = has_esc && bytes.ends_with(b"R");
+            tracing::info!(
+                session = %session_id,
+                esc = has_esc,
+                dsr_reply = dsr_reply,
+                msg = %fmt_bytes(bytes, 80),
+                "terminal ws in text stdin"
+            );
+        }
 
         let result = {
             let mut registry = self.registry.lock().unwrap();
@@ -601,6 +615,14 @@ impl ServiceHandler for TerminalService {
                 "ignoring non-stdin binary frame"
             );
             return;
+        }
+        if terminal_debug_enabled_for(frame.session_id) {
+            tracing::info!(
+                session = %frame.session_id,
+                stream = ?frame.stream,
+                msg = %fmt_bytes(&frame.payload, 80),
+                "terminal ws in binary stdin"
+            );
         }
         if let Ok(mut registry) = self.registry.lock() {
             if let Err(TerminalError::NotFound(_)) = registry.input_binary(frame) {

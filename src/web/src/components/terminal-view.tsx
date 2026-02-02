@@ -55,7 +55,6 @@ export function TerminalView({ status, attachedSessions, onDetach, call, onBinar
 
   const tabListeners = useRef<Map<string, (data: Uint8Array) => void>>(new Map());
   const pendingOutput = useRef<Map<string, { chunks: Uint8Array[]; bytes: number }>>(new Map());
-  const attachedToServer = useRef<Set<string>>(new Set());
   const pendingAttach = useRef<Set<string>>(new Set());
   const attaching = useRef<Set<string>>(new Set());
 
@@ -87,13 +86,11 @@ export function TerminalView({ status, attachedSessions, onDetach, call, onBinar
 
   const attachSession = useCallback((sessionId: string) => {
     if (status !== "connected") return;
-    if (attachedToServer.current.has(sessionId)) return;
     if (attaching.current.has(sessionId)) return;
 
     attaching.current.add(sessionId);
     void call("terminal.session.attach", { session_id: sessionId, replay: true })
       .then(() => {
-        attachedToServer.current.add(sessionId);
         pendingAttach.current.delete(sessionId);
       })
       .catch((err) => {
@@ -108,9 +105,6 @@ export function TerminalView({ status, attachedSessions, onDetach, call, onBinar
   useEffect(() => {
     // Clear tracking for sessions that were removed (so re-open reattaches + replays).
     const ids = new Set(attachedSessionIds);
-    for (const id of Array.from(attachedToServer.current)) {
-      if (!ids.has(id)) attachedToServer.current.delete(id);
-    }
     for (const id of Array.from(pendingAttach.current)) {
       if (!ids.has(id)) pendingAttach.current.delete(id);
     }
@@ -123,6 +117,10 @@ export function TerminalView({ status, attachedSessions, onDetach, call, onBinar
     if (status !== "connected") return;
     // Retry any pending attaches now that the socket is connected.
     for (const sessionId of pendingAttach.current) {
+      attachSession(sessionId);
+    }
+    // Ensure sessions with mounted tabs are attached (dev StrictMode can mount/unmount quickly).
+    for (const sessionId of tabListeners.current.keys()) {
       attachSession(sessionId);
     }
   }, [status, attachSession]);
@@ -155,6 +153,7 @@ export function TerminalView({ status, attachedSessions, onDetach, call, onBinar
     attachSession(sessionId);
     return () => {
       tabListeners.current.delete(sessionId);
+      pendingAttach.current.delete(sessionId);
     };
   }, [flushPending, attachSession]);
 
