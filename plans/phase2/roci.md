@@ -68,6 +68,7 @@ Notes:
 - Debug raw event persistence:
   - only when `HOMIE_DEBUG=1` or `HOME_DEBUG=1` (or config flag forced on)
   - MVP: no redaction; treat as unsafe (may contain secrets); do not enable by default
+  - retention: keep raw events for last 10 runs (drop older raw blobs)
 
 ## Focused re-reads (sources + concrete takeaways)
 
@@ -305,6 +306,7 @@ Execpolicy storage (decision):
 
 Execpolicy file format (MVP):
 - Goal: allow both exact argv and glob-like rules (`gh *`, `npm test *`, etc).
+- Reference: Claude Code `~/.claude/settings.json` patterns like `Bash(gh:*)`, `Bash(git add:*)`, and exact command strings (no `:*`).
 - Matching model:
   - evaluate against the *tokenized argv* (not a shell string)
   - per-token glob patterns: `*` matches any chars within a single argv token
@@ -327,11 +329,20 @@ argv_glob = ["npm", "test", "*"]
 id = "git-status-exact"
 effect = "allow"
 argv_exact = ["git", "status"]
+
+# Optional shorthand (Claude-like):
+# - `"gh:*"` parses as `["gh","*"]`
+# - `"git add:*"` parses as `["git","add","*"]`
+[[rule]]
+id = "gh-any-shorthand"
+effect = "allow"
+argv_shorthand = "gh:*"
 ```
 
 Notes:
 - Later: add `cwd_glob`, `sandbox_permissions`, `tty`, OS scoping, and “deny” rules.
 - Cross-platform: Windows argv normalization + exe resolution must be consistent with tool runtime.
+- Implementation note: parse `argv_shorthand` via shell-words splitting (to handle quotes), then normalize into the same internal token matcher as `argv_glob`/`argv_exact`.
 
 ### 3) Homie integration: replace Codex CLI with roci loop
 Deliverables (homie-core):
@@ -356,8 +367,10 @@ Decision: where to persist transcript
 - roci should avoid bespoke persistence; Homie owns storage.
   - Persist normalized items (user msg, assistant msg, reasoning, tool calls/results, approvals, errors)
   - Also persist `raw_provider_event_json` alongside normalized items (debuggable, optional):
-    - store only non-sensitive event payloads; redact tokens/credentials
-    - enforce size cap (e.g. 32KB per raw blob) + truncate; gate behind debug flag if needed
+    - enabled only when `HOMIE_DEBUG=1` or `HOME_DEBUG=1` (or config flag forced on)
+    - MVP: no redaction; treat as unsafe (may contain secrets); do not enable by default
+    - retention: keep last 10 runs; drop older raw blobs
+    - optional: size cap (ex: 64KB per raw blob) + truncate to bound DB growth
   - On gateway restart: rebuild roci context from Homie transcript (provider normalization belongs in roci)
 
 ### 4) Compatibility + migration

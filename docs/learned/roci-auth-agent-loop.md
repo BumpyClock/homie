@@ -117,5 +117,7 @@ Approval key shape (Codex behavior):
 - Token store: file-only MVP configured via `~/.homie/config.toml` (keyring later).
 - Model catalog TTL: default 300s (mirror Codex); cache memory + disk; allow override.
 - Execpolicy: single file `~/.homie/execpolicy.toml` (global, gateway-owned).
-- Transcript storage: persist normalized items + optional `raw_provider_event_json` (redacted + size-capped) for debugging.
+- Transcript storage: persist normalized items + optional `raw_provider_event_json` (debug-only; no redaction MVP; last 10 runs).
 - Debug logging: `tracing` structured fields (`chat_id/thread_id/turn_id/item_id/provider/model`); never log tokens.
+- Execpolicy glob semantics: mirror Claude Code patterns (`Bash(cmd:*)`) but implement token-based argv matching + shorthand parser.
+- Raw provider events retention: keep last 10 runs when debug enabled.
