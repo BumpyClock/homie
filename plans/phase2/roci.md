@@ -32,12 +32,12 @@ Deliverables (roci):
 Notes:
 - Server-side login only (Homie host runs login; clients read status).
 - Token paths configurable; default usable across projects.
+- Prefer **device code** OAuth flows (headless-friendly).
+- TODO (post-MVP): encryption at rest for token store.
 
 ### 2) Extend roci: agent loop primitives (OpenClaw-ish)
 Deliverables (roci):
-- Session manager that persists:
-  - session metadata (model, settings, tool policy, permission mode)
-  - transcript (turns, items, deltas)
+- Session/run scaffolding (reusable primitives; avoid Homie-specific storage).
 - Tool policy + approvals:
   - `ApprovalPolicy` (never/ask/always)
   - tool allow/deny groups
@@ -62,13 +62,16 @@ Deliverables (homie-core):
 - Auth UX endpoints:
   - `chat.account.read` (per provider)
   - later: `chat.account.login.start` / callback handlers (server only)
+- Auth refresh policy:
+  - lazy refresh on request
+  - roci normalizes auth errors; homie maps to UI-friendly status
 - Provider selection per thread:
   - store provider + model + effort + permission per chat
   - UI already per-thread; keep stable
 
 Decision: where to persist transcript
 - Prefer Homie sqlite as source-of-truth for UI resume.
-- roci can provide an interface, but Homie owns storage for now; keep minimal duplication.
+- roci should avoid bespoke persistence; Homie owns storage.
 
 ### 4) Compatibility + migration
 - Keep CLI runner available behind flag for fallback during rollout.
@@ -92,6 +95,7 @@ Homie:
 - Regression: UI expectations for events unchanged.
 
 ## Open questions
-- Exact OAuth flows for Copilot + Claude Code on headless hosts (device code vs browser).
-- Whether to store tokens in `~/.homie` vs roci default; likely roci supports custom path, Homie sets it.
+- Concurrency + cancellation model (per-thread queueing, mid-stream cancel, reconnect).
+- Roci vs Homie split for approvals/tool policy (per-thread + global permissions; keep roci reusable).
+- Token store location (`~/.homie` vs roci default); likely homie sets roci path.
 - Provider-specific model catalogs + allowlists (source + caching).
