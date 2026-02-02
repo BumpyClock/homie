@@ -59,6 +59,9 @@ function buildTheme(resolvedTheme: string) {
   };
 }
 
+const TERMINAL_FONT_FAMILY =
+  '"HomieFiraCodeNerd", "HomieCaskaydiaCoveNerd", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+
 export function TerminalTab({
   sessionId,
   onInput,
@@ -84,7 +87,7 @@ export function TerminalTab({
 
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: 14,
       theme: buildTheme(resolvedTheme),
       allowProposedApi: false,
@@ -169,4 +172,3 @@ function snapshotTerminal(term: Terminal, maxLines: number): string {
   }
   return lines.join("\n").trimEnd();
 }
-

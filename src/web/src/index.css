@@ -1,6 +1,22 @@
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
 
+@font-face {
+  font-family: "HomieFiraCodeNerd";
+  src: url("/fonts/FiraCodeNerdFont-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "HomieCaskaydiaCoveNerd";
+  src: url("/fonts/CaskaydiaCoveNerdFont-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   :root {
     /* Default Light Scheme (Zinc-ish) */
