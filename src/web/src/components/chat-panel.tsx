@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, Pencil, Trash2, Square } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Folder } from "lucide-react";
 import { ChatItemView } from "@/components/chat-item";
 import { ChatComposerBar } from "@/components/chat-composer-bar";
+import { ChatInlineMenu } from "@/components/chat-inline-menu";
+import { ChatThreadList } from "@/components/chat-thread-list";
+import { ChatThreadHeader } from "@/components/chat-thread-header";
 import { useChat } from "@/hooks/use-chat";
 import type { ConnectionStatus } from "@/hooks/use-gateway";
+import type { FileOption, SkillOption } from "@/lib/chat-utils";
+import { getTextareaCaretPosition } from "@/lib/caret";
 
 interface ChatPanelProps {
   status: ConnectionStatus;
@@ -30,24 +35,107 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     accountStatus,
     models,
     collaborationModes,
+    skills,
     activeSettings,
     updateSettings,
+    updateAttachments,
     activeTokenUsage,
+    searchFiles,
     formatRelativeTime,
   } = useChat({ status, call, onEvent, enabled, namespace });
 
   const [draft, setDraft] = useState("");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachDraft, setAttachDraft] = useState("");
+  const [trigger, setTrigger] = useState<{
+    type: "slash" | "mention";
+    start: number;
+    cursor: number;
+    query: string;
+  } | null>(null);
+  const [menuIndex, setMenuIndex] = useState(0);
+  const [fileOptions, setFileOptions] = useState<FileOption[]>([]);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const activeTitle = activeThread?.title ?? "";
   const canSend = status === "connected" && !!activeThread;
   const canEditSettings = status === "connected" && !!activeThread;
+  const attachedFolder = activeSettings.attachedFolder;
+
+  const skillOptions = useMemo(() => {
+    if (!trigger || trigger.type !== "slash") return [];
+    const filter = trigger.query.toLowerCase();
+    if (!filter) return skills;
+    return skills.filter((skill) => skill.name.toLowerCase().includes(filter));
+  }, [skills, trigger]);
+
+  const mentionSkillOptions = useMemo(() => {
+    if (!trigger || trigger.type !== "mention") return [];
+    const filter = trigger.query.toLowerCase();
+    if (!filter) return skills;
+    return skills.filter((skill) => skill.name.toLowerCase().includes(filter));
+  }, [skills, trigger]);
+
+  const mentionOptions = useMemo(() => {
+    if (!trigger || trigger.type !== "mention") return [];
+    return fileOptions;
+  }, [fileOptions, trigger]);
+
+  const activeMenuItems = useMemo(() => {
+    if (!trigger) return [];
+    if (trigger.type === "slash") return skillOptions.map((item) => ({ type: "skill" as const, item }));
+    return [
+      ...mentionSkillOptions.map((item) => ({ type: "skill" as const, item })),
+      ...mentionOptions.map((item) => ({ type: item.type, item })),
+    ];
+  }, [mentionOptions, mentionSkillOptions, skillOptions, trigger]);
 
   useEffect(() => {
     setIsEditingTitle(false);
     setTitleDraft(activeTitle);
   }, [activeThread?.chatId, activeTitle]);
+
+  useEffect(() => {
+    setAttachDraft(attachedFolder ?? "");
+  }, [attachedFolder, activeThread?.chatId]);
+
+  useEffect(() => {
+    setMenuIndex(0);
+  }, [trigger?.type, trigger?.query, activeMenuItems.length]);
+
+  useEffect(() => {
+    if (!trigger) {
+      setMenuVisible(false);
+      return;
+    }
+    const handle = requestAnimationFrame(() => setMenuVisible(true));
+    return () => cancelAnimationFrame(handle);
+  }, [trigger]);
+
+  useEffect(() => {
+    if (!trigger || trigger.type !== "mention") {
+      setFileOptions([]);
+      return;
+    }
+    if (!attachedFolder || !activeThread) {
+      setFileOptions([]);
+      return;
+    }
+    if (!trigger.query.trim()) {
+      setFileOptions([]);
+      return;
+    }
+    const handle = setTimeout(() => {
+      void searchFiles(activeThread.chatId, trigger.query, attachedFolder).then((results) =>
+        setFileOptions(results),
+      );
+    }, 150);
+    return () => clearTimeout(handle);
+  }, [activeThread, attachedFolder, searchFiles, trigger]);
 
   const listState = useMemo(() => {
     if (!enabled) return { message: "Chat service not enabled for this gateway." };
@@ -60,162 +148,116 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     if (!draft.trim()) return;
     await sendMessage(draft);
     setDraft("");
+    setTrigger(null);
+  };
+
+  const updateMenuPosition = (value: string, cursorPosition: number) => {
+    if (!inputRef.current) return;
+    if (typeof window === "undefined") return;
+
+    const caret = getTextareaCaretPosition(inputRef.current, value, cursorPosition);
+    if (caret) {
+      setMenuPosition(caret);
+      return;
+    }
+
+    const rect = inputRef.current.getBoundingClientRect();
+    const style = window.getComputedStyle(inputRef.current);
+    const lineHeight =
+      Number.parseFloat(style.lineHeight) ||
+      Number.parseFloat(style.fontSize) * 1.3;
+    const paddingLeft = Number.parseFloat(style.paddingLeft) || 0;
+    const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+    const linesBefore = value.slice(0, cursorPosition).split("\n").length - 1;
+    setMenuPosition({
+      x: rect.left + paddingLeft,
+      y: rect.top + paddingTop + (linesBefore + 1) * lineHeight,
+    });
+  };
+
+  const updateTrigger = (value: string, cursorPosition: number) => {
+    const textBefore = value.slice(0, cursorPosition);
+    const slashMatch = textBefore.match(/(?:^|\s)\/(\w*)$/);
+    const atMatch = textBefore.match(/@([\w./-]*)$/);
+    if (atMatch) {
+      const start = textBefore.lastIndexOf("@");
+      const charBefore = start <= 0 ? " " : textBefore[start - 1];
+      const valid = /\s/.test(charBefore) || /[("']/.test(charBefore) || start === 0;
+      if (valid) {
+        updateMenuPosition(value, cursorPosition);
+        setTrigger({
+          type: "mention",
+          start,
+          cursor: cursorPosition,
+          query: atMatch[1] ?? "",
+        });
+        return;
+      }
+    }
+    if (slashMatch) {
+      const start = textBefore.lastIndexOf("/");
+      updateMenuPosition(value, cursorPosition);
+      setTrigger({
+        type: "slash",
+        start,
+        cursor: cursorPosition,
+        query: slashMatch[1] ?? "",
+      });
+      return;
+    }
+    setTrigger(null);
+  };
+
+  const insertAtTrigger = (text: string) => {
+    if (!trigger) return;
+    const before = draft.slice(0, trigger.start);
+    const after = draft.slice(trigger.cursor);
+    const next = `${before}${text}${after}`;
+    setDraft(next);
+    setTrigger(null);
+    requestAnimationFrame(() => {
+      if (!inputRef.current) return;
+      const pos = before.length + text.length;
+      inputRef.current.focus();
+      inputRef.current.setSelectionRange(pos, pos);
+    });
   };
 
   return (
     <div className="h-full min-h-0 flex border border-border rounded-lg overflow-hidden bg-card/20">
-      <aside className="w-[320px] max-w-[40%] border-r border-border bg-card/40 flex flex-col min-h-0">
-        <div className="p-4 border-b border-border flex items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-semibold">Chats</div>
-            <div className="text-xs text-muted-foreground">Gateway history</div>
-          </div>
-          <button
-            type="button"
-            onClick={createChat}
-            disabled={status !== "connected"}
-            className="inline-flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
-          >
-            <Plus className="w-4 h-4" />
-            New
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {listState.message && (
-            <div className="p-6 text-sm text-muted-foreground">{listState.message}</div>
-          )}
-          {!listState.message && (
-            <div className="divide-y divide-border">
-              {threads.map((thread) => {
-                const isActive = thread.chatId === activeChatId;
-                return (
-                  <button
-                    key={thread.chatId}
-                    type="button"
-                    onClick={() => selectChat(thread.chatId)}
-                    className={`w-full text-left p-4 transition-colors motion-reduce:transition-none ${
-                      isActive ? "bg-muted/50" : "hover:bg-muted/30"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`h-2 w-2 rounded-full ${
-                              thread.running ? "bg-green-500" : "bg-muted-foreground/40"
-                            }`}
-                            aria-label={thread.running ? "Active" : "Idle"}
-                          />
-                          <div className="text-sm font-semibold truncate">{thread.title}</div>
-                        </div>
-                        <div
-                          className="text-xs text-muted-foreground mt-1"
-                          style={{
-                            display: "-webkit-box",
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: "vertical",
-                            overflow: "hidden",
-                          }}
-                        >
-                          {thread.preview || "No messages yet."}
-                        </div>
-                      </div>
-                      <div className="text-[11px] text-muted-foreground whitespace-nowrap">
-                        {formatRelativeTime(thread.lastActivityAt)}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </aside>
+      <ChatThreadList
+        threads={threads}
+        activeChatId={activeChatId}
+        listMessage={listState.message}
+        canCreate={status === "connected"}
+        formatRelativeTime={formatRelativeTime}
+        onCreate={createChat}
+        onSelect={selectChat}
+      />
 
       <section className="flex-1 min-h-0 flex flex-col">
-        <div className="border-b border-border p-4 flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            {activeThread ? (
-              isEditingTitle ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={titleDraft}
-                    onChange={(e) => setTitleDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        renameChat(activeThread.chatId, titleDraft);
-                        setIsEditingTitle(false);
-                      }
-                      if (e.key === "Escape") {
-                        setIsEditingTitle(false);
-                      }
-                    }}
-                    className="flex-1 min-w-0 bg-background border border-border rounded px-2 py-2 text-sm"
-                    aria-label="Chat title"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      renameChat(activeThread.chatId, titleDraft);
-                      setIsEditingTitle(false);
-                    }}
-                    className="px-3 py-2 min-h-[44px] rounded-md bg-primary text-primary-foreground text-sm font-medium"
-                  >
-                    Save
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <div className="text-base font-semibold truncate">{activeTitle}</div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTitleDraft(activeTitle);
-                      setIsEditingTitle(true);
-                    }}
-                    className="p-2 rounded-md hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label="Rename chat"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                </div>
-              )
-            ) : (
-              <div className="text-base font-semibold">Select a chat</div>
-            )}
-            {activeThread && (
-              <div className="text-xs text-muted-foreground mt-1">
-                {activeThread.running ? "Active turn running" : "Idle"}
-              </div>
-            )}
-          </div>
-          {activeThread && (
-            <div className="flex items-center gap-2">
-              {activeThread.running && (
-                <button
-                  type="button"
-                  onClick={cancelActive}
-                  className="inline-flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                >
-                  <Square className="w-4 h-4" />
-                  Stop
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => archiveChat(activeThread.chatId)}
-                className="inline-flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-md border border-border text-destructive hover:bg-destructive/10 transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-                Archive
-              </button>
-            </div>
-          )}
-        </div>
+        <ChatThreadHeader
+          activeThread={activeThread}
+          activeTitle={activeTitle}
+          isEditingTitle={isEditingTitle}
+          titleDraft={titleDraft}
+          onChangeTitle={setTitleDraft}
+          onStartEdit={() => {
+            setTitleDraft(activeTitle);
+            setIsEditingTitle(true);
+          }}
+          onCancelEdit={() => setIsEditingTitle(false)}
+          onSaveTitle={() => {
+            if (!activeThread) return;
+            renameChat(activeThread.chatId, titleDraft);
+            setIsEditingTitle(false);
+          }}
+          onCancelActive={cancelActive}
+          onArchive={() => {
+            if (!activeThread) return;
+            archiveChat(activeThread.chatId);
+          }}
+        />
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-4">
           {!accountStatus.ok && (
@@ -254,7 +296,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
           )}
         </div>
 
-        <div className="border-t border-border p-4 bg-card/60">
+        <div className="border-t border-border p-4 bg-card/60 relative">
           <div className="mb-3">
             <ChatComposerBar
               models={models}
@@ -269,6 +311,66 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               }}
             />
           </div>
+          {activeThread && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {attachedFolder ? (
+                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs">
+                  <Folder className="h-3.5 w-3.5" />
+                  <span className="truncate max-w-[260px]">{attachedFolder}</span>
+                  <button
+                    type="button"
+                    onClick={() => updateAttachments(activeThread.chatId, null)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">No folder attached.</div>
+              )}
+              <button
+                type="button"
+                onClick={() => setAttachOpen((prev) => !prev)}
+                disabled={!canEditSettings}
+                className="inline-flex items-center gap-2 px-2 py-1.5 min-h-[32px] rounded-md border border-border text-xs hover:bg-muted/50 disabled:opacity-50"
+              >
+                <Folder className="h-4 w-4" />
+                {attachedFolder ? "Change folder" : "Attach folder"}
+              </button>
+            </div>
+          )}
+          {attachOpen && activeThread && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-3">
+              <input
+                type="text"
+                value={attachDraft}
+                onChange={(e) => setAttachDraft(e.target.value)}
+                placeholder="/path/to/project"
+                className="flex-1 min-w-[220px] bg-background border border-border rounded px-2 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!attachDraft.trim()) return;
+                  void updateAttachments(activeThread.chatId, attachDraft.trim());
+                  setAttachOpen(false);
+                }}
+                className="px-3 py-2 min-h-[36px] rounded-md bg-primary text-primary-foreground text-xs font-medium"
+              >
+                Attach
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachOpen(false);
+                  setAttachDraft(attachedFolder ?? "");
+                }}
+                className="px-3 py-2 min-h-[36px] rounded-md border border-border text-xs"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
           <form
             className="flex gap-2 items-end"
             onSubmit={(e) => {
@@ -277,13 +379,65 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
             }}
           >
             <textarea
+              ref={inputRef}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                const cursor = e.target.selectionStart ?? value.length;
+                setDraft(value);
+                updateTrigger(value, cursor);
+              }}
+              onClick={(e) => {
+                const value = e.currentTarget.value;
+                const cursor = e.currentTarget.selectionStart ?? value.length;
+                updateTrigger(value, cursor);
+              }}
               onKeyDown={(e) => {
+                if (trigger && activeMenuItems.length > 0) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setMenuIndex((prev) => (prev + 1) % activeMenuItems.length);
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setMenuIndex((prev) =>
+                      prev === 0 ? activeMenuItems.length - 1 : prev - 1,
+                    );
+                    return;
+                  }
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    const selected = activeMenuItems[menuIndex];
+                    if (selected?.type === "skill") {
+                      insertAtTrigger(`$${(selected.item as SkillOption).name} `);
+                    } else if (selected?.type === "file") {
+                      const file = selected.item as FileOption;
+                      insertAtTrigger(`[file:${file.relativePath || file.name}] `);
+                    } else if (selected?.type === "directory") {
+                      const file = selected.item as FileOption;
+                      insertAtTrigger(`[folder:${file.relativePath || file.name}] `);
+                    }
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setTrigger(null);
+                    return;
+                  }
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   void handleSend();
                 }
+              }}
+              onKeyUp={(e) => {
+                if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) {
+                  return;
+                }
+                const value = e.currentTarget.value;
+                const cursor = e.currentTarget.selectionStart ?? value.length;
+                updateTrigger(value, cursor);
               }}
               disabled={!canSend}
               placeholder={canSend ? "Send a message…" : "Connect to a gateway to chat."}
@@ -297,6 +451,20 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               Send
             </button>
           </form>
+          <ChatInlineMenu
+            trigger={trigger}
+            visible={menuVisible}
+            menuIndex={menuIndex}
+            position={menuPosition}
+            skillOptions={skillOptions}
+            mentionSkillOptions={mentionSkillOptions}
+            mentionOptions={mentionOptions}
+            attachedFolder={attachedFolder}
+            onSelectSkill={(skill) => insertAtTrigger(`$${skill.name} `)}
+            onSelectFile={(file) => insertAtTrigger(`[file:${file.relativePath || file.name}] `)}
+            onSelectFolder={(file) => insertAtTrigger(`[folder:${file.relativePath || file.name}] `)}
+            onHoverIndex={setMenuIndex}
+          />
         </div>
       </section>
     </div>

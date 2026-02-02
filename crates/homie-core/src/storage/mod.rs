@@ -30,6 +30,13 @@ pub trait Store: Send + Sync + 'static {
     /// Update the append-only event log pointer for a chat.
     fn update_event_pointer(&self, chat_id: &str, pointer: u64) -> Result<(), String>;
 
+    /// Update persisted chat settings (model/effort/approval/etc).
+    fn update_chat_settings(
+        &self,
+        chat_id: &str,
+        settings: Option<&serde_json::Value>,
+    ) -> Result<(), String>;
+
     /// Persist or update a terminal session record.
     fn upsert_terminal(&self, rec: &TerminalRecord) -> Result<(), String>;
 

@@ -18,3 +18,9 @@
 - 2026-02-01: Reattach replays buffered PTY output (size-limited, `HOMIE_HISTORY_BYTES`) so terminals restore on reconnect.
 - 2026-02-01: Added terminal session names (sqlite column + RPC rename) and UI labels for renamed/tmux sessions, with tab/card display driven by session-utils helpers.
 - 2026-02-02: Added chat settings (model/effort/permission/agent mode) UI + token usage events; new chat model/collaboration list RPCs; approval events include fallback request id.
+- 2026-02-02: Persisted chat settings in sqlite; chat.list/thread.read return settings; chat.message.send writes settings; added approval logging.
+- 2026-02-02: Added chat.settings.update + chat.files.search; file search reads attached folder from chat settings; UI exposes / skills and @ file mentions with folder attachment.
+- 2026-02-02: Chat inline menu now caret-anchored with textarea mirror helper; extracted chat thread list/header/menu components; fixed @ mention regex.
+- 2026-02-02: File search now expands ~ and resolves relative paths for attached folder before scanning.
+- 2026-02-02: Added chat file search debug logs in gateway + browser to diagnose missing @ results.
+- 2026-02-02: chat.files.search now accepts base_path/basePath override (UI passes attached folder) to avoid missing server settings.

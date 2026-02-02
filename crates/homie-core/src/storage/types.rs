@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 /// Status of a persisted session.
@@ -37,6 +38,9 @@ pub struct ChatRecord {
     pub status: SessionStatus,
     /// Append-only event log pointer — tracks how far the client has consumed.
     pub event_pointer: u64,
+    /// Persisted chat settings (model/effort/approval/collaboration).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<Value>,
 }
 
 /// Persisted terminal session metadata.

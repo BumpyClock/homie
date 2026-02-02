@@ -10,6 +10,7 @@ interface SelectChatArgs {
   call: CallFn;
   overrides: Record<string, string>;
   runningTurnsRef: MutableRefObject<Map<string, string>>;
+  applySettings?: (chatId: string, settings: unknown) => void;
   setActiveChatId: Dispatch<SetStateAction<string | null>>;
   setActiveThread: Dispatch<SetStateAction<ActiveChatThread | null>>;
   setThreads: Dispatch<SetStateAction<ChatThreadSummary[]>>;
@@ -22,6 +23,7 @@ export async function selectChat({
   call,
   overrides,
   runningTurnsRef,
+  applySettings,
   setActiveChatId,
   setActiveThread,
   setThreads,
@@ -41,6 +43,10 @@ export async function selectChat({
       thread_id: thread.threadId,
       include_turns: true,
     });
+    const settings = (res as Record<string, unknown>)?.settings;
+    if (settings) {
+      applySettings?.(chatId, settings);
+    }
     const threadRes = (res as Record<string, unknown>)?.thread ?? res;
     if (!threadRes || typeof threadRes !== "object") {
       setActiveThread({

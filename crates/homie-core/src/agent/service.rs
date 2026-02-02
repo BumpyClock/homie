@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
@@ -112,6 +113,7 @@ impl CodexChatCore {
                     created_at: chrono_now(),
                     status: SessionStatus::Active,
                     event_pointer: 0,
+                    settings: None,
                 };
                 if let Err(e) = self.store.upsert_chat(&rec) {
                     tracing::warn!(%chat_id, "failed to persist chat create: {e}");
@@ -181,6 +183,7 @@ impl CodexChatCore {
                         created_at: chrono_now(),
                         status: SessionStatus::Active,
                         event_pointer: 0,
+                        settings: None,
                     },
                 };
                 if let Err(e) = self.store.upsert_chat(&rec) {
@@ -229,20 +232,32 @@ impl CodexChatCore {
             "threadId": thread_id,
             "input": [{"type": "text", "text": message}],
         });
-        if let Some(model) = model {
+        if let Some(model) = model.as_ref() {
             codex_params["model"] = json!(model);
         }
-        if let Some(effort) = effort {
+        if let Some(effort) = effort.as_ref() {
             codex_params["effort"] = json!(effort);
         }
-        if let Some(approval_policy) = approval_policy {
+        if let Some(approval_policy) = approval_policy.as_ref() {
             codex_params["approvalPolicy"] = json!(approval_policy);
         }
-        if let Some(collaboration_mode) = collaboration_mode {
+        if let Some(collaboration_mode) = collaboration_mode.as_ref() {
             if collaboration_mode.is_object() {
-                codex_params["collaborationMode"] = collaboration_mode;
+                codex_params["collaborationMode"] = collaboration_mode.clone();
             }
         }
+        let settings = build_chat_settings(
+            model.as_ref(),
+            effort.as_ref(),
+            approval_policy.as_ref(),
+            collaboration_mode.as_ref(),
+        );
+        let existing_settings = self
+            .store
+            .get_chat(&chat_id)
+            .ok()
+            .flatten()
+            .and_then(|rec| rec.settings);
 
         let process = self.process.as_ref().unwrap();
         match process.send_request("turn/start", Some(codex_params)).await {
@@ -250,6 +265,12 @@ impl CodexChatCore {
                 let turn_id =
                     extract_id_from_result(&result, &["turnId", "turn_id"], &[("turn", "id")])
                         .unwrap_or_default();
+                if let Some(settings) = settings {
+                    let merged = merge_settings(existing_settings, settings);
+                    if let Err(e) = self.store.update_chat_settings(&chat_id, Some(&merged)) {
+                        tracing::warn!(%chat_id, "failed to persist chat settings: {e}");
+                    }
+                }
                 Response::success(req_id, json!({ "chat_id": chat_id, "turn_id": turn_id }))
             }
             Err(e) => Response::error(
@@ -338,6 +359,11 @@ impl CodexChatCore {
             },
         };
 
+        let settings = chat_id
+            .as_deref()
+            .or_else(|| Some(thread_id.as_str()))
+            .and_then(|id| self.store.get_chat(id).ok().flatten().and_then(|rec| rec.settings));
+
         if let Err(e) = self.ensure_process().await {
             return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
         }
@@ -345,7 +371,16 @@ impl CodexChatCore {
         let process = self.process.as_ref().unwrap();
         let params = json!({ "threadId": thread_id, "includeTurns": include_turns });
         match process.send_request("thread/read", Some(params)).await {
-            Ok(result) => Response::success(req_id, result),
+            Ok(mut result) => {
+                if let Some(settings) = settings {
+                    if let Some(obj) = result.as_object_mut() {
+                        obj.insert("settings".into(), settings);
+                    } else {
+                        result = json!({ "thread": result, "settings": settings });
+                    }
+                }
+                Response::success(req_id, result)
+            }
             Err(e) => Response::error(
                 req_id,
                 error_codes::INTERNAL_ERROR,
@@ -367,6 +402,70 @@ impl CodexChatCore {
                 error_codes::INTERNAL_ERROR,
                 format!("thread/list failed: {e}"),
             ),
+        }
+    }
+
+    fn chat_settings_update(&self, req_id: Uuid, params: Option<Value>) -> Response {
+        let (chat_id, updates) = match parse_settings_update_params(&params) {
+            Some(v) => v,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing chat_id or settings",
+                )
+            }
+        };
+
+        let existing = self
+            .store
+            .get_chat(&chat_id)
+            .ok()
+            .flatten()
+            .and_then(|rec| rec.settings);
+        let merged = merge_settings(existing, updates);
+        if let Err(e) = self.store.update_chat_settings(&chat_id, Some(&merged)) {
+            return Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("settings update failed: {e}"),
+            );
+        }
+        Response::success(req_id, json!({ "ok": true, "settings": merged }))
+    }
+
+    fn chat_files_search(&self, req_id: Uuid, params: Option<Value>) -> Response {
+        let (chat_id, query, limit, base_override) = match parse_files_search_params(&params) {
+            Some(v) => v,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing chat_id or query",
+                )
+            }
+        };
+
+        let settings = match self.store.get_chat(&chat_id) {
+            Ok(Some(rec)) => rec.settings,
+            _ => None,
+        };
+        let base = extract_attached_folder(settings.as_ref()).or_else(|| base_override.clone());
+        let base = match base {
+            Some(path) => path,
+            None => {
+                tracing::debug!(%chat_id, "chat files search skipped: no attached folder");
+                return Response::success(req_id, json!({ "files": [] }));
+            }
+        };
+
+        tracing::debug!(%chat_id, %base, %query, %limit, "chat files search");
+        match search_files_in_folder(&base, &query, limit) {
+            Ok(files) => {
+                tracing::debug!(%chat_id, count = files.len(), "chat files search complete");
+                Response::success(req_id, json!({ "files": files, "base_path": base }))
+            }
+            Err(e) => Response::error(req_id, error_codes::INTERNAL_ERROR, e),
         }
     }
 
@@ -551,6 +650,7 @@ impl CodexChatCore {
         let (codex_request_id, decision) = match parse_approval_params(&params) {
             Some(v) => v,
             None => {
+                tracing::warn!(?params, "approval respond missing codex_request_id or decision");
                 return Response::error(
                     req_id,
                     error_codes::INVALID_PARAMS,
@@ -562,6 +662,10 @@ impl CodexChatCore {
         let process = match &self.process {
             Some(p) => p,
             None => {
+                tracing::warn!(
+                    ?codex_request_id,
+                    "approval respond failed: no codex process running"
+                );
                 return Response::error(
                     req_id,
                     error_codes::INTERNAL_ERROR,
@@ -571,6 +675,11 @@ impl CodexChatCore {
         };
 
         let result = json!({ "decision": decision });
+        tracing::info!(
+            ?codex_request_id,
+            decision = %result["decision"],
+            "approval respond"
+        );
         match process.send_response(codex_request_id, result).await {
             Ok(()) => Response::success(req_id, json!({ "ok": true })),
             Err(e) => Response::error(
@@ -594,6 +703,7 @@ impl CodexChatCore {
                             "created_at": r.created_at,
                             "status": r.status,
                             "event_pointer": r.event_pointer,
+                            "settings": r.settings,
                         })
                     })
                     .collect();
@@ -748,6 +858,8 @@ impl ServiceHandler for ChatService {
                 "chat.thread.list" => core.chat_thread_list(id, params).await,
                 "chat.thread.archive" => core.chat_thread_archive(id, params).await,
                 "chat.thread.rename" => core.chat_thread_rename(id, params).await,
+                "chat.settings.update" => core.chat_settings_update(id, params),
+                "chat.files.search" => core.chat_files_search(id, params),
                 "chat.account.read" => core.chat_account_read(id).await,
                 "chat.skills.list" => core.chat_skills_list(id, params).await,
                 "chat.model.list" => core.chat_model_list(id, params).await,
@@ -877,6 +989,17 @@ async fn event_forwarder_loop(
             }
         }
 
+        if matches!(
+            event.method.as_str(),
+            "item/commandExecution/requestApproval" | "item/fileChange/requestApproval"
+        ) {
+            tracing::info!(
+                method = %event.method,
+                params = ?event_params,
+                "codex approval requested"
+            );
+        }
+
         if let Some(thread_id) = extract_thread_id(&event_params) {
             if let Ok(Some(chat)) = store.get_chat(&thread_id) {
                 let next = chat.event_pointer.saturating_add(1);
@@ -971,11 +1094,77 @@ fn parse_message_params(
     Some((chat_id, message, model, effort, approval_policy, collaboration_mode))
 }
 
+fn build_chat_settings(
+    model: Option<&String>,
+    effort: Option<&String>,
+    approval_policy: Option<&String>,
+    collaboration_mode: Option<&Value>,
+) -> Option<Value> {
+    let mut map = Map::new();
+    if let Some(model) = model {
+        map.insert("model".into(), json!(model));
+    }
+    if let Some(effort) = effort {
+        map.insert("effort".into(), json!(effort));
+    }
+    if let Some(approval_policy) = approval_policy {
+        map.insert("approval_policy".into(), json!(approval_policy));
+    }
+    if let Some(collaboration_mode) = collaboration_mode {
+        map.insert("collaboration_mode".into(), collaboration_mode.clone());
+    }
+    if map.is_empty() {
+        None
+    } else {
+        Some(Value::Object(map))
+    }
+}
+
+fn merge_settings(existing: Option<Value>, updates: Value) -> Value {
+    match (existing, updates) {
+        (Some(Value::Object(mut base)), Value::Object(update)) => {
+            for (key, value) in update {
+                if value.is_null() {
+                    base.remove(&key);
+                } else {
+                    base.insert(key, value);
+                }
+            }
+            Value::Object(base)
+        }
+        (_, update) => update,
+    }
+}
+
 fn parse_cancel_params(params: &Option<Value>) -> Option<(String, String)> {
     let p = params.as_ref()?;
     let chat_id = p.get("chat_id")?.as_str()?.to_string();
     let turn_id = p.get("turn_id")?.as_str()?.to_string();
     Some((chat_id, turn_id))
+}
+
+fn parse_settings_update_params(params: &Option<Value>) -> Option<(String, Value)> {
+    let p = params.as_ref()?;
+    let chat_id = p.get("chat_id")?.as_str()?.to_string();
+    let settings = p.get("settings")?.clone();
+    Some((chat_id, settings))
+}
+
+fn parse_files_search_params(params: &Option<Value>) -> Option<(String, String, usize, Option<String>)> {
+    let p = params.as_ref()?;
+    let chat_id = p.get("chat_id")?.as_str()?.to_string();
+    let query = p.get("query")?.as_str()?.to_string();
+    let limit = p
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|v| v.min(200) as usize)
+        .unwrap_or(40);
+    let base_path = p
+        .get("base_path")
+        .or_else(|| p.get("basePath"))
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+    Some((chat_id, query, limit, base_path))
 }
 
 fn parse_resume_params(params: &Option<Value>) -> Option<(String, Option<String>)> {
@@ -1064,6 +1253,125 @@ fn extract_thread_id(params: &Value) -> Option<String> {
         .and_then(|v| v.as_str())
         .or_else(|| params.get("thread_id").and_then(|v| v.as_str()))
         .map(|s| s.to_string())
+}
+
+fn extract_attached_folder(settings: Option<&Value>) -> Option<String> {
+    let settings = settings?;
+    let attachments = settings.get("attachments")?;
+    if let Some(folder) = attachments.get("folder").and_then(|v| v.as_str()) {
+        if !folder.trim().is_empty() {
+            return Some(folder.to_string());
+        }
+    }
+    let folders = attachments.get("folders").and_then(|v| v.as_array())?;
+    folders
+        .iter()
+        .filter_map(|v| v.as_str())
+        .find(|v| !v.trim().is_empty())
+        .map(|v| v.to_string())
+}
+
+fn should_skip_dir(name: &str) -> bool {
+    matches!(
+        name,
+        ".git" | "node_modules" | "target" | "dist" | "build" | ".next" | ".cache"
+    )
+}
+
+fn normalize_search_root(base: &str) -> PathBuf {
+    let trimmed = base.trim();
+    let home_dir = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok();
+    if let Some(rest) = trimmed.strip_prefix("~/") {
+        if let Some(home) = home_dir.as_ref() {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    if trimmed == "~" {
+        if let Some(home) = home_dir.as_ref() {
+            return PathBuf::from(home);
+        }
+    }
+    let path = PathBuf::from(trimmed);
+    if path.is_relative() {
+        if let Ok(cwd) = std::env::current_dir() {
+            return cwd.join(path);
+        }
+    }
+    path
+}
+
+fn search_files_in_folder(base: &str, query: &str, limit: usize) -> Result<Vec<Value>, String> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let base_path = normalize_search_root(base);
+    if !base_path.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut queue = VecDeque::new();
+    queue.push_back(base_path.clone());
+    let mut results = Vec::new();
+    let mut visited = 0usize;
+    let query_lower = query.to_lowercase();
+
+    while let Some(dir) = queue.pop_front() {
+        if visited > 25_000 || results.len() >= limit {
+            break;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            if results.len() >= limit {
+                break;
+            }
+            visited = visited.saturating_add(1);
+            if visited > 25_000 {
+                break;
+            }
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            let name = entry
+                .file_name()
+                .to_string_lossy()
+                .to_string();
+            if file_type.is_dir() {
+                if should_skip_dir(&name) {
+                    continue;
+                }
+                queue.push_back(path.clone());
+            }
+            if !file_type.is_file() && !file_type.is_dir() {
+                continue;
+            }
+            let rel = match path.strip_prefix(&base_path) {
+                Ok(p) => p,
+                Err(_) => Path::new(&name),
+            };
+            let rel_str = rel.to_string_lossy().to_string();
+            let haystack = format!("{name} {rel_str}").to_lowercase();
+            if !haystack.contains(&query_lower) {
+                continue;
+            }
+            visited += 1;
+            let kind = if file_type.is_dir() { "directory" } else { "file" };
+            results.push(json!({
+                "name": name,
+                "path": path.to_string_lossy(),
+                "relative_path": rel_str,
+                "type": kind,
+            }));
+        }
+    }
+
+    Ok(results)
 }
 
 #[cfg(test)]

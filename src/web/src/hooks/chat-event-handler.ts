@@ -218,6 +218,21 @@ export function handleChatEvent(event: ChatEvent, ctx: ChatEventContext) {
     const reason = typeof params.reason === "string" ? params.reason : undefined;
     const command = typeof params.command === "string" ? params.command : undefined;
     const cwd = typeof params.cwd === "string" ? params.cwd : undefined;
+    if (typeof window !== "undefined") {
+      console.debug("[chat] approval required", {
+        requestId,
+        threadId,
+        turnId: getTurnId(params),
+        itemId,
+        reason,
+        command,
+        cwd,
+        raw: params,
+      });
+      if (requestId === undefined) {
+        console.warn("[chat] approval request missing id", params);
+      }
+    }
     if (ctx.activeChatIdRef.current === chatId) {
       ctx.setActiveThread((prev) => {
         if (!prev) return prev;

@@ -18,6 +18,7 @@ interface HydrateThreadArgs {
   call: CallFn;
   overrides: Record<string, string>;
   setThreads: Dispatch<SetStateAction<ChatThreadSummary[]>>;
+  applySettings?: (chatId: string, settings: unknown) => void;
 }
 
 export async function hydrateThread({
@@ -26,6 +27,7 @@ export async function hydrateThread({
   call,
   overrides,
   setThreads,
+  applySettings,
 }: HydrateThreadArgs) {
   try {
     const res = await call("chat.thread.read", {
@@ -33,6 +35,10 @@ export async function hydrateThread({
       thread_id: threadId,
       include_turns: true,
     });
+    const settings = (res as Record<string, unknown>)?.settings;
+    if (settings) {
+      applySettings?.(chatId, settings);
+    }
     const thread = (res as Record<string, unknown>)?.thread ?? res;
     if (!thread || typeof thread !== "object") return;
     const items = itemsFromThread(thread as Record<string, unknown>);
@@ -64,6 +70,7 @@ interface LoadChatsArgs {
   call: CallFn;
   overrides: Record<string, string>;
   applyOverrides: (threads: ChatThreadSummary[]) => ChatThreadSummary[];
+  applySettings?: (chatId: string, settings: unknown) => void;
   setThreads: Dispatch<SetStateAction<ChatThreadSummary[]>>;
   setError: Dispatch<SetStateAction<string | null>>;
   hydrate: (chatId: string, threadId: string) => void;
@@ -75,6 +82,7 @@ export async function loadChats({
   call,
   overrides,
   applyOverrides,
+  applySettings,
   setThreads,
   setError,
   hydrate,
@@ -87,9 +95,13 @@ export async function loadChats({
         thread_id: string;
         created_at: string;
         status: ChatThreadSummary["status"];
+        settings?: unknown;
       }>;
     };
     const list = res.chats || [];
+    for (const entry of list) {
+      if (entry.settings) applySettings?.(entry.chat_id, entry.settings);
+    }
     const next = list.map((rec) => {
       const fallback = `Chat ${shortId(rec.chat_id)}`;
       const title = overrides[rec.chat_id] ?? fallback;

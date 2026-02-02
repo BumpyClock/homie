@@ -23,6 +23,7 @@ export interface ChatSettings {
   effort: ChatEffort;
   permission: ChatPermissionMode;
   agentMode: ChatAgentMode;
+  attachedFolder?: string;
 }
 
 export interface ChatItem {
@@ -76,6 +77,19 @@ export interface ModelOption {
   supportedReasoningEfforts: ReasoningEffortOption[];
   defaultReasoningEffort: string | null;
   isDefault: boolean;
+}
+
+export interface SkillOption {
+  name: string;
+  description?: string;
+  path?: string;
+}
+
+export interface FileOption {
+  name: string;
+  path: string;
+  relativePath: string;
+  type: "file" | "directory";
 }
 
 export interface CollaborationModeOption {
@@ -410,4 +424,81 @@ export function normalizeCollaborationModes(raw: unknown): CollaborationModeOpti
       developerInstructions: asString(entry.developer_instructions ?? entry.developerInstructions) || null,
     };
   });
+}
+
+export function normalizeSkillOptions(raw: unknown): SkillOption[] {
+  if (!raw || typeof raw !== "object") return [];
+  const record = raw as Record<string, unknown>;
+  const dataBuckets = (record.result as Record<string, unknown> | undefined)?.data ?? record.data ?? [];
+  const rawSkills =
+    (record.result as Record<string, unknown> | undefined)?.skills ??
+    record.skills ??
+    (Array.isArray(dataBuckets)
+      ? dataBuckets.flatMap((bucket) => (bucket as Record<string, unknown>)?.skills ?? [])
+      : []);
+  if (!Array.isArray(rawSkills)) return [];
+  return rawSkills
+    .map((item) => ({
+      name: asString((item as Record<string, unknown>).name),
+      path: asString((item as Record<string, unknown>).path),
+      description: asString((item as Record<string, unknown>).description) || undefined,
+    }))
+    .filter((skill) => skill.name);
+}
+
+export function normalizeFileOptions(raw: unknown): FileOption[] {
+  if (!raw || typeof raw !== "object") return [];
+  const record = raw as Record<string, unknown>;
+  const files = record.files ?? (record.result as Record<string, unknown> | undefined)?.files ?? [];
+  if (!Array.isArray(files)) return [];
+  return files
+    .map((item) => {
+      const entry = item as Record<string, unknown>;
+      const type = asString(entry.type);
+      return {
+        name: asString(entry.name),
+        path: asString(entry.path),
+        relativePath: asString(entry.relative_path ?? entry.relativePath),
+        type: type === "directory" ? "directory" : "file",
+      } satisfies FileOption;
+    })
+    .filter((file) => file.name && file.path);
+}
+
+export function normalizeChatSettings(raw: unknown): Partial<ChatSettings> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const model = asString(record.model);
+  const effort = asString(record.effort);
+  const approval = asString(record.approval_policy ?? record.approvalPolicy);
+  const collaboration = record.collaboration_mode ?? record.collaborationMode;
+  const attachments = record.attachments as Record<string, unknown> | undefined;
+
+  let permission: ChatPermissionMode | undefined;
+  if (approval === "never") permission = "execute";
+  else if (approval === "on-request") permission = "explore";
+  else if (approval) permission = "ask";
+
+  let agentMode: ChatAgentMode | undefined;
+  if (collaboration && typeof collaboration === "object") {
+    const mode = asString((collaboration as Record<string, unknown>).mode).toLowerCase();
+    if (mode === "plan" || mode === "code") agentMode = mode;
+    else if (mode) agentMode = "code";
+  }
+
+  const settings: Partial<ChatSettings> = {};
+  if (model) settings.model = model;
+  if (effort) settings.effort = effort as ChatEffort;
+  if (permission) settings.permission = permission;
+  if (agentMode) settings.agentMode = agentMode;
+  if (attachments) {
+    const folder =
+      asString(attachments.folder) ||
+      (Array.isArray(attachments.folders)
+        ? asString(attachments.folders[0])
+        : "");
+    if (folder) settings.attachedFolder = folder;
+  }
+
+  return Object.keys(settings).length > 0 ? settings : null;
 }

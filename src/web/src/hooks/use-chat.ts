@@ -9,11 +9,16 @@ import {
   type ChatSettings,
   type ChatThreadSummary,
   type CollaborationModeOption,
+  type FileOption,
   type ModelOption,
+  type SkillOption,
   type ThreadTokenUsage,
   formatRelativeTime,
   normalizeCollaborationModes,
+  normalizeChatSettings,
+  normalizeFileOptions,
   normalizeModelOptions,
+  normalizeSkillOptions,
   shortId,
   truncateText,
 } from "@/lib/chat-utils";
@@ -99,6 +104,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [collaborationModes, setCollaborationModes] = useState<CollaborationModeOption[]>([]);
+  const [skills, setSkills] = useState<SkillOption[]>([]);
   const [settingsByChatId, setSettingsByChatId] = useState<Record<string, ChatSettings>>({});
   const [tokenUsageByChatId, setTokenUsageByChatId] = useState<Record<string, ThreadTokenUsage>>({});
   const overridesRef = useRef<Record<string, string>>({});
@@ -136,6 +142,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
       effort: "auto",
       permission: "ask",
       agentMode: "code",
+      attachedFolder: undefined,
     }),
     [defaultModel],
   );
@@ -149,6 +156,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
         effort: current?.effort ?? baseSettings.effort,
         permission: current?.permission ?? baseSettings.permission,
         agentMode: current?.agentMode ?? baseSettings.agentMode,
+        attachedFolder: current?.attachedFolder ?? baseSettings.attachedFolder,
       };
     },
     [baseSettings, settingsByChatId],
@@ -164,6 +172,15 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
       setSettingsByChatId(next);
     },
     [namespace],
+  );
+
+  const applyServerSettings = useCallback(
+    (chatId: string, raw: unknown) => {
+      const normalized = normalizeChatSettings(raw);
+      if (!normalized) return;
+      updateSettings(chatId, normalized);
+    },
+    [updateSettings],
   );
 
   const activeSettings = useMemo(
@@ -233,8 +250,9 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
       call,
       overrides: overridesRef.current,
       setThreads,
+      applySettings: applyServerSettings,
     });
-  }, [call]);
+  }, [applyServerSettings, call]);
 
   const loadChats = useCallback(async () => {
     await loadChatsImpl({
@@ -243,11 +261,12 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
       call,
       overrides: overridesRef.current,
       applyOverrides,
+      applySettings: applyServerSettings,
       setThreads,
       setError,
       hydrate: (chatId, threadId) => void hydrateThread(chatId, threadId),
     });
-  }, [applyOverrides, call, enabled, hydrateThread, status]);
+  }, [applyOverrides, applyServerSettings, call, enabled, hydrateThread, status]);
 
   const refreshModels = useCallback(async () => {
     if (!enabled || status !== "connected") return;
@@ -282,13 +301,32 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     }
   }, [call, enabled, status]);
 
+  const refreshSkills = useCallback(async () => {
+    if (!enabled || status !== "connected") return;
+    try {
+      const res = await call("chat.skills.list");
+      setSkills(normalizeSkillOptions(res));
+    } catch {
+      setSkills([]);
+    }
+  }, [call, enabled, status]);
+
   useEffect(() => {
     if (!enabled || status !== "connected") return;
     void refreshAccount();
     void loadChats();
     void refreshModels();
     void refreshCollaborationModes();
-  }, [enabled, status, loadChats, refreshAccount, refreshModels, refreshCollaborationModes]);
+    void refreshSkills();
+  }, [
+    enabled,
+    status,
+    loadChats,
+    refreshAccount,
+    refreshModels,
+    refreshCollaborationModes,
+    refreshSkills,
+  ]);
 
   useEffect(() => {
     if (status === "connected" && enabled) return;
@@ -334,13 +372,14 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
         call,
         overrides: overridesRef.current,
         runningTurnsRef,
+        applySettings: applyServerSettings,
         setActiveChatId,
         setActiveThread,
         setThreads,
         setError,
       });
     },
-    [call, threads],
+    [applyServerSettings, call, threads],
   );
 
   const createChat = useCallback(async () => {
@@ -452,12 +491,53 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
 
   const respondApproval = useCallback(async (requestId: number | string, decision: "accept" | "decline") => {
     try {
+      console.debug("[chat] approval respond", { requestId, decision });
       await call("chat.approval.respond", { codex_request_id: requestId, decision });
     } catch (err: unknown) {
+      console.error("[chat] approval respond failed", err);
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg || "Approval failed");
     }
   }, [call]);
+
+  const updateAttachments = useCallback(
+    async (chatId: string, folder: string | null) => {
+      updateSettings(chatId, { attachedFolder: folder ?? undefined });
+      try {
+        await call("chat.settings.update", {
+          chat_id: chatId,
+          settings: { attachments: folder ? { folder } : null },
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg || "Failed to update attachments");
+      }
+    },
+    [call, updateSettings],
+  );
+
+  const searchFiles = useCallback(
+    async (chatId: string, query: string, basePath?: string | null, limit = 40): Promise<FileOption[]> => {
+      if (!enabled || status !== "connected") return [];
+      if (!query.trim()) return [];
+      try {
+        console.debug("[chat] files search", { chatId, query, limit, basePath });
+        const res = await call("chat.files.search", {
+          chat_id: chatId,
+          query,
+          limit,
+          base_path: basePath ?? undefined,
+        });
+        const normalized = normalizeFileOptions(res);
+        console.debug("[chat] files search result", { count: normalized.length });
+        return normalized;
+      } catch {
+        console.debug("[chat] files search failed");
+        return [];
+      }
+    },
+    [call, enabled, status],
+  );
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -492,9 +572,12 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     models,
     collaborationModes,
     supportsCollaboration,
+    skills,
     activeSettings,
     updateSettings,
+    updateAttachments,
     activeTokenUsage,
+    searchFiles,
     formatRelativeTime,
   };
 }

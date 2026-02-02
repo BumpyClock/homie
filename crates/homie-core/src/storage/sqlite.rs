@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, types::Type, Connection};
 use uuid::Uuid;
 
 use super::types::{
@@ -49,7 +49,8 @@ impl SqliteStore {
                 thread_id     TEXT NOT NULL,
                 created_at    TEXT NOT NULL,
                 status        TEXT NOT NULL DEFAULT 'active',
-                event_pointer INTEGER NOT NULL DEFAULT 0
+                event_pointer INTEGER NOT NULL DEFAULT 0,
+                settings_json TEXT
             );
 
             CREATE TABLE IF NOT EXISTS terminals (
@@ -108,6 +109,13 @@ impl SqliteStore {
             }
         }
 
+        if let Err(e) = conn.execute("ALTER TABLE chats ADD COLUMN settings_json TEXT", []) {
+            let msg = e.to_string().to_lowercase();
+            if !msg.contains("duplicate column") {
+                return Err(format!("migrate add chats.settings_json: {e}"));
+            }
+        }
+
         Ok(())
     }
 }
@@ -115,19 +123,22 @@ impl SqliteStore {
 impl Store for SqliteStore {
     fn upsert_chat(&self, chat: &ChatRecord) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let settings_json = serialize_settings(chat.settings.as_ref())?;
         conn.execute(
-            "INSERT INTO chats (chat_id, thread_id, created_at, status, event_pointer)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO chats (chat_id, thread_id, created_at, status, event_pointer, settings_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(chat_id) DO UPDATE SET
                 thread_id = excluded.thread_id,
                 status = excluded.status,
-                event_pointer = excluded.event_pointer",
+                event_pointer = excluded.event_pointer,
+                settings_json = COALESCE(excluded.settings_json, chats.settings_json)",
             params![
                 chat.chat_id,
                 chat.thread_id,
                 chat.created_at,
                 chat.status.as_str(),
                 chat.event_pointer as i64,
+                settings_json,
             ],
         )
         .map_err(|e| format!("upsert_chat: {e}"))?;
@@ -138,19 +149,21 @@ impl Store for SqliteStore {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         let mut stmt = conn
             .prepare(
-                "SELECT chat_id, thread_id, created_at, status, event_pointer
+                "SELECT chat_id, thread_id, created_at, status, event_pointer, settings_json
                  FROM chats WHERE chat_id = ?1",
             )
             .map_err(|e| format!("get_chat prepare: {e}"))?;
 
         let mut rows = stmt
             .query_map(params![chat_id], |row| {
+                let settings = parse_settings_json(row.get(5)?)?;
                 Ok(ChatRecord {
                     chat_id: row.get(0)?,
                     thread_id: row.get(1)?,
                     created_at: row.get(2)?,
                     status: SessionStatus::from_label(&row.get::<_, String>(3)?),
                     event_pointer: row.get::<_, i64>(4)? as u64,
+                    settings,
                 })
             })
             .map_err(|e| format!("get_chat query: {e}"))?;
@@ -166,19 +179,21 @@ impl Store for SqliteStore {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         let mut stmt = conn
             .prepare(
-                "SELECT chat_id, thread_id, created_at, status, event_pointer
+                "SELECT chat_id, thread_id, created_at, status, event_pointer, settings_json
                  FROM chats ORDER BY created_at DESC",
             )
             .map_err(|e| format!("list_chats prepare: {e}"))?;
 
         let rows = stmt
             .query_map([], |row| {
+                let settings = parse_settings_json(row.get(5)?)?;
                 Ok(ChatRecord {
                     chat_id: row.get(0)?,
                     thread_id: row.get(1)?,
                     created_at: row.get(2)?,
                     status: SessionStatus::from_label(&row.get::<_, String>(3)?),
                     event_pointer: row.get::<_, i64>(4)? as u64,
+                    settings,
                 })
             })
             .map_err(|e| format!("list_chats query: {e}"))?;
@@ -201,6 +216,21 @@ impl Store for SqliteStore {
             params![pointer as i64, chat_id],
         )
         .map_err(|e| format!("update_event_pointer: {e}"))?;
+        Ok(())
+    }
+
+    fn update_chat_settings(
+        &self,
+        chat_id: &str,
+        settings: Option<&serde_json::Value>,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let settings_json = serialize_settings(settings)?;
+        conn.execute(
+            "UPDATE chats SET settings_json = ?1 WHERE chat_id = ?2",
+            params![settings_json, chat_id],
+        )
+        .map_err(|e| format!("update_chat_settings: {e}"))?;
         Ok(())
     }
 
@@ -642,6 +672,28 @@ impl Store for SqliteStore {
     }
 }
 
+fn parse_settings_json(
+    raw: Option<String>,
+) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+    match raw {
+        Some(text) => serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(e))),
+        None => Ok(None),
+    }
+}
+
+fn serialize_settings(
+    settings: Option<&serde_json::Value>,
+) -> Result<Option<String>, String> {
+    match settings {
+        Some(value) => serde_json::to_string(value)
+            .map(Some)
+            .map_err(|e| format!("serialize chat settings: {e}")),
+        None => Ok(None),
+    }
+}
+
 fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -673,6 +725,7 @@ mod tests {
             created_at: "100s".into(),
             status: SessionStatus::Active,
             event_pointer: 0,
+            settings: None,
         };
         store.upsert_chat(&chat).unwrap();
 
@@ -691,6 +744,7 @@ mod tests {
             created_at: "100s".into(),
             status: SessionStatus::Active,
             event_pointer: 0,
+            settings: None,
         };
         store.upsert_chat(&chat).unwrap();
 
@@ -717,6 +771,7 @@ mod tests {
                     created_at: ts.into(),
                     status: SessionStatus::Active,
                     event_pointer: 0,
+                    settings: None,
                 })
                 .unwrap();
         }
@@ -738,6 +793,7 @@ mod tests {
                 created_at: "100s".into(),
                 status: SessionStatus::Active,
                 event_pointer: 0,
+                settings: None,
             })
             .unwrap();
 
@@ -829,6 +885,7 @@ mod tests {
                 created_at: "100s".into(),
                 status: SessionStatus::Active,
                 event_pointer: 0,
+                settings: None,
             })
             .unwrap();
         let sid = Uuid::new_v4();
@@ -870,6 +927,7 @@ mod tests {
                 created_at: "100s".into(),
                 status: SessionStatus::Exited,
                 event_pointer: 5,
+                settings: None,
             })
             .unwrap();
 
