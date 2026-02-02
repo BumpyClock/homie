@@ -38,3 +38,4 @@
 - 2026-02-02: Dev React StrictMode can mount/unmount terminal tabs quickly; if client prevents re-attaching, startup history replay (incl. `ESC[6n`) may be delivered only during the throwaway mount, leaving pwsh waiting forever. Fix: allow `terminal.session.attach` (+ replay) on every tab listener mount.
 - 2026-02-02: Windows: treat `cmd.exe /d` passed as a single string as `cmd.exe` + arg `/d` (avoid CreateProcessW path error).
 - 2026-02-02: pwsh/PSReadLine emits DSR query `ESC[6n` on startup; ghostty-web doesn't reliably reply. Fix: detect `ESC[6n` in PTY output and inject a cursor report reply `ESC[1;1R` from client to unblock startup (also strip query so preview doesn't show `[6n`).
+- 2026-02-02: Added cross-platform homie home resolution via `directories` crate + `HOMIE_HOME` override; used for codex app-server dir and `~` expansion.
