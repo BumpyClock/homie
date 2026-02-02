@@ -1280,17 +1280,15 @@ fn should_skip_dir(name: &str) -> bool {
 
 fn normalize_search_root(base: &str) -> PathBuf {
     let trimmed = base.trim();
-    let home_dir = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok();
+    let home_dir = crate::paths::user_home_dir();
     if let Some(rest) = trimmed.strip_prefix("~/") {
         if let Some(home) = home_dir.as_ref() {
-            return PathBuf::from(home).join(rest);
+            return home.join(rest);
         }
     }
     if trimmed == "~" {
         if let Some(home) = home_dir.as_ref() {
-            return PathBuf::from(home);
+            return home.to_path_buf();
         }
     }
     let path = PathBuf::from(trimmed);

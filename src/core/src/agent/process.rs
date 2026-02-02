@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
+
+use crate::paths::{homie_home_dir, homie_skills_dir};
 
 /// Request IDs can be numbers or strings in JSON-RPC.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +71,7 @@ impl CodexProcess {
     /// receiver for notifications/requests from the Codex server.
     pub async fn spawn() -> Result<(Self, mpsc::Receiver<CodexEvent>), String> {
         let homie_dir = homie_home_dir()?;
+        let _ = homie_skills_dir()?;
         let mut child = Command::new("codex")
             .arg("app-server")
             .current_dir(&homie_dir)
@@ -198,18 +200,6 @@ impl CodexProcess {
         }
         let _ = self.child.start_kill();
     }
-}
-
-fn homie_home_dir() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME")
-        .ok_or_else(|| "HOME is not set; cannot resolve ~/.homie".to_string())?;
-    let dir = PathBuf::from(home).join(".homie");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("failed to create ~/.homie: {e}"))?;
-    let skills_dir = dir.join("skills");
-    std::fs::create_dir_all(&skills_dir)
-        .map_err(|e| format!("failed to create ~/.homie/skills: {e}"))?;
-    Ok(dir)
 }
 
 impl Drop for CodexProcess {

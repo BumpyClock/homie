@@ -19,6 +19,7 @@ tracing.workspace = true
 futures.workspace = true
 portable-pty.workspace = true
 rusqlite.workspace = true
+directories.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

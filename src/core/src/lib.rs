@@ -7,6 +7,7 @@ mod debug_bytes;
 pub mod jobs;
 pub mod notifications;
 mod outbound;
+mod paths;
 pub mod pairing;
 pub mod presence;
 pub mod router;
