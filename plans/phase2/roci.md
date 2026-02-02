@@ -35,6 +35,18 @@ Notes:
 - Prefer **device code** OAuth flows (headless-friendly).
 - TODO (post-MVP): encryption at rest for token store.
 
+#### Roci API shape (auth)
+- `roci::auth::TokenStore`:
+  - `load(provider, profile?) -> Option<Token>`
+  - `save(provider, profile?, Token)`
+  - `clear(provider, profile?)`
+- `roci::auth::TokenProvider`:
+  - `logged_in(provider, profile?) -> bool`
+  - `get_token(provider, profile?) -> Result<AccessToken, AuthError>` (lazy refresh inside)
+  - `login_device_code(provider, profile?) -> DeviceCodeSession` (start/poll/complete)
+- `roci::auth::AuthError` (normalized):
+  - `NotLoggedIn | Expired | InvalidGrant | RateLimited | Network | Unknown`
+
 ### 2) Extend roci: agent loop primitives (OpenClaw-ish)
 Deliverables (roci):
 - Session/run scaffolding (reusable primitives; avoid Homie-specific storage).
@@ -53,6 +65,23 @@ Deliverables (roci):
 Keep roci core transport stable:
 - Reuse existing `ModelProvider` + `stream_text_with_tools`.
 - Add higher-level loop crate/module gated behind feature flag (e.g. `agent_loop`).
+
+#### Roci API shape (run mechanics)
+- `roci::agent_loop::Runner`:
+  - `start(run: RunRequest) -> RunHandle`
+- `RunRequest`:
+  - provider+model selector, messages, tool registry, per-run settings
+  - callbacks/hooks: `on_event`, `on_tool_call`
+  - cancel token
+- `RunHandle`:
+  - `abort()`
+  - `wait() -> RunResult`
+- `RunEvent` (normalized stream):
+  - `Lifecycle(start|end|error|canceled)`
+  - `AssistantDelta(text|reasoning)`
+  - `ToolCallStarted/Delta/Completed`
+  - `ToolResult`
+  - `ApprovalRequired` (tool + args + metadata + request_id)
 
 ### 3) Homie integration: replace Codex CLI with roci loop
 Deliverables (homie-core):
@@ -99,3 +128,7 @@ Homie:
 - Roci vs Homie split for approvals/tool policy (per-thread + global permissions; keep roci reusable).
 - Token store location (`~/.homie` vs roci default); likely homie sets roci path.
 - Provider-specific model catalogs + allowlists (source + caching).
+
+## Decided (so far)
+- Homie owns run queueing (per-thread/session lanes; optional global cap).
+- Roci owns per-run mechanics (streaming, tool-call loop, cancel).
