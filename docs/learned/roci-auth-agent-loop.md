@@ -45,6 +45,10 @@ Run/event model:
 - monotonic per-run events: `~/Projects/openclaw/src/infra/agent-events.ts`
   - `seq` monotonic per runId; streams: lifecycle/assistant/tool/compaction
 
+Exec allowlist patterns (future Homie allowlist):
+- `~/Projects/openclaw/src/infra/exec-approvals.ts`
+  - resolves executable path + pattern matching for approvals/allowlists
+
 ## codex-rs mechanics to mirror (code refs)
 Device-code flow (Codex subscription):
 - `~/Projects/references/codex/codex-rs/login/src/device_code_auth.rs`
@@ -58,6 +62,11 @@ Token storage + keyring mapping:
   - `$CODEX_HOME/auth.json` format (`AuthDotJson`)
   - keyring service `"Codex Auth"` + account `cli|<sha256(canonical CODEX_HOME)[:16]>`
 
+Model catalog caching:
+- `~/Projects/references/codex/codex-rs/core/src/models_manager/manager.rs`
+  - `DEFAULT_MODEL_CACHE_TTL = 300s`
+  - on-disk cache `models_cache.json` (ETag-aware refresh)
+
 Event + approvals taxonomy (what Homie chat UX expects long-term):
 - `~/Projects/references/codex/codex-rs/app-server/README.md`
 - `~/Projects/references/codex/codex-rs/app-server-protocol/src/protocol/v2.rs`
@@ -68,6 +77,20 @@ Event + approvals taxonomy (what Homie chat UX expects long-term):
   - decisions include accept/decline/cancel + “for session” variants
 - cancel semantics: `turn/interrupt` then `turn/completed(status="interrupted")`
   - impl detail: `~/Projects/references/codex/codex-rs/app-server/src/codex_message_processor.rs` queues interrupt replies until abort arrives
+
+Mid-turn user input injection (Codex behavior):
+- `~/Projects/references/codex/codex-rs/core/src/state/turn.rs`
+  - `TurnState.pending_input: Vec<ResponseInputItem>`
+  - take-all per iteration (`take_pending_input`)
+- `~/Projects/references/codex/codex-rs/core/src/codex.rs`
+  - `inject_input(...)` pushes pending input; loop consumes pending before each sampling call
+  - implication: “send while running” does not interrupt; processed next iteration
+
+Approval key shape (Codex behavior):
+- shell approval key: argv + cwd + sandbox perms
+  - `~/Projects/references/codex/codex-rs/core/src/tools/runtimes/shell.rs`
+- unified exec approval key: shell key + `tty`
+  - `~/Projects/references/codex/codex-rs/core/src/tools/runtimes/unified_exec.rs`
 
 ## Extension direction
 - Add auth module: OAuth provider adapters + token store + refresh.
@@ -92,3 +115,4 @@ Event + approvals taxonomy (what Homie chat UX expects long-term):
 - Approvals: implement accept/decline/cancel + accept-for-session variants in roci + Homie UI.
 - Approval persistence: accept-for-session ephemeral per thread; “always approve/execute mode” persisted per thread + global.
 - Token store: file-only MVP configured via `~/.homie/config.toml` (keyring later).
+- Model catalog TTL: default 300s (mirror Codex); cache memory + disk; allow override.

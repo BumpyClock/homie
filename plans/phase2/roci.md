@@ -55,6 +55,11 @@ Event taxonomy (useful for roci RunEvent shape):
   - `~/Projects/openclaw/src/agents/pi-embedded-subscribe.handlers.messages.ts`
   - `~/Projects/openclaw/src/agents/pi-embedded-subscribe.handlers.tools.ts`
 
+Command approval allowlisting (future-proofing):
+- Path resolve + pattern matching allowlists:
+  - `~/Projects/openclaw/src/infra/exec-approvals.ts`
+  - resolves executable path; supports glob-ish matching; good base for future file-based allowlists
+
 ### codex-rs (mechanics we must mirror)
 Device-code auth flow:
 - `~/Projects/references/codex/codex-rs/login/src/device_code_auth.rs`
@@ -75,6 +80,10 @@ Refresh + cancel semantics (for roci API design, not exact impl):
   - `~/Projects/references/codex/codex-rs/core/src/auth.rs`
   - refresh uses refresh token endpoint `https://auth.openai.com/oauth/token` (override env `CODEX_REFRESH_TOKEN_URL_OVERRIDE`)
   - `refresh_if_stale`: refresh if `last_refresh` older than `TOKEN_REFRESH_INTERVAL` (currently `days(8)`)
+- Model catalog caching defaults:
+  - `~/Projects/references/codex/codex-rs/core/src/models_manager/manager.rs`
+  - default TTL: `DEFAULT_MODEL_CACHE_TTL = 300s`
+  - on-disk cache: `models_cache.json` (ETag-aware refresh)
 - App-server event + approvals taxonomy (what our embedded loop should feel like):
   - `~/Projects/references/codex/codex-rs/app-server/README.md`
   - `~/Projects/references/codex/codex-rs/app-server-protocol/src/protocol/v2.rs`
@@ -108,6 +117,13 @@ Notes:
 - Prefer **device code** OAuth flows (headless-friendly).
 - Token store: file-only MVP (configure via `~/.homie/config.toml`).
   - credentials path: `~/.homie/credentials/*.toml` (Homie-owned; one file per provider/profile)
+  - file perms: 0600
+  - filename convention (MVP): `openai-codex.toml`, `github-copilot.toml`, `claude-code.toml`
+  - minimal schema (MVP):
+    - `version = 1`
+    - `provider = "openai-codex" | "github-copilot" | "claude-code"`
+    - `profile = "default"` (future: multiple profiles)
+    - `access_token`, `refresh_token?`, `id_token?`, `expires_at?` (RFC3339), `scopes?`
   - import bootstrap (one-way): read existing Codex CLI + Claude Code CLI creds (OpenClaw patterns), write into Homie files
 - TODO (post-MVP): encryption at rest for token store.
 - TODO (post-MVP): keyring-backed store (candidate: `keyring` crate).
@@ -205,7 +221,22 @@ Mid-turn user input (Codex pattern; confirmed by code re-read):
 - While a run is active: additional user input can be injected into the active turn and processed on the next loop iteration.
   - codex-rs: `Session::inject_input` + `get_pending_input()` inside the agent loop
     - `~/Projects/references/codex/codex-rs/core/src/codex.rs` (`inject_input`, loop fetches pending input)
+    - queue mechanics: `TurnState.pending_input` + take-all-per-iteration
+      - `~/Projects/references/codex/codex-rs/core/src/state/turn.rs`
 - Homie UX: per-thread toggle (collaboration mode) that controls whether “send while running” injects vs blocks.
+
+Approval key canonicalization + future allowlisting (Codex + OpenClaw combo):
+- Canonical key shape (Codex-like):
+  - shell: argv + cwd + sandbox perms
+    - `~/Projects/references/codex/codex-rs/core/src/tools/runtimes/shell.rs`
+  - unified exec: shell key + `tty`
+    - `~/Projects/references/codex/codex-rs/core/src/tools/runtimes/unified_exec.rs`
+- Future file-based allowlist: store normalized keys + optional resolved exe path for matching
+  - path resolve + pattern matching inspiration: `~/Projects/openclaw/src/infra/exec-approvals.ts`
+- Semantics (MVP):
+  - `AcceptForSession`: cache approval key in-memory (per thread)
+  - `Execute mode`: persist per-thread + global toggles in Homie (not roci)
+  - Later: “accept + add to allowlist file” (Codex execpolicy-style), backed by a Homie-owned allowlist file
 
 ### 3) Homie integration: replace Codex CLI with roci loop
 Deliverables (homie-core):
@@ -254,12 +285,16 @@ Homie:
 
 ## Open questions
 - Provider-specific model catalogs:
-  - source-of-truth per provider + caching TTL (decide TTL defaults)
+  - decision: TTL default 300s (mirror Codex `DEFAULT_MODEL_CACHE_TTL`)
+  - cache layers: memory + on-disk (per gateway); allow config override
+  - refresh strategy options: `Online` | `Offline` | `OnlineIfUncached` (Codex pattern)
 - Codex issuer details:
   - default issuer: `https://auth.openai.com` (codex-rs login default)
   - initial login: device-code endpoints under `{issuer}/api/accounts/...` (codex-rs)
   - refresh: `https://auth.openai.com/oauth/token` default (codex-rs), allow override/env if needed
-- Execpolicy-style allowlisting (later?): do we want a “proposed policy change” UX like Codex `AcceptWithExecpolicyAmendment`, or just `AcceptForSession` + “always approve”?
+- Execpolicy-style allowlisting (later):
+  - plan: keep MVP semantics (`AcceptForSession`, per-thread/global execute mode)
+  - future: allowlist file (Homie-owned) + optional “approve + add rule” UX (Codex-style)
 
 ## Decided (so far)
 - Homie owns run queueing (per-thread/session lanes; optional global cap).
