@@ -38,6 +38,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
   const [error, setError] = useState<Event | null>(null);
   
   const wsRef = useRef<WebSocket | null>(null);
+  const handshakeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const binaryListeners = useRef<Set<(data: ArrayBuffer) => void>>(new Set());
   const eventListeners = useRef<Set<(event: { topic: string; params?: unknown }) => void>>(new Set());
   const retryCount = useRef(0);
@@ -55,6 +56,13 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
     }
   }, []);
 
+  const clearHandshakeTimeout = useCallback(() => {
+    if (handshakeTimeoutRef.current) {
+      clearTimeout(handshakeTimeoutRef.current);
+      handshakeTimeoutRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
     shouldReconnect.current = true;
@@ -69,6 +77,21 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
       return () => {
         mounted.current = false;
         shouldReconnect.current = false;
+        clearHandshakeTimeout();
+        const ws = wsRef.current;
+        wsRef.current = null;
+        handshakeCompleted.current = false;
+        for (const pending of pendingRequests.current.values()) {
+          pending.reject(new Error("Connection closed"));
+        }
+        pendingRequests.current.clear();
+        if (ws) {
+          try {
+            ws.close();
+          } catch {
+            // ignore
+          }
+        }
       };
     }
 
@@ -76,11 +99,23 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
         if (!mounted.current) return;
 
         if (wsRef.current) {
-          const state = wsRef.current.readyState;
-          if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
-            log("skip connect: socket active");
+          const existing = wsRef.current;
+          const state = existing.readyState;
+          if (state === WebSocket.OPEN) {
+            log("skip connect: socket open");
             return;
           }
+          // Treat a stuck CONNECTING socket as replaceable (common in dev StrictMode).
+          if (state === WebSocket.CONNECTING || state === WebSocket.CLOSING) {
+            try {
+              existing.close();
+            } catch {
+              // ignore
+            }
+          }
+          wsRef.current = null;
+          handshakeCompleted.current = false;
+          clearHandshakeTimeout();
         }
         
         setStatus("connecting");
@@ -97,6 +132,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
             ws.binaryType = "arraybuffer";
             wsRef.current = ws;
             handshakeCompleted.current = false;
+            clearHandshakeTimeout();
 
             ws.onopen = () => {
                 if (!mounted.current) return;
@@ -117,6 +153,19 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
 
                 log("send hello", { protocol: clientHello.protocol, client_id: clientHello.client_id });
                 ws.send(JSON.stringify(clientHello));
+
+                clearHandshakeTimeout();
+                handshakeTimeoutRef.current = setTimeout(() => {
+                  // If we never receive ServerHello, force a reconnect.
+                  if (wsRef.current === ws && !handshakeCompleted.current) {
+                    log("handshake timeout; closing");
+                    try {
+                      ws.close();
+                    } catch {
+                      // ignore
+                    }
+                  }
+                }, 5000);
             };
 
             ws.onmessage = (event) => {
@@ -147,6 +196,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                     const response = data as HandshakeResponse;
                     if (response.type === "hello") {
                         handshakeCompleted.current = true;
+                        clearHandshakeTimeout();
                         setServerHello(response);
                         setStatus("connected");
                         log("handshake ok", { server_id: response.server_id, version: response.protocol_version });
@@ -180,28 +230,37 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
             };
 
             ws.onerror = (e) => {
-                if (!mounted.current) return;
                 console.error("WebSocket error", e);
-                setError(e);
-                setStatus("error");
+                if (mounted.current) {
+                  setError(e);
+                  setStatus("error");
+                }
                 log("error", e);
+                // Some browsers may not reliably fire `onclose` after an error; force teardown.
+                try {
+                  ws.close();
+                } catch {
+                  // ignore
+                }
             };
 
             ws.onclose = (event) => {
-                if (!mounted.current) return;
                 if (wsRef.current !== ws) {
                   return;
                 }
-                log("close", { code: event.code, reason: event.reason, wasClean: event.wasClean });
                 wsRef.current = null;
+                handshakeCompleted.current = false;
+                clearHandshakeTimeout();
 
                 // Clear pending requests
                 for (const pending of pendingRequests.current.values()) {
                     pending.reject(new Error("Connection closed"));
                 }
                 pendingRequests.current.clear();
-                handshakeCompleted.current = false;
 
+                if (!mounted.current) return;
+
+                log("close", { code: event.code, reason: event.reason, wasClean: event.wasClean });
                 setStatus((prev) => (prev === "rejected" ? prev : "disconnected"));
 
                 if (shouldReconnect.current) {
@@ -230,14 +289,21 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
     return () => {
         mounted.current = false;
         shouldReconnect.current = false;
+        clearHandshakeTimeout();
         if (wsRef.current) {
             wsRef.current.close();
         }
+        wsRef.current = null;
+        handshakeCompleted.current = false;
+        for (const pending of pendingRequests.current.values()) {
+          pending.reject(new Error("Connection closed"));
+        }
+        pendingRequests.current.clear();
         if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
         }
     };
-  }, [url, authToken, log]);
+  }, [url, authToken, log, clearHandshakeTimeout]);
 
   const call = useCallback((method: string, params?: unknown) => {
       return new Promise((resolve, reject) => {
