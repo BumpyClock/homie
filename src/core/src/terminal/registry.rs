@@ -253,7 +253,10 @@ impl TerminalRegistry {
             .openpty(size)
             .map_err(|e| TerminalError::Internal(format!("failed to open pty: {e}")))?;
 
-        cmd.env("TERM", "xterm-256color");
+        if cfg!(not(target_os = "windows")) {
+            cmd.env("TERM", "xterm-256color");
+            cmd.env("COLORTERM", "truecolor");
+        }
 
         let child = pair
             .slave
