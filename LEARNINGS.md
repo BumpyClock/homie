@@ -17,3 +17,4 @@
 - 2026-02-01: Terminal sessions now live in a shared registry; disconnect detaches but does not kill PTY, enabling reattach after refresh.
 - 2026-02-01: Reattach replays buffered PTY output (size-limited, `HOMIE_HISTORY_BYTES`) so terminals restore on reconnect.
 - 2026-02-01: Added terminal session names (sqlite column + RPC rename) and UI labels for renamed/tmux sessions, with tab/card display driven by session-utils helpers.
+- 2026-02-02: Added chat settings (model/effort/permission/agent mode) UI + token usage events; new chat model/collaboration list RPCs; approval events include fallback request id.

@@ -1,4 +1,4 @@
-import type { ChatItem } from "@/hooks/use-chat";
+import type { ChatItem } from "@/lib/chat-utils";
 
 interface ChatItemProps {
   item: ChatItem;
@@ -27,6 +27,7 @@ export function ChatItemView({ item, onApprove }: ChatItemProps) {
   }
 
   if (item.kind === "approval") {
+    const canRespond = item.requestId !== undefined;
     return (
       <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:bg-amber-500/10 p-4 text-sm">
         <div className="text-xs uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-2">
@@ -41,21 +42,23 @@ export function ChatItemView({ item, onApprove }: ChatItemProps) {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            disabled={!canRespond}
             onClick={() => {
               if (item.requestId === undefined) return;
               onApprove?.(item.requestId, "accept");
             }}
-            className="px-3 py-2 min-h-[44px] rounded-md bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors"
+            className="px-3 py-2 min-h-[44px] rounded-md bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors disabled:opacity-60"
           >
             Approve
           </button>
           <button
             type="button"
+            disabled={!canRespond}
             onClick={() => {
               if (item.requestId === undefined) return;
               onApprove?.(item.requestId, "decline");
             }}
-            className="px-3 py-2 min-h-[44px] rounded-md border border-amber-300 text-amber-700 dark:text-amber-200 hover:bg-amber-100/70 dark:hover:bg-amber-500/20 transition-colors"
+            className="px-3 py-2 min-h-[44px] rounded-md border border-amber-300 text-amber-700 dark:text-amber-200 hover:bg-amber-100/70 dark:hover:bg-amber-500/20 transition-colors disabled:opacity-60"
           >
             Decline
           </button>

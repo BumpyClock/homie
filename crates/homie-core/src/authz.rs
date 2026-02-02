@@ -93,7 +93,9 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         | "chat.thread.read"
         | "chat.thread.list"
         | "chat.account.read"
-        | "chat.skills.list" => Some(Scope::AgentRead),
+        | "chat.skills.list"
+        | "chat.model.list"
+        | "chat.collaboration.mode.list" => Some(Scope::AgentRead),
         "agent.chat.create"
         | "agent.chat.message.send"
         | "agent.chat.cancel"

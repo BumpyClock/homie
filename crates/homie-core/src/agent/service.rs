@@ -26,6 +26,7 @@ fn codex_method_to_topics(method: &str) -> Option<(&'static str, &'static str)> 
         "item/reasoning/summaryTextDelta" => Some(("chat.reasoning.delta", "agent.chat.reasoning.delta")),
         "turn/diff/updated" => Some(("chat.diff.updated", "agent.chat.diff.updated")),
         "turn/plan/updated" => Some(("chat.plan.updated", "agent.chat.plan.updated")),
+        "thread/tokenUsage/updated" => Some(("chat.token.usage.updated", "agent.chat.token.usage.updated")),
         "item/commandExecution/requestApproval" => Some(("chat.approval.required", "agent.chat.approval.required")),
         "item/fileChange/requestApproval" => Some(("chat.approval.required", "agent.chat.approval.required")),
         _ => None,
@@ -197,7 +198,8 @@ impl CodexChatCore {
     }
 
     async fn chat_message_send(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
-        let (chat_id, message) = match parse_message_params(&params) {
+        let (chat_id, message, model, effort, approval_policy, collaboration_mode) =
+            match parse_message_params(&params) {
             Some(v) => v,
             None => {
                 return Response::error(
@@ -223,10 +225,24 @@ impl CodexChatCore {
             }
         };
 
-        let codex_params = json!({
+        let mut codex_params = json!({
             "threadId": thread_id,
             "input": [{"type": "text", "text": message}],
         });
+        if let Some(model) = model {
+            codex_params["model"] = json!(model);
+        }
+        if let Some(effort) = effort {
+            codex_params["effort"] = json!(effort);
+        }
+        if let Some(approval_policy) = approval_policy {
+            codex_params["approvalPolicy"] = json!(approval_policy);
+        }
+        if let Some(collaboration_mode) = collaboration_mode {
+            if collaboration_mode.is_object() {
+                codex_params["collaborationMode"] = collaboration_mode;
+            }
+        }
 
         let process = self.process.as_ref().unwrap();
         match process.send_request("turn/start", Some(codex_params)).await {
@@ -473,6 +489,44 @@ impl CodexChatCore {
         }
     }
 
+    async fn chat_model_list(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        let params = params.or_else(|| Some(json!({})));
+        match process.send_request("model/list", params).await {
+            Ok(result) => Response::success(req_id, result),
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("model/list failed: {e}"),
+            ),
+        }
+    }
+
+    async fn chat_collaboration_mode_list(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        let params = params.or_else(|| Some(json!({})));
+        match process.send_request("collaborationMode/list", params).await {
+            Ok(result) => Response::success(req_id, result),
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("collaborationMode/list failed: {e}"),
+            ),
+        }
+    }
+
     async fn chat_skills_config_write(
         &mut self,
         req_id: Uuid,
@@ -696,6 +750,8 @@ impl ServiceHandler for ChatService {
                 "chat.thread.rename" => core.chat_thread_rename(id, params).await,
                 "chat.account.read" => core.chat_account_read(id).await,
                 "chat.skills.list" => core.chat_skills_list(id, params).await,
+                "chat.model.list" => core.chat_model_list(id, params).await,
+                "chat.collaboration.mode.list" => core.chat_collaboration_mode_list(id, params).await,
                 "chat.skills.config.write" => core.chat_skills_config_write(id, params).await,
                 _ => Response::error(
                     id,
@@ -808,6 +864,17 @@ async fn event_forwarder_loop(
             if let Some(obj) = event_params.as_object_mut() {
                 obj.insert("codex_request_id".into(), codex_id.to_json());
             }
+        } else if let Some(obj) = event_params.as_object_mut() {
+            if !obj.contains_key("codex_request_id") {
+                let fallback = obj
+                    .get("requestId")
+                    .or_else(|| obj.get("request_id"))
+                    .or_else(|| obj.get("id"))
+                    .cloned();
+                if let Some(value) = fallback {
+                    obj.insert("codex_request_id".into(), value);
+                }
+            }
         }
 
         if let Some(thread_id) = extract_thread_id(&event_params) {
@@ -877,11 +944,31 @@ fn extract_id_from_result(
 
 // -- Param parsing helpers ------------------------------------------------
 
-fn parse_message_params(params: &Option<Value>) -> Option<(String, String)> {
+fn parse_message_params(
+    params: &Option<Value>,
+) -> Option<(
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Value>,
+)> {
     let p = params.as_ref()?;
     let chat_id = p.get("chat_id")?.as_str()?.to_string();
     let message = p.get("message")?.as_str()?.to_string();
-    Some((chat_id, message))
+    let model = p.get("model").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let effort = p.get("effort").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let approval_policy = p
+        .get("approval_policy")
+        .or_else(|| p.get("approvalPolicy"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let collaboration_mode = p
+        .get("collaboration_mode")
+        .or_else(|| p.get("collaborationMode"))
+        .cloned();
+    Some((chat_id, message, model, effort, approval_policy, collaboration_mode))
 }
 
 fn parse_cancel_params(params: &Option<Value>) -> Option<(String, String)> {
@@ -1046,6 +1133,14 @@ mod tests {
     }
 
     #[test]
+    fn codex_method_maps_token_usage_updates() {
+        assert_eq!(
+            codex_method_to_topics("thread/tokenUsage/updated"),
+            Some(("chat.token.usage.updated", "agent.chat.token.usage.updated"))
+        );
+    }
+
+    #[test]
     fn codex_method_maps_reasoning_and_plan() {
         assert_eq!(
             codex_method_to_topics("item/reasoning/summaryTextDelta"),
@@ -1072,9 +1167,14 @@ mod tests {
             "chat_id": "abc-123",
             "message": "hello world"
         }));
-        let (chat_id, message) = parse_message_params(&params).unwrap();
+        let (chat_id, message, model, effort, approval_policy, collaboration_mode) =
+            parse_message_params(&params).unwrap();
         assert_eq!(chat_id, "abc-123");
         assert_eq!(message, "hello world");
+        assert!(model.is_none());
+        assert!(effort.is_none());
+        assert!(approval_policy.is_none());
+        assert!(collaboration_mode.is_none());
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Pencil, Trash2, Square } from "lucide-react";
 import { ChatItemView } from "@/components/chat-item";
+import { ChatComposerBar } from "@/components/chat-composer-bar";
 import { useChat } from "@/hooks/use-chat";
 import type { ConnectionStatus } from "@/hooks/use-gateway";
 
@@ -27,6 +28,11 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     renameChat,
     respondApproval,
     accountStatus,
+    models,
+    collaborationModes,
+    activeSettings,
+    updateSettings,
+    activeTokenUsage,
     formatRelativeTime,
   } = useChat({ status, call, onEvent, enabled, namespace });
 
@@ -36,6 +42,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
 
   const activeTitle = activeThread?.title ?? "";
   const canSend = status === "connected" && !!activeThread;
+  const canEditSettings = status === "connected" && !!activeThread;
 
   useEffect(() => {
     setIsEditingTitle(false);
@@ -248,6 +255,20 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
         </div>
 
         <div className="border-t border-border p-4 bg-card/60">
+          <div className="mb-3">
+            <ChatComposerBar
+              models={models}
+              collaborationModes={collaborationModes}
+              settings={activeSettings}
+              tokenUsage={activeTokenUsage}
+              running={!!activeThread?.running}
+              disabled={!canEditSettings}
+              onChangeSettings={(updates) => {
+                if (!activeThread) return;
+                updateSettings(activeThread.chatId, updates);
+              }}
+            />
+          </div>
           <form
             className="flex gap-2 items-end"
             onSubmit={(e) => {
