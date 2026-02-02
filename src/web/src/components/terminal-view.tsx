@@ -4,6 +4,7 @@ import { TerminalTab } from "./terminal-tab";
 import { parseBinaryFrame, StreamType } from "@/lib/binary-protocol";
 import { sessionDisplayName } from "@/lib/session-utils";
 import type { SessionInfo } from "@/lib/protocol";
+import type { ConnectionStatus } from "@/hooks/use-gateway";
 import { Plus, X, Terminal } from "lucide-react";
 
 export interface AttachedSession {
@@ -26,6 +27,7 @@ interface TerminalSessionMenu {
 }
 
 interface TerminalViewProps {
+  status: ConnectionStatus;
   attachedSessions: AttachedSession[];
   onDetach: (sessionId: string) => void;
   call: (method: string, params?: unknown) => Promise<unknown>;
@@ -35,7 +37,7 @@ interface TerminalViewProps {
   sessionMenu?: TerminalSessionMenu;
 }
 
-export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage, previewNamespace, focusSessionId, sessionMenu }: TerminalViewProps) {
+export function TerminalView({ status, attachedSessions, onDetach, call, onBinaryMessage, previewNamespace, focusSessionId, sessionMenu }: TerminalViewProps) {
   const [userActiveSessionId, setUserActiveSessionId] = useState<string | null>(null);
 
   const attachedSessionIds = attachedSessions.map((session) => session.id);
@@ -53,6 +55,9 @@ export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage
 
   const tabListeners = useRef<Map<string, (data: Uint8Array) => void>>(new Map());
   const pendingOutput = useRef<Map<string, { chunks: Uint8Array[]; bytes: number }>>(new Map());
+  const attachedToServer = useRef<Set<string>>(new Set());
+  const pendingAttach = useRef<Set<string>>(new Set());
+  const attaching = useRef<Set<string>>(new Set());
 
   const flushPending = useCallback((sessionId: string, listener: (data: Uint8Array) => void) => {
     const entry = pendingOutput.current.get(sessionId);
@@ -80,6 +85,48 @@ export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage
     }
   }, []);
 
+  const attachSession = useCallback((sessionId: string) => {
+    if (status !== "connected") return;
+    if (attachedToServer.current.has(sessionId)) return;
+    if (attaching.current.has(sessionId)) return;
+
+    attaching.current.add(sessionId);
+    void call("terminal.session.attach", { session_id: sessionId })
+      .then(() => {
+        attachedToServer.current.add(sessionId);
+        pendingAttach.current.delete(sessionId);
+      })
+      .catch((err) => {
+        console.warn("[terminal] attach failed", { sessionId, err });
+        pendingAttach.current.add(sessionId);
+      })
+      .finally(() => {
+        attaching.current.delete(sessionId);
+      });
+  }, [call, status]);
+
+  useEffect(() => {
+    // Clear tracking for sessions that were removed (so re-open reattaches + replays).
+    const ids = new Set(attachedSessionIds);
+    for (const id of Array.from(attachedToServer.current)) {
+      if (!ids.has(id)) attachedToServer.current.delete(id);
+    }
+    for (const id of Array.from(pendingAttach.current)) {
+      if (!ids.has(id)) pendingAttach.current.delete(id);
+    }
+    for (const id of Array.from(attaching.current)) {
+      if (!ids.has(id)) attaching.current.delete(id);
+    }
+  }, [attachedSessionIds]);
+
+  useEffect(() => {
+    if (status !== "connected") return;
+    // Retry any pending attaches now that the socket is connected.
+    for (const sessionId of pendingAttach.current) {
+      attachSession(sessionId);
+    }
+  }, [status, attachSession]);
+
   useEffect(() => {
     const cleanup = onBinaryMessage((buffer) => {
       try {
@@ -104,10 +151,12 @@ export function TerminalView({ attachedSessions, onDetach, call, onBinaryMessage
   const registerTabListener = useCallback((sessionId: string, listener: (data: Uint8Array) => void) => {
     tabListeners.current.set(sessionId, listener);
     flushPending(sessionId, listener);
+    pendingAttach.current.add(sessionId);
+    attachSession(sessionId);
     return () => {
       tabListeners.current.delete(sessionId);
     };
-  }, [flushPending]);
+  }, [flushPending, attachSession]);
 
   const handleInput = useCallback((sessionId: string, data: string) => {
     void call("terminal.session.input", { session_id: sessionId, data }).catch(() => {});

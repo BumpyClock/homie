@@ -62,6 +62,7 @@ export function TerminalScreen({
       </div>
       <div className="flex-1 min-h-0">
         <TerminalView
+          status={status}
           attachedSessions={attachedSessions}
           onDetach={onDetach}
           call={call}

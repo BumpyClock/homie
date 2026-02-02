@@ -34,3 +34,4 @@
 - 2026-02-02: Added plan block for replacing Codex CLI app-server with embedded loop + OAuth retention and future provider adapters.
 - 2026-02-02: Reorganized repo layout under src/ (core, gateway, infra) and moved roci submodule to src/infra.
 - 2026-02-02: Windows PTY can emit tiny chunks; if early bytes are dropped (e.g. lone ESC), escape sequences degrade (literal `[6n`) and shells can block waiting for a DSR response. Fix by buffering PTY bytes until the UI listener is ready and ensuring attach can replay startup history (avoid auto-attach on start).
+- 2026-02-02: More robust: delay `terminal.session.attach` until the terminal tab registers its data listener; then attach triggers history replay + live streaming after the UI is ready.

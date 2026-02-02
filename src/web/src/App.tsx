@@ -245,15 +245,8 @@ function App() {
       setRefreshToken((t) => t + 1);
 
       if (session?.session_id) {
-        const info = await call('terminal.session.attach', { session_id: session.session_id }) as {
-          session_id?: string;
-          shell?: string;
-          name?: string | null;
-        };
-        if (info?.session_id) {
-          handleAttach({ session_id: info.session_id, shell: info.shell ?? "", name: info.name });
-          setTerminalFocusSessionId(info.session_id);
-        }
+        handleAttach({ session_id: session.session_id, shell: "", name: null });
+        setTerminalFocusSessionId(session.session_id);
       }
     } catch (err: unknown) {
       console.error("Failed to start session", err);
@@ -275,17 +268,12 @@ function App() {
         }
 
         try {
-          const info = await call('terminal.session.attach', { session_id: session.session_id }) as {
-            session_id?: string;
-            shell?: string;
-            name?: string | null;
-          };
-          handleAttach({ session_id: info?.session_id ?? session.session_id, shell: info?.shell ?? session.shell, name: info?.name ?? session.name });
+          handleAttach({ session_id: session.session_id, shell: session.shell, name: session.name });
           setTerminalFocusSessionId(session.session_id);
         } catch (err: unknown) {
           console.error('Failed to attach session', err);
           const msg = err instanceof Error ? err.message : String(err);
-          alert('Failed to attach session: ' + msg);
+          alert('Failed to open session: ' + msg);
         }
       };
 

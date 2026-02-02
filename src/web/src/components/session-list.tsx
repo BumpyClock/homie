@@ -214,7 +214,6 @@ export function SessionList({ call, status, onAttach, onRename, previewNamespace
       }) as SessionInfo;
       fetchSessions();
       if (session && session.session_id) {
-        await call('terminal.session.attach', { session_id: session.session_id });
         onAttach(session);
       }
     } catch (err: unknown) {
@@ -302,13 +301,7 @@ export function SessionList({ call, status, onAttach, onRename, previewNamespace
   };
 
   const handleAttach = async (session: SessionInfo) => {
-      try {
-          await call('terminal.session.attach', { session_id: session.session_id });
-          onAttach(session);
-      } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          alert('Failed to attach session: ' + msg);
-      }
+      onAttach(session);
   };
 
   const handleRefresh = useCallback(() => {
