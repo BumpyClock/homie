@@ -91,7 +91,7 @@ export function TerminalView({ status, attachedSessions, onDetach, call, onBinar
     if (attaching.current.has(sessionId)) return;
 
     attaching.current.add(sessionId);
-    void call("terminal.session.attach", { session_id: sessionId })
+    void call("terminal.session.attach", { session_id: sessionId, replay: true })
       .then(() => {
         attachedToServer.current.add(sessionId);
         pendingAttach.current.delete(sessionId);

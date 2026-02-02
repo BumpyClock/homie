@@ -332,6 +332,8 @@ impl TerminalRegistry {
         session_id: Uuid,
         subscriber_id: Uuid,
         outbound_tx: mpsc::Sender<OutboundMessage>,
+        replay: bool,
+        max_bytes: usize,
     ) -> Result<SessionInfo, TerminalError> {
         let (info, history, should_replay) = {
             let active = self
@@ -342,14 +344,23 @@ impl TerminalRegistry {
             let already_attached = subs.contains_key(&subscriber_id);
             subs.insert(subscriber_id, outbound_tx.clone());
             drop(subs);
-            (active.info.clone(), active.history.clone(), !already_attached)
+            (
+                active.info.clone(),
+                active.history.clone(),
+                replay || !already_attached,
+            )
         };
         if should_replay {
             let snapshot = history.lock().unwrap().snapshot();
             if !snapshot.is_empty() {
+                let slice = if max_bytes > 0 && snapshot.len() > max_bytes {
+                    snapshot[snapshot.len() - max_bytes..].to_vec()
+                } else {
+                    snapshot
+                };
                 let session_id = info.session_id;
                 tokio::spawn(async move {
-                    for chunk in snapshot.chunks(HISTORY_CHUNK_BYTES) {
+                    for chunk in slice.chunks(HISTORY_CHUNK_BYTES) {
                         let frame = BinaryFrame {
                             session_id,
                             stream: StreamType::Stdout,

@@ -70,8 +70,8 @@ impl TerminalService {
     }
 
     fn session_attach(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
-        let session_id = match parse_session_id(&params) {
-            Some(id) => id,
+        let (session_id, replay, max_bytes) = match parse_attach_params(&params) {
+            Some(v) => v,
             None => {
                 return Response::error(
                     req_id,
@@ -83,7 +83,13 @@ impl TerminalService {
 
         let info = {
             let mut registry = self.registry.lock().unwrap();
-            registry.attach_session(session_id, self.subscriber_id, self.outbound_tx.clone())
+            registry.attach_session(
+                session_id,
+                self.subscriber_id,
+                self.outbound_tx.clone(),
+                replay,
+                max_bytes,
+            )
         };
 
         match info {
@@ -648,6 +654,21 @@ fn parse_session_id(params: &Option<Value>) -> Option<Uuid> {
         .as_str()?
         .parse::<Uuid>()
         .ok()
+}
+
+fn parse_attach_params(params: &Option<Value>) -> Option<(Uuid, bool, usize)> {
+    let session_id = parse_session_id(params)?;
+    let replay = params
+        .as_ref()
+        .and_then(|v| v.get("replay"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let max_bytes = params
+        .as_ref()
+        .and_then(|v| v.get("max_bytes").or_else(|| v.get("maxBytes")))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    Some((session_id, replay, max_bytes))
 }
 
 fn parse_resize_params(params: &Option<Value>) -> Option<(Uuid, u16, u16)> {
