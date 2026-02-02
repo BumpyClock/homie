@@ -124,3 +124,4 @@ Approval key shape (Codex behavior):
 - Home dir resolution: prefer `directories`/`dirs` crate + `HOMIE_HOME` override (no `~` on Windows).
 - Windows matching: case-insensitive argv/path comparisons by default.
 - Tool runtime defaults (Windows): `pwsh` → `powershell` → `cmd`.
+- Windows auth import: file-only for Codex; skip keychain; Claude Code at `$USERHOME/.claude/`.

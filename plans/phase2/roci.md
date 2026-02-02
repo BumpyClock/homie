@@ -192,6 +192,7 @@ Provider specifics (from re-reads):
   - store: include access+refresh+id_token (+ account_id if available)
   - refresh endpoint default `https://auth.openai.com/oauth/token` (support override; see `codex-rs/core/src/auth.rs`)
   - optional: import existing Codex CLI creds (mac keychain + `$CODEX_HOME/auth.json`) like OpenClaw `src/agents/cli-credentials.ts`
+  - Windows: skip keychain; file-only import from `$CODEX_HOME/auth.json`
 - `github_copilot`:
   - device-code = GitHub token (`openclaw/src/providers/github-copilot-auth.ts`)
   - exchange GitHub token -> Copilot token + base URL derivation (`openclaw/src/providers/github-copilot-token.ts`)
@@ -200,6 +201,7 @@ Provider specifics (from re-reads):
   - investigate device-code viability (unknown)
   - MVP fallback: import Claude Code creds from keychain/file like OpenClaw (`src/agents/cli-credentials.ts`)
   - optional: write-back refreshed Claude tokens to external store (OpenClaw has `writeClaudeCliCredentials(...)`)
+  - Claude Code file location (all OS): `$USERHOME/.claude/`
 
 #### Roci API shape (auth)
 - `roci::auth::TokenStore`:
