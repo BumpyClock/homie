@@ -1,0 +1,72 @@
+[PRD]
+# PRD: Embedded Agent Loop (Codex-first)
+
+## Overview
+Replace the Codex CLI app-server process with an **embedded agent loop** we can edit and refine, while **retaining Codex OAuth login**. Preserve the existing `chat.*` API and UI behavior. Later, add provider adapters for Claude and GitHub Copilot subscriptions.
+
+## Goals
+- Eliminate external `codex app-server` process for primary chat runtime.
+- Maintain Codex OAuth login/refresh via codex-rs (server-side login only).
+- Keep `chat.*` RPC + event contract stable for web/mobile clients.
+- Support per-gateway chat session persistence and resume.
+- Provide a clean path to multi-provider auth + model catalogs (future).
+
+## Non-Goals (Phase 1)
+- Implement Claude/Copilot auth now (design only).
+- Rework UI flows beyond status/error surfacing.
+- Replace current tool router or terminal features.
+- Full policy engine (beyond current approval flow).
+
+## Quality Gates
+- `cargo fmt --check`
+- `cargo clippy -- -D warnings`
+- Integration tests for embedded loop (no CLI process) covering:
+  - chat.create → message.send → streaming events → completion
+  - approval flow round-trip
+  - account.read returns “logged in” when OAuth present
+
+## User Stories
+
+### US-001: Embedded loop parity with app-server
+**Description:** As a client, I can use `chat.*` APIs exactly as before, but the gateway runs the loop in-process (no external CLI).
+
+**Acceptance Criteria:**
+- [ ] `chat.create`, `chat.thread.read`, `chat.message.send`, `chat.cancel` work unchanged.
+- [ ] Streaming events (delta, item updates, approvals) match current UI expectations.
+- [ ] No external `codex` process required for standard chat.
+
+### US-002: Codex OAuth retained
+**Description:** As an operator, I can log in on the gateway host and the embedded loop uses that OAuth session for requests.
+
+**Acceptance Criteria:**
+- [ ] `chat.account.read` returns `logged_in: true` when OAuth tokens exist.
+- [ ] Tokens are refreshed/validated before runs.
+- [ ] Failure modes expose “not logged in” to clients.
+
+### US-003: Session persistence
+**Description:** As a user, I can refresh or reconnect and resume chats.
+
+**Acceptance Criteria:**
+- [ ] Thread metadata stored in gateway DB.
+- [ ] `chat.thread.read` reconstructs turn history.
+- [ ] Mapping from Homie chatId → provider thread id preserved.
+
+### US-004: Approvals + tool routing
+**Description:** As a user, approvals and tool calls behave as they do now.
+
+**Acceptance Criteria:**
+- [ ] Approval requests emit `chat.approval.required`.
+- [ ] `chat.approval.respond` continues to work.
+- [ ] Tool call events + results are surfaced to UI.
+
+### US-005: Observability
+**Description:** As an operator, I can debug embedded loop failures.
+
+**Acceptance Criteria:**
+- [ ] Gateway logs include loop start/end, errors, auth status.
+- [ ] Per-turn correlation ids for events.
+
+## Risks / Open Questions
+- codex-rs API surface stability and any missing features vs CLI app-server.
+- OAuth token storage format + location compatibility with `~/.homie`.
+- Compatibility with existing event shapes; may require adapter layer.
