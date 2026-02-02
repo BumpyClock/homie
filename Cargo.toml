@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = [
+  "src/core",
+  "src/gateway",
+  "src/infra/homie-protocol",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -21,4 +25,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures = "0.3"
 portable-pty = "0.9"
 rusqlite = { version = "0.38", features = ["bundled"] }
-homie-protocol = { path = "crates/homie-protocol" }
+homie-protocol = { path = "src/infra/homie-protocol" }

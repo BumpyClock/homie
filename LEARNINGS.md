@@ -32,3 +32,4 @@
 - 2026-02-02: Collapsed chat steps now surface last-step + reasoning previews with animated typing dots; approvals stay visible outside the accordion.
 - 2026-02-02: Added OpenClaw-inspired next steps to phase1 plan (system prompt assembly, memory search, compaction, hooks, heartbeats).
 - 2026-02-02: Added plan block for replacing Codex CLI app-server with embedded loop + OAuth retention and future provider adapters.
+- 2026-02-02: Reorganized repo layout under src/ (core, gateway, infra) and moved roci submodule to src/infra.

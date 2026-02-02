@@ -6,6 +6,7 @@
 - vibetunnel - ~/Projects/references/vibetunnel - Terminal tunneling solution that works on Linux and macOS with a simple web based front-end.
 - CodexMonitor ~/Projects/references/CodexMonitor - a Tauri v2 app built using the `codex app server` to give users a nice front end to the codex cli.
 - craft-agent-oss- ~/Projects/references/craft-agent-oss - an electron app with a great and polished chat UX that we can take inspiration from for animations, microinteractions and other UI polish tasks. 
+- roci - ~/Projects/references/roci - rust library for AI models.
 
 ## Using reference projects 
 All the projects have open source and permissible liceenses so you can copy their code and/or use it as a reference and guide.
