@@ -1,6 +1,6 @@
-
 import { useEffect, useRef } from "react";
-import { init as initGhostty, Terminal, FitAddon } from "ghostty-web";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
 import { useTheme } from "@/hooks/use-theme";
 import { DEFAULT_PREVIEW_LINES, savePreview } from "@/lib/session-previews";
 
@@ -15,7 +15,6 @@ interface TerminalTabProps {
   previewNamespace: string;
 }
 
-// Helper to get HSL color string from CSS variable
 function getThemeColor(variable: string): string {
   const root = document.documentElement;
   const value = getComputedStyle(root).getPropertyValue(variable).trim();
@@ -30,67 +29,34 @@ function getThemeColorAlpha(variable: string, alpha: number): string {
   return `hsl(${value} / ${alpha})`;
 }
 
-let ghosttyInitPromise: Promise<void> | null = null;
-function ensureGhosttyInit(): Promise<void> {
-  if (!ghosttyInitPromise) ghosttyInitPromise = initGhostty();
-  return ghosttyInitPromise;
-}
+function buildTheme(resolvedTheme: string) {
+  return {
+    background: getThemeColor("--background"),
+    foreground: getThemeColor("--foreground"),
+    cursor: getThemeColor("--primary"),
+    selectionBackground: getThemeColorAlpha(
+      "--primary",
+      resolvedTheme === "dark" ? 0.25 : 0.18
+    ),
 
-const DSR_QUERY = new Uint8Array([0x1b, 0x5b, 0x36, 0x6e]); // ESC [ 6 n
+    black: getThemeColor("--term-black"),
+    red: getThemeColor("--term-red"),
+    green: getThemeColor("--term-green"),
+    yellow: getThemeColor("--term-yellow"),
+    blue: getThemeColor("--term-blue"),
+    magenta: getThemeColor("--term-magenta"),
+    cyan: getThemeColor("--term-cyan"),
+    white: getThemeColor("--term-white"),
 
-function stripDsrQueriesWithCarry(
-  carry: Uint8Array,
-  chunk: Uint8Array
-): { out: Uint8Array; nextCarry: Uint8Array; saw: boolean } {
-  if (carry.length === 0 && chunk.length === 0) {
-    return { out: chunk, nextCarry: carry, saw: false };
-  }
-
-  const combined = new Uint8Array(carry.length + chunk.length);
-  combined.set(carry, 0);
-  combined.set(chunk, carry.length);
-
-  const out: number[] = [];
-  let saw = false;
-
-  for (let i = 0; i < combined.length; i += 1) {
-    if (
-      combined[i] === DSR_QUERY[0] &&
-      i + 3 < combined.length &&
-      combined[i + 1] === DSR_QUERY[1] &&
-      combined[i + 2] === DSR_QUERY[2] &&
-      combined[i + 3] === DSR_QUERY[3]
-    ) {
-      saw = true;
-      i += 3;
-      continue;
-    }
-    out.push(combined[i]);
-  }
-
-  // Hold back a trailing prefix of DSR_QUERY to handle chunk-splitting.
-  let carryLen = 0;
-  for (let len = Math.min(3, combined.length); len >= 1; len -= 1) {
-    let ok = true;
-    for (let j = 0; j < len; j += 1) {
-      if (combined[combined.length - len + j] !== DSR_QUERY[j]) {
-        ok = false;
-        break;
-      }
-    }
-    if (ok) {
-      carryLen = len;
-      break;
-    }
-  }
-
-  let nextCarry = new Uint8Array(0);
-  if (carryLen > 0) {
-    nextCarry = combined.slice(combined.length - carryLen);
-    out.splice(out.length - carryLen, carryLen);
-  }
-
-  return { out: new Uint8Array(out), nextCarry, saw };
+    brightBlack: getThemeColor("--term-bright-black"),
+    brightRed: getThemeColor("--term-bright-red"),
+    brightGreen: getThemeColor("--term-bright-green"),
+    brightYellow: getThemeColor("--term-bright-yellow"),
+    brightBlue: getThemeColor("--term-bright-blue"),
+    brightMagenta: getThemeColor("--term-bright-magenta"),
+    brightCyan: getThemeColor("--term-bright-cyan"),
+    brightWhite: getThemeColor("--term-bright-white"),
+  };
 }
 
 export function TerminalTab({
@@ -104,183 +70,89 @@ export function TerminalTab({
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const dsrCarryRef = useRef<Uint8Array>(new Uint8Array(0));
-  const { resolvedTheme, colorScheme } = useTheme();
+  const { resolvedTheme } = useTheme();
 
-  // Update theme when it changes
   useEffect(() => {
     if (!terminalRef.current) return;
-
-    const bg = getThemeColor("--background");
-    const fg = getThemeColor("--foreground");
-    const cursor = getThemeColor("--primary");
-
-    const theme = {
-      background: bg,
-      foreground: fg,
-      cursor: cursor,
-      selectionBackground: getThemeColorAlpha(
-        "--primary",
-        resolvedTheme === "dark" ? 0.25 : 0.18
-      ),
-
-      black: getThemeColor("--term-black"),
-      red: getThemeColor("--term-red"),
-      green: getThemeColor("--term-green"),
-      yellow: getThemeColor("--term-yellow"),
-      blue: getThemeColor("--term-blue"),
-      magenta: getThemeColor("--term-magenta"),
-      cyan: getThemeColor("--term-cyan"),
-      white: getThemeColor("--term-white"),
-
-      brightBlack: getThemeColor("--term-bright-black"),
-      brightRed: getThemeColor("--term-bright-red"),
-      brightGreen: getThemeColor("--term-bright-green"),
-      brightYellow: getThemeColor("--term-bright-yellow"),
-      brightBlue: getThemeColor("--term-bright-blue"),
-      brightMagenta: getThemeColor("--term-bright-magenta"),
-      brightCyan: getThemeColor("--term-bright-cyan"),
-      brightWhite: getThemeColor("--term-bright-white"),
-    };
-
-    terminalRef.current.options.theme = theme;
-    terminalRef.current.renderer?.setTheme(theme);
-  }, [resolvedTheme, colorScheme]);
+    terminalRef.current.options.theme = buildTheme(resolvedTheme);
+  }, [resolvedTheme]);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    let disposed = false;
     let cleanup: (() => void) | null = null;
 
-    const start = async () => {
-      await ensureGhosttyInit();
-      if (disposed || !containerRef.current) return;
+    const term = new Terminal({
+      cursorBlink: true,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontSize: 14,
+      theme: buildTheme(resolvedTheme),
+      allowProposedApi: false,
+    });
 
-      // Initial theme setup
-      const bg = getThemeColor("--background");
-      const fg = getThemeColor("--foreground");
-      const cursor = getThemeColor("--primary");
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(containerRef.current);
+    fitAddon.fit();
 
-      const theme = {
-        background: bg,
-        foreground: fg,
-        cursor: cursor,
-        selectionBackground: getThemeColorAlpha(
-          "--primary",
-          resolvedTheme === "dark" ? 0.25 : 0.18
-        ),
+    term.onData((data) => {
+      onInput(data);
+    });
 
-        black: getThemeColor("--term-black"),
-        red: getThemeColor("--term-red"),
-        green: getThemeColor("--term-green"),
-        yellow: getThemeColor("--term-yellow"),
-        blue: getThemeColor("--term-blue"),
-        magenta: getThemeColor("--term-magenta"),
-        cyan: getThemeColor("--term-cyan"),
-        white: getThemeColor("--term-white"),
+    term.onResize((size) => {
+      onResize(size.cols, size.rows);
+    });
 
-        brightBlack: getThemeColor("--term-bright-black"),
-        brightRed: getThemeColor("--term-bright-red"),
-        brightGreen: getThemeColor("--term-bright-green"),
-        brightYellow: getThemeColor("--term-bright-yellow"),
-        brightBlue: getThemeColor("--term-bright-blue"),
-        brightMagenta: getThemeColor("--term-bright-magenta"),
-        brightCyan: getThemeColor("--term-bright-cyan"),
-        brightWhite: getThemeColor("--term-bright-white"),
-      };
+    terminalRef.current = term;
+    fitAddonRef.current = fitAddon;
 
-      const term = new Terminal({
-        cursorBlink: true,
-        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-        fontSize: 14,
-        theme,
-      });
+    // Ensure server knows our initial size.
+    onResize(term.cols, term.rows);
 
-      const fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
-
-      term.open(containerRef.current);
-      fitAddon.fit();
-
-      term.onData((data) => {
-        onInput(data);
-      });
-
-      term.onResize((size) => {
-        onResize(size.cols, size.rows);
-      });
-
-      terminalRef.current = term;
-      fitAddonRef.current = fitAddon;
-
-      // Report initial size
-      onResize(term.cols, term.rows);
-
-      cleanup = registerDataListener((data) => {
-        const { out, nextCarry, saw } = stripDsrQueriesWithCarry(dsrCarryRef.current, data);
-        dsrCarryRef.current = nextCarry;
-        if (saw) {
-          // ghostty-web does not reliably respond to DSR; reply ourselves to unblock pwsh/PSReadLine.
-          onInput("\x1b[1;1R");
-        }
-        if (out.byteLength > 0) {
-          term.write(out);
-        }
-      });
-    };
-
-    void start();
+    cleanup = registerDataListener((data) => {
+      term.write(data);
+    });
 
     return () => {
-      disposed = true;
       try {
-        const term = terminalRef.current;
-        if (term) {
-          const snapshot = snapshotTerminal(term, DEFAULT_PREVIEW_LINES);
-          if (snapshot.trim().length > 0) {
-            savePreview(previewNamespace, sessionId, snapshot);
-          }
+        const snapshot = snapshotTerminal(term, DEFAULT_PREVIEW_LINES);
+        if (snapshot.trim().length > 0) {
+          savePreview(previewNamespace, sessionId, snapshot);
         }
       } catch {
-        // ignore snapshot failures
+        // ignore
       }
+
       cleanup?.();
       cleanup = null;
-      terminalRef.current?.dispose();
+      term.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, onInput, onResize, registerDataListener]); // Removed theme deps from init to avoid re-creation
+  }, [sessionId, onInput, onResize, registerDataListener, previewNamespace]);
 
-  // Handle resizing and visibility
   useEffect(() => {
-    if (active && fitAddonRef.current && terminalRef.current) {
-      // Need a slight delay or requestAnimationFrame to ensure container is visible/sized
-      requestAnimationFrame(() => {
-        fitAddonRef.current?.fit();
-        terminalRef.current?.focus();
-      });
-    }
+    if (!active || !fitAddonRef.current || !terminalRef.current) return;
+    requestAnimationFrame(() => {
+      fitAddonRef.current?.fit();
+      terminalRef.current?.focus();
+    });
   }, [active]);
 
-  // Handle window resize
   useEffect(() => {
     const handleResize = () => {
-      if (active && fitAddonRef.current) {
-        fitAddonRef.current.fit();
-      }
+      if (active && fitAddonRef.current) fitAddonRef.current.fit();
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [active]);
 
   return (
-    <div 
-      ref={containerRef} 
-      className={`w-full h-full overflow-hidden ${active ? 'block' : 'hidden'}`}
-      style={{ minHeight: '0' }}
+    <div
+      ref={containerRef}
+      className={`w-full h-full overflow-hidden ${active ? "block" : "hidden"}`}
+      style={{ minHeight: "0" }}
     />
   );
 }
@@ -297,3 +169,4 @@ function snapshotTerminal(term: Terminal, maxLines: number): string {
   }
   return lines.join("\n").trimEnd();
 }
+
