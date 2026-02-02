@@ -40,6 +40,8 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const handshakeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const binaryListeners = useRef<Set<(data: ArrayBuffer) => void>>(new Set());
+  const binaryBacklogRef = useRef<ArrayBuffer[]>([]);
+  const binaryBacklogBytesRef = useRef(0);
   const eventListeners = useRef<Set<(event: { topic: string; params?: unknown }) => void>>(new Set());
   const retryCount = useRef(0);
   const mounted = useRef(true);
@@ -54,6 +56,11 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
     if (debug.current) {
       console.debug("[gateway]", ...args);
     }
+  }, []);
+
+  const clearBinaryBacklog = useCallback(() => {
+    binaryBacklogRef.current = [];
+    binaryBacklogBytesRef.current = 0;
   }, []);
 
   const clearHandshakeTimeout = useCallback(() => {
@@ -78,6 +85,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
         mounted.current = false;
         shouldReconnect.current = false;
         clearHandshakeTimeout();
+        clearBinaryBacklog();
         const ws = wsRef.current;
         wsRef.current = null;
         handshakeCompleted.current = false;
@@ -116,6 +124,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
           wsRef.current = null;
           handshakeCompleted.current = false;
           clearHandshakeTimeout();
+          clearBinaryBacklog();
         }
         
         setStatus("connecting");
@@ -133,6 +142,33 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
             wsRef.current = ws;
             handshakeCompleted.current = false;
             clearHandshakeTimeout();
+            clearBinaryBacklog();
+
+            const dispatchBinary = (buffer: ArrayBuffer) => {
+              const listenerCount = binaryListeners.current.size;
+              if (listenerCount > 0) {
+                binaryListeners.current.forEach((listener) => listener(buffer));
+                return;
+              }
+
+              // UI not mounted yet: keep a small backlog so early PTY output isn't lost.
+              const MAX_BACKLOG_BYTES = 1024 * 1024; // 1MB
+              binaryBacklogRef.current.push(buffer);
+              binaryBacklogBytesRef.current += buffer.byteLength;
+              while (
+                binaryBacklogRef.current.length > 0 &&
+                binaryBacklogBytesRef.current > MAX_BACKLOG_BYTES
+              ) {
+                const dropped = binaryBacklogRef.current.shift();
+                if (dropped) binaryBacklogBytesRef.current -= dropped.byteLength;
+              }
+
+              log("binary buffered", {
+                bytes: buffer.byteLength,
+                backlogFrames: binaryBacklogRef.current.length,
+                backlogBytes: binaryBacklogBytesRef.current,
+              });
+            };
 
             ws.onopen = () => {
                 if (!mounted.current) return;
@@ -173,13 +209,13 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
 
                 if (event.data instanceof Blob) {
                     event.data.arrayBuffer().then((buffer) => {
-                        binaryListeners.current.forEach((listener) => listener(buffer));
+                        dispatchBinary(buffer);
                     });
                     return;
                 }
                 
                 if (event.data instanceof ArrayBuffer) {
-                    binaryListeners.current.forEach((listener) => listener(event.data));
+                    dispatchBinary(event.data);
                     return;
                 }
 
@@ -197,6 +233,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                     if (response.type === "hello") {
                         handshakeCompleted.current = true;
                         clearHandshakeTimeout();
+                        clearBinaryBacklog();
                         setServerHello(response);
                         setStatus("connected");
                         log("handshake ok", { server_id: response.server_id, version: response.protocol_version });
@@ -251,6 +288,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
                 wsRef.current = null;
                 handshakeCompleted.current = false;
                 clearHandshakeTimeout();
+                clearBinaryBacklog();
 
                 // Clear pending requests
                 for (const pending of pendingRequests.current.values()) {
@@ -290,6 +328,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
         mounted.current = false;
         shouldReconnect.current = false;
         clearHandshakeTimeout();
+        clearBinaryBacklog();
         if (wsRef.current) {
             wsRef.current.close();
         }
@@ -303,7 +342,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
             clearTimeout(reconnectTimeoutRef.current);
         }
     };
-  }, [url, authToken, log, clearHandshakeTimeout]);
+  }, [url, authToken, log, clearHandshakeTimeout, clearBinaryBacklog]);
 
   const call = useCallback((method: string, params?: unknown) => {
       return new Promise((resolve, reject) => {
@@ -326,10 +365,20 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
 
   const onBinaryMessage = useCallback((callback: (data: ArrayBuffer) => void) => {
       binaryListeners.current.add(callback);
+      // Flush any buffered frames so the terminal renders initial output.
+      if (binaryBacklogRef.current.length > 0) {
+        const buffered = binaryBacklogRef.current;
+        binaryBacklogRef.current = [];
+        binaryBacklogBytesRef.current = 0;
+        for (const buffer of buffered) {
+          callback(buffer);
+        }
+        log("binary backlog flushed", { frames: buffered.length });
+      }
       return () => {
           binaryListeners.current.delete(callback);
       };
-  }, []);
+  }, [log]);
 
   const onEvent = useCallback((callback: (event: { topic: string; params?: unknown }) => void) => {
     eventListeners.current.add(callback);
