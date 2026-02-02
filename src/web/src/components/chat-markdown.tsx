@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import { FileText, Folder, Sparkles } from "lucide-react";
 
 interface ChatMarkdownProps {
   content: string;
@@ -10,12 +11,21 @@ interface ChatMarkdownProps {
 
 export function ChatMarkdown({ content, className, compact }: ChatMarkdownProps) {
   if (!content) return null;
+  const rendered = decorateMentions(content);
   return (
     <div className={className}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         components={{
+          span: ({ children, ...props }) => {
+            const mention = (props as Record<string, unknown>)["data-mention"];
+            const labelRaw = (props as Record<string, unknown>)["data-label"];
+            if (typeof mention === "string" && typeof labelRaw === "string") {
+              return <MentionBadge kind={mention} label={labelRaw} />;
+            }
+            return <span {...props}>{children}</span>;
+          },
           p: ({ children }) => (
             <p className={`${compact ? "mb-2" : "mb-3"} leading-relaxed last:mb-0`}>{children}</p>
           ),
@@ -60,8 +70,56 @@ export function ChatMarkdown({ content, className, compact }: ChatMarkdownProps)
           hr: () => <hr className="my-3 border-border" />,
         }}
       >
-        {content}
+        {rendered}
       </ReactMarkdown>
     </div>
+  );
+}
+
+const MENTION_REGEX = /\[(file|folder|skill):([^\]\n]+)\]/g;
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function decorateMentions(value: string) {
+  return value.replace(MENTION_REGEX, (_match, kind, rawLabel) => {
+    const safeLabel = escapeHtml(String(rawLabel));
+    return `<span data-mention="${kind}" data-label="${safeLabel}"></span>`;
+  });
+}
+
+function formatMentionLabel(kind: string, label: string) {
+  if (kind === "skill") {
+    const segments = label.split(":").filter(Boolean);
+    return segments[segments.length - 1] ?? label;
+  }
+  const parts = label.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? label;
+}
+
+function MentionBadge({ kind, label }: { kind: string; label: string }) {
+  const display = formatMentionLabel(kind, label);
+  const icon =
+    kind === "folder" ? (
+      <Folder className="h-3.5 w-3.5 text-muted-foreground" />
+    ) : kind === "skill" ? (
+      <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+    ) : (
+      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+    );
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-[5px] border border-border/60 bg-muted/50 px-1.5 py-0.5 text-[12px] text-foreground align-middle"
+      title={label}
+      data-mention="true"
+    >
+      {icon}
+      <span className="max-w-[220px] truncate">{display}</span>
+    </span>
   );
 }

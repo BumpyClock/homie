@@ -71,6 +71,16 @@ export function handleChatEvent(event: ChatEvent, ctx: ChatEventContext) {
   if (event.topic === "chat.message.delta") {
     const itemId = getItemId(params);
     const delta = typeof params.delta === "string" ? params.delta : "";
+    const turnId = getTurnId(params);
+    if (turnId) {
+      ctx.runningTurnsRef.current.set(chatId, turnId);
+      ctx.setThreads((prev) =>
+        prev.map((thread) => (thread.chatId === chatId ? { ...thread, running: true } : thread)),
+      );
+      if (ctx.activeChatIdRef.current === chatId) {
+        ctx.setActiveThread((prev) => (prev ? { ...prev, running: true, activeTurnId: turnId } : prev));
+      }
+    }
     const nextText = itemId ? `${ctx.messageBufferRef.current.get(itemId) ?? ""}${delta}` : delta;
     if (itemId) ctx.messageBufferRef.current.set(itemId, nextText);
     if (ctx.activeChatIdRef.current === chatId && itemId) {
@@ -106,6 +116,16 @@ export function handleChatEvent(event: ChatEvent, ctx: ChatEventContext) {
     const item = params.item as Record<string, unknown> | undefined;
     if (!item || typeof item !== "object") return;
     const itemId = typeof item.id === "string" ? item.id : uuid();
+    const turnId = getTurnId(params);
+    if (event.topic === "chat.item.started" && turnId) {
+      ctx.runningTurnsRef.current.set(chatId, turnId);
+      ctx.setThreads((prev) =>
+        prev.map((thread) => (thread.chatId === chatId ? { ...thread, running: true } : thread)),
+      );
+      if (ctx.activeChatIdRef.current === chatId) {
+        ctx.setActiveThread((prev) => (prev ? { ...prev, running: true, activeTurnId: turnId } : prev));
+      }
+    }
     if (ctx.activeChatIdRef.current === chatId) {
       ctx.setActiveThread((prev) => {
         if (!prev) return prev;
@@ -218,6 +238,16 @@ export function handleChatEvent(event: ChatEvent, ctx: ChatEventContext) {
     const reason = typeof params.reason === "string" ? params.reason : undefined;
     const command = typeof params.command === "string" ? params.command : undefined;
     const cwd = typeof params.cwd === "string" ? params.cwd : undefined;
+    const turnId = getTurnId(params);
+    if (turnId) {
+      ctx.runningTurnsRef.current.set(chatId, turnId);
+      ctx.setThreads((prev) =>
+        prev.map((thread) => (thread.chatId === chatId ? { ...thread, running: true } : thread)),
+      );
+      if (ctx.activeChatIdRef.current === chatId) {
+        ctx.setActiveThread((prev) => (prev ? { ...prev, running: true, activeTurnId: turnId } : prev));
+      }
+    }
     if (typeof window !== "undefined") {
       console.debug("[chat] approval required", {
         requestId,

@@ -19,6 +19,7 @@ interface ChatTurnsProps {
   activeTurnId?: string;
   running: boolean;
   onApprove?: (requestId: number | string, decision: "accept" | "decline") => void;
+  visibleTurnCount?: number;
 }
 
 interface TurnGroup {
@@ -27,7 +28,7 @@ interface TurnGroup {
   items: ChatItem[];
 }
 
-function groupTurns(items: ChatItem[]): TurnGroup[] {
+export function groupTurns(items: ChatItem[]): TurnGroup[] {
   const order: string[] = [];
   const map = new Map<string, TurnGroup>();
   items.forEach((item) => {
@@ -54,6 +55,38 @@ function previewFromTurn(turn: TurnGroup, isStreaming: boolean) {
   if (command?.command) return `Command: ${stripMarkdown(command.command).slice(0, 100)}`;
   if (isStreaming) return "Thinking…";
   return "Steps completed";
+}
+
+function getReasoningPreview(item?: ChatItem) {
+  if (!item) return "";
+  const summary = item.summary?.filter(Boolean) ?? [];
+  if (summary.length > 0) return summary[0];
+  const content = item.content?.filter(Boolean) ?? [];
+  if (content.length > 0) return content[0];
+  return "";
+}
+
+function getActivityPreview(item: ChatItem) {
+  switch (item.kind) {
+    case "approval":
+      return item.reason || item.command || "Approval required";
+    case "reasoning":
+      return getReasoningPreview(item) || "Reasoning update";
+    case "command":
+      return item.command ? `Command: ${item.command}` : "Command execution";
+    case "file":
+      return item.changes?.[0]?.path ? `File: ${item.changes[0].path}` : "File changes";
+    case "plan":
+      return item.text ? stripMarkdown(item.text).slice(0, 120) : "Plan update";
+    case "diff":
+      return item.text ? stripMarkdown(item.text).slice(0, 120) : "Diff update";
+    case "tool":
+      return item.text || "Tool call";
+    case "system":
+      return item.text || "System update";
+    default:
+      return item.text || "Update";
+  }
 }
 
 function statusBadge(status?: string) {
@@ -86,7 +119,7 @@ function statusBadge(status?: string) {
 
 function UserBubble({ text }: { text: string }) {
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-end homie-fade-in">
       <div className="max-w-[720px] rounded-[14px] bg-foreground/5 px-4 py-3 text-sm text-foreground">
         <ChatMarkdown content={text} compact />
       </div>
@@ -101,6 +134,7 @@ function ActivityRow({
   item: ChatItem;
   onApprove?: (requestId: number | string, decision: "accept" | "decline") => void;
 }) {
+  const intent = extractToolIntent(item);
   if (item.kind === "approval") {
     const canRespond = item.requestId !== undefined;
     return (
@@ -145,23 +179,23 @@ function ActivityRow({
   if (item.kind === "reasoning") {
     const summary = item.summary?.filter(Boolean) ?? [];
     const content = item.content?.filter(Boolean) ?? [];
+    const summaryText = summary.join("\n");
+    const contentText = content.join("\n");
     return (
       <div className="rounded-md border border-border bg-card/40 p-3 text-sm">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground mb-2">
           <MessageCircleDashed className="h-4 w-4" />
           Reasoning
         </div>
-        {summary.length > 0 && (
-          <ul className="mb-2 list-disc pl-5 text-sm text-foreground">
-            {summary.map((line, idx) => (
-              <li key={idx}>{line}</li>
-            ))}
-          </ul>
+        {summaryText && (
+          <div className="mb-2 text-sm text-foreground">
+            <ChatMarkdown content={summaryText} compact />
+          </div>
         )}
-        {content.length > 0 && (
-          <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground">
-            {content.join("\n")}
-          </pre>
+        {contentText && (
+          <div className="text-xs text-muted-foreground">
+            <ChatMarkdown content={contentText} compact />
+          </div>
         )}
       </div>
     );
@@ -242,13 +276,31 @@ function ActivityRow({
   }
 
   if (item.kind === "tool") {
+    const status = item.status?.toLowerCase();
+    const statusIcon =
+      status === "running" ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+      ) : status === "error" || status === "failed" ? (
+        <XCircle className="h-3.5 w-3.5 text-destructive" />
+      ) : status ? (
+        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+      ) : (
+        <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
+      );
     return (
       <div className="rounded-md border border-border bg-card/30 p-3 text-sm">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground mb-1">
-          <Wrench className="h-4 w-4" />
+          {statusIcon}
           Tool
         </div>
-        <div className="text-sm">{item.text || "Tool call"}</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-sm">{item.text || "Tool call"}</div>
+          {intent && (
+            <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+              {intent}
+            </span>
+          )}
+        </div>
       </div>
     );
   }
@@ -272,6 +324,27 @@ function ActivityRow({
   );
 }
 
+function extractToolIntent(item: ChatItem) {
+  if (item.kind !== "tool" && item.kind !== "command") return null;
+  const raw = item.raw as Record<string, unknown> | undefined;
+  if (!raw) return null;
+  const input = raw.input as Record<string, unknown> | undefined;
+  const candidates = [
+    raw.intent,
+    raw.description,
+    input?.description,
+    input?.intent,
+    input?.query,
+    input?.path,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
 function AssistantTurn({
   turn,
   isStreaming,
@@ -284,12 +357,18 @@ function AssistantTurn({
   const assistant = turn.items.filter((item) => item.kind === "assistant");
   const response = assistant[assistant.length - 1]?.text ?? "";
   const activities = turn.items.filter((item) => item.kind !== "user" && item.kind !== "assistant");
-  const hasActivities = activities.length > 0;
+  const approvalItems = activities.filter((item) => item.kind === "approval");
+  const nonApprovalActivities = activities.filter((item) => item.kind !== "approval");
+  const hasActivities = nonApprovalActivities.length > 0 || approvalItems.length > 0;
   const preview = previewFromTurn(turn, isStreaming);
   const [expanded, setExpanded] = useState(false);
+  const lastActivity = nonApprovalActivities[nonApprovalActivities.length - 1] ?? approvalItems[approvalItems.length - 1];
+  const reasoningItem = [...activities].reverse().find((item) => item.kind === "reasoning");
+  const showReasoningPreview = !expanded && reasoningItem && reasoningItem !== lastActivity;
+  const showStreamingDots = isStreaming && !expanded;
 
   return (
-    <div className="flex justify-start">
+    <div className="flex justify-start homie-fade-in">
       <div className="w-full max-w-[720px] space-y-3">
         {hasActivities && (
           <button
@@ -305,6 +384,46 @@ function AssistantTurn({
           </button>
         )}
 
+        {!expanded && lastActivity && (
+          <div className="rounded-md border border-border bg-card/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2 homie-fade-in">
+            <span className="text-[11px] uppercase tracking-wide">Last step</span>
+            <span className="text-foreground/80 truncate flex-1">
+              {getActivityPreview(lastActivity)}
+              {showStreamingDots && (
+                <span className="homie-dots ml-1 inline-flex items-center gap-1 align-middle" aria-hidden="true">
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+
+        {!expanded && showReasoningPreview && reasoningItem && (
+          <div className="rounded-md border border-border bg-card/20 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2 homie-fade-in">
+            <span className="text-[11px] uppercase tracking-wide">Reasoning</span>
+            <span className="text-foreground/80 truncate flex-1">
+              {getReasoningPreview(reasoningItem)}
+              {showStreamingDots && (
+                <span className="homie-dots ml-1 inline-flex items-center gap-1 align-middle" aria-hidden="true">
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+
+        {approvalItems.length > 0 && !expanded && (
+          <div className="space-y-2">
+            {approvalItems.map((item) => (
+              <ActivityRow key={item.id} item={item} onApprove={onApprove} />
+            ))}
+          </div>
+        )}
+
         {hasActivities && (
           <div
             className={`overflow-hidden transition-[max-height,opacity] duration-200 ease-out motion-reduce:transition-none ${
@@ -312,7 +431,7 @@ function AssistantTurn({
             }`}
           >
             <div className="space-y-3 pb-1">
-              {activities.map((item) => (
+              {nonApprovalActivities.map((item) => (
                 <ActivityRow key={item.id} item={item} onApprove={onApprove} />
               ))}
             </div>
@@ -321,7 +440,9 @@ function AssistantTurn({
 
         <div className="rounded-[14px] border border-border bg-muted/30 px-4 py-3 text-sm text-foreground">
           {response ? (
-            <ChatMarkdown content={response} />
+            <div className="homie-fade-in">
+              <ChatMarkdown content={response} />
+            </div>
           ) : (
             <div className="text-sm text-muted-foreground">
               {isStreaming ? "Thinking…" : "Awaiting response"}
@@ -333,10 +454,27 @@ function AssistantTurn({
   );
 }
 
-export function ChatTurns({ items, activeTurnId, running, onApprove }: ChatTurnsProps) {
-  const turns = useMemo(() => groupTurns(items), [items]);
+export function ChatTurns({
+  items,
+  activeTurnId,
+  running,
+  onApprove,
+  visibleTurnCount,
+}: ChatTurnsProps) {
+  const allTurns = useMemo(() => groupTurns(items), [items]);
+  const startIndex = useMemo(() => {
+    if (!visibleTurnCount) return 0;
+    return Math.max(0, allTurns.length - visibleTurnCount);
+  }, [allTurns.length, visibleTurnCount]);
+  const turns = useMemo(() => allTurns.slice(startIndex), [allTurns, startIndex]);
+  const hasMoreAbove = visibleTurnCount !== undefined && allTurns.length > turns.length;
   return (
     <div className="space-y-4">
+      {hasMoreAbove && (
+        <div className="text-center text-xs text-muted-foreground/70">
+          ↑ Scroll up for earlier messages ({startIndex} more)
+        </div>
+      )}
       {turns.map((turn) => {
         const turnId = turn.turnId ?? turn.id;
         const userItems = turn.items.filter((item) => item.kind === "user");

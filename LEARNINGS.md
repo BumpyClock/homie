@@ -28,3 +28,5 @@
 - 2026-02-02: Caret visibility fixed by using --color-foreground for caret-color on composer textarea.
 - 2026-02-02: Chat rendering now uses Craft-style turns (user bubble + assistant card with collapsible activities + markdown).
 - 2026-02-02: Chat scroll now sticks to bottom when user is at bottom; detaches on scroll up.
+- 2026-02-02: Added chat UX refinements: gradient mask, fade-in, load-more on scroll-up, tool intent chips, inline mention badges in markdown.
+- 2026-02-02: Collapsed chat steps now surface last-step + reasoning previews with animated typing dots; approvals stay visible outside the accordion.

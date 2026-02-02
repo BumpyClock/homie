@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Folder } from "lucide-react";
-import { ChatTurns } from "@/components/chat-turns";
+import { ChatTurns, groupTurns } from "@/components/chat-turns";
 import { ChatComposerBar } from "@/components/chat-composer-bar";
 import { ChatInlineMenu } from "@/components/chat-inline-menu";
 import { ChatThreadList } from "@/components/chat-thread-list";
@@ -64,6 +64,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const [visibleTurnCount, setVisibleTurnCount] = useState(40);
 
   const activeTitle = activeThread?.title ?? "";
   const canSend = status === "connected" && !!activeThread;
@@ -109,6 +110,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
 
   useEffect(() => {
     stickToBottomRef.current = true;
+    setVisibleTurnCount(40);
   }, [activeThread?.chatId]);
 
   useEffect(() => {
@@ -291,15 +293,36 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
         />
 
         <div
-          ref={scrollRef}
-          onScroll={() => {
-            const viewport = scrollRef.current;
-            if (!viewport) return;
-            const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-            stickToBottomRef.current = distance < 24;
+          className="flex-1 min-h-0"
+          style={{
+            maskImage:
+              "linear-gradient(to bottom, transparent 0%, black 32px, black calc(100% - 32px), transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, transparent 0%, black 32px, black calc(100% - 32px), transparent 100%)",
           }}
-          className="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-4"
         >
+          <div
+            ref={scrollRef}
+            onScroll={() => {
+              const viewport = scrollRef.current;
+              if (!viewport) return;
+              const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+              stickToBottomRef.current = distance < 24;
+              if (viewport.scrollTop < 120 && activeThread) {
+                const totalTurns = groupTurns(activeThread.items).length;
+                if (visibleTurnCount < totalTurns) {
+                  const prevHeight = viewport.scrollHeight;
+                  const prevTop = viewport.scrollTop;
+                  setVisibleTurnCount((prev) => Math.min(prev + 20, totalTurns));
+                  requestAnimationFrame(() => {
+                    const nextHeight = viewport.scrollHeight;
+                    viewport.scrollTop = nextHeight - prevHeight + prevTop;
+                  });
+                }
+              }
+            }}
+            className="h-full overflow-y-auto px-6 py-6 space-y-4"
+          >
           {!accountStatus.ok && (
             <div className="rounded-lg border border-amber-400/60 bg-amber-50/70 dark:bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
               {accountStatus.message}
@@ -321,12 +344,15 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
 
           {activeThread ? (
             activeThread.items.length > 0 ? (
-              <ChatTurns
-                items={activeThread.items}
-                activeTurnId={activeThread.activeTurnId}
-                running={activeThread.running}
-                onApprove={respondApproval}
-              />
+              <div key={activeThread.chatId} className="homie-fade-in">
+                <ChatTurns
+                  items={activeThread.items}
+                  activeTurnId={activeThread.activeTurnId}
+                  running={activeThread.running}
+                  onApprove={respondApproval}
+                  visibleTurnCount={visibleTurnCount}
+                />
+              </div>
             ) : (
               <div className="text-sm text-muted-foreground">
                 No messages yet. Start the conversation below.
@@ -338,6 +364,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
             </div>
           )}
           <div ref={endRef} />
+          </div>
         </div>
 
         <div className="border-t border-border p-4 bg-card/60 relative">
