@@ -13,6 +13,62 @@
 - homie core runtime: `src/core`
 - gateway binary: `src/gateway`
 
+## Homie config schema (MVP)
+- Config file (gateway-owned): `~/.homie/config.toml`
+  - cross-platform home resolution (no `~` expansion on Windows):
+    - env override: `HOMIE_HOME` (absolute path)
+    - else: `HOME` (unix) → `USERPROFILE` (windows) → `HOMEDRIVE`+`HOMEPATH` fallback
+
+Proposed schema (v1):
+```toml
+version = 1
+
+[debug]
+# NOTE: support both for now (historical typo in docs/commands)
+homie_debug_env = "HOMIE_DEBUG"
+home_debug_env = "HOME_DEBUG"
+
+# Persist raw provider events into the Homie DB (for debugging only).
+# Recommended: only enable when HOMIE_DEBUG/HOME_DEBUG=1.
+persist_raw_provider_events = false
+
+[models]
+# Default TTL for provider model catalogs.
+catalog_ttl_secs = 300
+
+[providers.openai_codex]
+enabled = true
+# Device-code issuer base (codex-rs pattern).
+issuer = "https://auth.openai.com"
+# Refresh endpoint override (codex-rs supports override env); keep configurable in Homie too.
+refresh_token_url_override = ""
+
+[providers.github_copilot]
+enabled = true
+# MVP: github.com only (no enterprise yet).
+github_host = "github.com"
+device_code_url = "https://github.com/login/device/code"
+token_url = "https://github.com/login/oauth/access_token"
+# GitHub Copilot token exchange:
+copilot_token_url = "https://api.github.com/copilot_internal/v2/token"
+
+[providers.claude_code]
+enabled = true
+# MVP: import creds from Claude Code CLI; no OAuth flow yet.
+import_from_cli = true
+
+[paths]
+# Optional explicit overrides. If empty, derived under homie_home_dir().
+credentials_dir = "" # defaults to ~/.homie/credentials
+execpolicy_path = "" # defaults to ~/.homie/execpolicy.toml
+```
+
+Notes:
+- Provider/model settings are gateway defaults. Per-thread settings live in Homie DB and can change mid-thread; changes apply next user message (Codex behavior).
+- Debug raw event persistence:
+  - only when `HOMIE_DEBUG=1` or `HOME_DEBUG=1` (or config flag forced on)
+  - MVP: no redaction; treat as unsafe (may contain secrets); do not enable by default
+
 ## Focused re-reads (sources + concrete takeaways)
 
 ### OpenClaw (patterns to mirror)
@@ -246,6 +302,36 @@ Execpolicy storage (decision):
     - else: `HOME` (unix) → `USERPROFILE` (windows) → `HOMEDRIVE`+`HOMEPATH` fallback
   - store absolute paths on disk; UI can render as `~` for display only
   - avoid logging/storing secrets inside execpolicy file
+
+Execpolicy file format (MVP):
+- Goal: allow both exact argv and glob-like rules (`gh *`, `npm test *`, etc).
+- Matching model:
+  - evaluate against the *tokenized argv* (not a shell string)
+  - per-token glob patterns: `*` matches any chars within a single argv token
+  - optional: `**` matches remaining argv tokens (greedy)
+
+```toml
+version = 1
+
+[[rule]]
+id = "gh-any"
+effect = "allow"
+argv_glob = ["gh", "*"]
+
+[[rule]]
+id = "npm-test-any"
+effect = "allow"
+argv_glob = ["npm", "test", "*"]
+
+[[rule]]
+id = "git-status-exact"
+effect = "allow"
+argv_exact = ["git", "status"]
+```
+
+Notes:
+- Later: add `cwd_glob`, `sandbox_permissions`, `tty`, OS scoping, and “deny” rules.
+- Cross-platform: Windows argv normalization + exe resolution must be consistent with tool runtime.
 
 ### 3) Homie integration: replace Codex CLI with roci loop
 Deliverables (homie-core):
