@@ -17,7 +17,8 @@
 - Config file (gateway-owned): `~/.homie/config.toml`
   - cross-platform home resolution (no `~` expansion on Windows):
     - env override: `HOMIE_HOME` (absolute path)
-    - else: `HOME` (unix) → `USERPROFILE` (windows) → `HOMEDRIVE`+`HOMEPATH` fallback
+    - else: use OS directory crates for reliability (preferred), then env fallback:
+      - `directories`/`dirs` crate → `HOME` (unix) → `USERPROFILE` (windows) → `HOMEDRIVE`+`HOMEPATH` fallback
 
 Proposed schema (v1):
 ```toml
@@ -300,7 +301,7 @@ Execpolicy storage (decision):
   - cross-platform: resolve home dir explicitly (Windows has no `~` expansion)
   - implement `homie_home_dir()` helper used by config/credentials/execpolicy (and any future per-user storage):
     - env override (MVP): `HOMIE_HOME` (absolute path)
-    - else: `HOME` (unix) → `USERPROFILE` (windows) → `HOMEDRIVE`+`HOMEPATH` fallback
+    - else: prefer OS directory crates, then env fallback (`HOME` / `USERPROFILE` / `HOMEDRIVE`+`HOMEPATH`)
   - store absolute paths on disk; UI can render as `~` for display only
   - avoid logging/storing secrets inside execpolicy file
 
@@ -343,6 +344,7 @@ Notes:
 - Later: add `cwd_glob`, `sandbox_permissions`, `tty`, OS scoping, and “deny” rules.
 - Cross-platform: Windows argv normalization + exe resolution must be consistent with tool runtime.
 - Implementation note: parse `argv_shorthand` via shell-words splitting (to handle quotes), then normalize into the same internal token matcher as `argv_glob`/`argv_exact`.
+- Windows matching: default to case-insensitive comparisons (paths + argv tokens) unless explicitly configured otherwise.
 
 ### 3) Homie integration: replace Codex CLI with roci loop
 Deliverables (homie-core):
@@ -361,6 +363,7 @@ Deliverables (homie-core):
 - Provider selection per thread:
   - store provider + model + effort + permission per chat
   - UI already per-thread; keep stable
+  - allow switching mid-thread; applies next user message (Codex behavior)
 
 Decision: where to persist transcript
 - Prefer Homie sqlite as source-of-truth for UI resume.
@@ -369,7 +372,7 @@ Decision: where to persist transcript
   - Also persist `raw_provider_event_json` alongside normalized items (debuggable, optional):
     - enabled only when `HOMIE_DEBUG=1` or `HOME_DEBUG=1` (or config flag forced on)
     - MVP: no redaction; treat as unsafe (may contain secrets); do not enable by default
-    - retention: keep last 10 runs; drop older raw blobs
+    - retention: keep last 10 runs globally; drop older raw blobs
     - optional: size cap (ex: 64KB per raw blob) + truncate to bound DB growth
   - On gateway restart: rebuild roci context from Homie transcript (provider normalization belongs in roci)
 
@@ -427,3 +430,8 @@ Homie:
   - log safe summaries (provider, expiry timestamps, success/failure, error category)
 - Feature flags:
   - `HOMIE_DEBUG=1` increases log verbosity + enables raw provider event persistence (if desired)
+
+## Tool runtime defaults (cross-platform)
+- Default shell selection:
+  - Windows: `pwsh` → `powershell` → `cmd`
+  - Non-Windows: prefer user login shell, fallback `/bin/bash` (existing behavior)
