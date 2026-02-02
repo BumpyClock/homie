@@ -67,6 +67,4 @@ Replace the Codex CLI app-server process with an **embedded agent loop** we can 
 - [ ] Per-turn correlation ids for events.
 
 ## Risks / Open Questions
-- codex-rs API surface stability and any missing features vs CLI app-server.
-- OAuth token storage format + location compatibility with `~/.homie`.
-- Compatibility with existing event shapes; may require adapter layer.
+- Codex OAuth token location: prefer existing Codex CLI store; add `HOMIE_CODEX_DIR` override if needed.

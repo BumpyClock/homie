@@ -10,7 +10,8 @@ Swap Codex CLI app-server with an embedded loop while keeping the `chat.*` API s
 
 ### Target
 - Replace process spawn with **in-process runner** from codex-rs.
-- Keep a **protocol adapter** that emits the same event payloads currently used by the UI.
+- codex-rs uses the same app-server protocol/event shapes as the CLI server (no event-shape drift expected).
+- Keep a **protocol adapter** to preserve `chat.*` payloads for UI.
 - Maintain `chat.*` contract in homie-core.
 
 ## Components
@@ -26,7 +27,7 @@ Swap Codex CLI app-server with an embedded loop while keeping the `chat.*` API s
 
 3) **OAuth Store**
    - Use codex-rs OAuth flow + token refresh.
-   - Store under `~/.homie/codex/` (or compat alias).
+   - Default to existing Codex CLI OAuth store; allow `HOMIE_CODEX_DIR` override.
    - Expose `chat.account.read` + `chat.account.refresh`.
 
 4) **Session Persistence**
@@ -51,7 +52,7 @@ Swap Codex CLI app-server with an embedded loop while keeping the `chat.*` API s
 
 ## Storage
 - `~/.homie/` as global config root.
-- `~/.homie/codex/` for OAuth tokens + codex settings.
+- Default Codex CLI OAuth store; `~/.homie/codex/` when overridden.
 - Homie sqlite for chat metadata, turns, items.
 
 ## Configuration
