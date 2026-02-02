@@ -238,6 +238,15 @@ Approval key canonicalization + future allowlisting (Codex + OpenClaw combo):
   - `Execute mode`: persist per-thread + global toggles in Homie (not roci)
   - Later: “accept + add to allowlist file” (Codex execpolicy-style), backed by a Homie-owned allowlist file
 
+Execpolicy storage (decision):
+- Single global file: `~/.homie/execpolicy.toml`
+  - cross-platform: resolve home dir explicitly (Windows has no `~` expansion)
+  - implement `homie_home_dir()` helper used by config/credentials/execpolicy (and any future per-user storage):
+    - env override (MVP): `HOMIE_HOME` (absolute path)
+    - else: `HOME` (unix) → `USERPROFILE` (windows) → `HOMEDRIVE`+`HOMEPATH` fallback
+  - store absolute paths on disk; UI can render as `~` for display only
+  - avoid logging/storing secrets inside execpolicy file
+
 ### 3) Homie integration: replace Codex CLI with roci loop
 Deliverables (homie-core):
 - New `chat.loop.*` internal module that wraps roci agent loop and maps to Homie `chat.*` RPC/events:
@@ -260,6 +269,9 @@ Decision: where to persist transcript
 - Prefer Homie sqlite as source-of-truth for UI resume.
 - roci should avoid bespoke persistence; Homie owns storage.
   - Persist normalized items (user msg, assistant msg, reasoning, tool calls/results, approvals, errors)
+  - Also persist `raw_provider_event_json` alongside normalized items (debuggable, optional):
+    - store only non-sensitive event payloads; redact tokens/credentials
+    - enforce size cap (e.g. 32KB per raw blob) + truncate; gate behind debug flag if needed
   - On gateway restart: rebuild roci context from Homie transcript (provider normalization belongs in roci)
 
 ### 4) Compatibility + migration
@@ -306,3 +318,13 @@ Homie:
 - Approval persistence:
   - accept-for-session = ephemeral per thread (in-memory cache; ok to lose on reconnect)
   - always approve / execute mode = persisted per thread + global toggle (survives restart)
+
+## Debug logging (build-time requirement)
+- Use `tracing` structured logs; ensure all chat/agent-loop paths include:
+  - `chat_id`, `thread_id`, `turn_id`, `item_id`, `run_id`, `provider`, `model`
+  - request ids for RPC + approval ids
+- Redaction rules:
+  - never log access/refresh tokens, auth codes, PKCE verifier, full headers
+  - log safe summaries (provider, expiry timestamps, success/failure, error category)
+- Feature flags:
+  - `HOMIE_DEBUG=1` increases log verbosity + enables raw provider event persistence (if desired)

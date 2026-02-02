@@ -116,3 +116,6 @@ Approval key shape (Codex behavior):
 - Approval persistence: accept-for-session ephemeral per thread; “always approve/execute mode” persisted per thread + global.
 - Token store: file-only MVP configured via `~/.homie/config.toml` (keyring later).
 - Model catalog TTL: default 300s (mirror Codex); cache memory + disk; allow override.
+- Execpolicy: single file `~/.homie/execpolicy.toml` (global, gateway-owned).
+- Transcript storage: persist normalized items + optional `raw_provider_event_json` (redacted + size-capped) for debugging.
+- Debug logging: `tracing` structured fields (`chat_id/thread_id/turn_id/item_id/provider/model`); never log tokens.
