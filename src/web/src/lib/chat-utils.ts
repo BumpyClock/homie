@@ -238,12 +238,13 @@ export function itemsFromThread(thread: Record<string, unknown>): ChatItem[] {
       } else if (type === "fileChange") {
         const changes = Array.isArray(item.changes)
           ? item.changes
-              .map((change) => {
+              .map((change: unknown) => {
                 if (!change || typeof change !== "object") return null;
-                const path = typeof change.path === "string" ? change.path : "unknown";
-                const diff = typeof change.diff === "string" ? change.diff : "";
+                const record = change as Record<string, unknown>;
+                const path = typeof record.path === "string" ? record.path : "unknown";
+                const diff = typeof record.diff === "string" ? record.diff : "";
                 if (!path && !diff) return null;
-                return { path, diff, kind: typeof change.kind === "string" ? change.kind : undefined };
+                return { path, diff, kind: typeof record.kind === "string" ? record.kind : undefined };
               })
               .filter(Boolean) as Array<{ path: string; diff: string; kind?: string }>
           : [];

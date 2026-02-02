@@ -12,7 +12,7 @@ interface ChatComposerInputProps {
   value: string;
   disabled?: boolean;
   placeholder?: string;
-  inputRef: React.RefObject<HTMLTextAreaElement>;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
   onChange: (value: string, cursor: number) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onKeyUp: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;

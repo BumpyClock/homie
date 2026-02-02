@@ -132,9 +132,6 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
         setRejection(null);
         setServerHello(null);
         log("connecting", { url, auth: authToken ? "set" : "none" });
-        if (wsRef.current && wsRef.current.readyState === WebSocket.CLOSING) {
-            wsRef.current.close();
-        }
 
         try {
             const ws = new WebSocket(url);

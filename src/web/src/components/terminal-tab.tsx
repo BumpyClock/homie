@@ -1,6 +1,7 @@
 
 import { useEffect, useRef } from "react";
-import { init as initGhostty, Terminal, FitAddon } from "ghostty-web";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
 import { useTheme } from "@/hooks/use-theme";
 import { DEFAULT_PREVIEW_LINES, savePreview } from "@/lib/session-previews";
 
@@ -28,12 +29,6 @@ function getThemeColorAlpha(variable: string, alpha: number): string {
   const value = getComputedStyle(root).getPropertyValue(variable).trim();
   if (!value) return `rgba(0, 0, 0, ${alpha})`;
   return `hsl(${value} / ${alpha})`;
-}
-
-let ghosttyInitPromise: Promise<void> | null = null;
-function ensureGhosttyInit(): Promise<void> {
-  if (!ghosttyInitPromise) ghosttyInitPromise = initGhostty();
-  return ghosttyInitPromise;
 }
 
 export function TerminalTab({
@@ -86,7 +81,6 @@ export function TerminalTab({
     };
 
     terminalRef.current.options.theme = theme;
-    terminalRef.current.renderer?.setTheme(theme);
   }, [resolvedTheme, colorScheme]);
 
   useEffect(() => {
@@ -96,7 +90,6 @@ export function TerminalTab({
     let cleanup: (() => void) | null = null;
 
     const start = async () => {
-      await ensureGhosttyInit();
       if (disposed || !containerRef.current) return;
 
       // Initial theme setup
@@ -108,6 +101,7 @@ export function TerminalTab({
         background: bg,
         foreground: fg,
         cursor: cursor,
+        cursorAccent: bg,
         selectionBackground: getThemeColorAlpha(
           "--primary",
           resolvedTheme === "dark" ? 0.25 : 0.18
