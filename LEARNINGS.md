@@ -30,3 +30,5 @@
 - 2026-02-02: Chat scroll now sticks to bottom when user is at bottom; detaches on scroll up.
 - 2026-02-02: Added chat UX refinements: gradient mask, fade-in, load-more on scroll-up, tool intent chips, inline mention badges in markdown.
 - 2026-02-02: Collapsed chat steps now surface last-step + reasoning previews with animated typing dots; approvals stay visible outside the accordion.
+- 2026-02-02: Added OpenClaw-inspired next steps to phase1 plan (system prompt assembly, memory search, compaction, hooks, heartbeats).
+- 2026-02-02: Added plan block for replacing Codex CLI app-server with embedded loop + OAuth retention and future provider adapters.

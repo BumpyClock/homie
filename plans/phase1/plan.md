@@ -198,6 +198,66 @@ Goal: pair a new client device with the Gateway without typing URLs/tokens.
 - TLS with either:
   - real certs (LetsEncrypt) OR
   - self-signed + fingerprint pinning (OpenClaw does a variant of this)
+
+---
+
+## OpenClaw-inspired agent loop enhancements (next steps)
+Analysis sources: `openclaw/docs/concepts/agent-loop.md`, `system-prompt.md`, `context.md`, `compaction.md`, `memory.md`, `automation/cron-vs-heartbeat.md`, plus `src/agents/*`.
+
+### A) Make responses more dynamic + helpful
+- **System prompt assembly** similar to OpenClaw:
+  - Sections: tooling, skills list, workspace docs, runtime, current time, reasoning visibility, heartbeat instructions.
+  - Inject workspace bootstrap files (`AGENTS.md`, `TOOLS.md`, etc.) with truncation + markers.
+  - Prompt modes (`full`/`minimal`) for subagent runs.
+- **Memory-first behavior**:
+  - Add `memory_search` + `memory_get` tools (workspace Markdown memory store).
+  - System prompt instruction: search memory before answering about prior decisions/preferences.
+  - Optional session transcript search (memory sources: `memory`, `sessions`).
+- **Reply shaping & suppression**:
+  - Tool summaries in assistant reply (opt-in verbose).
+  - Suppress duplicate tool confirmations; support `NO_REPLY` for silent steps.
+- **Context introspection**:
+  - `/status`, `/context list`, `/context detail` equivalents for token budgets, prompt composition, and tool schema sizes.
+
+### B) Long-running quality + continuity
+- **Auto-compaction** with retry; persist compacted summary in transcript.
+- **Pre-compaction memory flush** (silent agent turn writing durable notes).
+- **Session pruning**: trim old tool results in-memory per request (no transcript rewrite).
+
+### C) Reliability + orchestration
+- **Session-lane queueing**: serialize runs per chat/session + optional global lane.
+- **Lifecycle hooks** (plugin-style): `before_agent_start`, `before_tool_call`, `after_tool_call`, `tool_result_persist`, `agent_end`, `before/after_compaction`.
+- **Heartbeats + cron**:
+  - Main-session heartbeat for “check-ins” with `HEARTBEAT_OK` suppression.
+  - Isolated cron jobs for scheduled tasks with optional delivery.
+
+### D) UX tie-ins (chat)
+- Expose lifecycle/stream events to support progress UI (tool steps, reasoning streaming, approvals).
+- Show compaction/heartbeat events in chat timeline (collapsed).
+
+---
+
+## Replace Codex CLI app-server with embedded agent loop (next milestone)
+Goal: own the loop (tools, prompt, compaction) while keeping Codex OAuth; later add Claude + GitHub Copilot auth.
+
+### Step 1: Extract + embed Codex loop (no CLI)
+- Evaluate codex-rs core surfaces (agent loop + app-server protocol).
+- Replace app-server process with in-process runner + WS bridge (same chat.* API).
+- Keep CLI-compatible JSONL events so UI + gateway stay stable.
+
+### Step 2: Codex OAuth retention
+- Reuse codex-rs OAuth flow + token store (per-gateway).
+- Expose `chat.account.*` status/refresh in gateway (already planned).
+- Ensure token refresh path before each run.
+
+### Step 3: Provider abstraction (future)
+- Provider registry: `codex`, `claude`, `copilot` (same loop interface).
+- Per-provider auth adapters + model catalogs.
+- Store tokens in gateway state dir; reuse account status UX.
+
+### Step 4: Loop customization
+- Swap in our system prompt assembly + memory/compaction/hooks.
+- Add tool policy per provider.
 - Auth options:
   - token (API key)
   - password (shared secret)
