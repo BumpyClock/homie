@@ -1,5 +1,5 @@
 export function uuid() {
-  const cryptoAny = (globalThis as any).crypto as any | undefined;
+  const cryptoAny = (globalThis as { crypto?: Crypto }).crypto;
 
   if (cryptoAny && typeof cryptoAny.randomUUID === "function") {
     return cryptoAny.randomUUID();

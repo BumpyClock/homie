@@ -118,16 +118,16 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   const messageBufferRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+
+  const refreshLocalSettings = useCallback(() => {
     overridesRef.current = loadOverrides(namespace);
     settingsRef.current = loadSettings(namespace);
     setSettingsByChatId(settingsRef.current);
   }, [namespace]);
 
-  useEffect(() => {
-    activeChatIdRef.current = activeChatId;
-  }, [activeChatId]);
-
-  useEffect(() => {
+  const refreshThreadLookup = useCallback(() => {
     const map = new Map<string, string>();
     threads.forEach((thread) => map.set(thread.threadId, thread.chatId));
     threadIdLookupRef.current = map;
@@ -146,13 +146,6 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
       delete queuedTimersRef.current[chatId];
     }
   }, []);
-
-  useEffect(() => {
-    if (!activeThread?.chatId) return;
-    if (!activeThread.running) {
-      clearQueuedNotice(activeThread.chatId);
-    }
-  }, [activeThread?.chatId, activeThread?.running, clearQueuedNotice]);
 
   const defaultModel = useMemo(() => {
     const preferred = models.find((model) => model.isDefault) ?? models[0];
@@ -335,28 +328,47 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   }, [call, enabled, status]);
 
   useEffect(() => {
+    if (status === "connected" && enabled) return;
+    setTimeout(() => {
+      setThreads([]);
+      setActiveChatId(null);
+      setActiveThread(null);
+    }, 0);
+  }, [status, enabled]);
+
+  useEffect(() => {
     if (!enabled || status !== "connected") return;
-    void refreshAccount();
-    void loadChats();
-    void refreshModels();
-    void refreshCollaborationModes();
-    void refreshSkills();
+    const timer = setTimeout(() => {
+      refreshLocalSettings();
+      refreshThreadLookup();
+      void refreshAccount();
+      void loadChats();
+      void refreshModels();
+      void refreshCollaborationModes();
+      void refreshSkills();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [
     enabled,
     status,
-    loadChats,
+    refreshLocalSettings,
+    refreshThreadLookup,
     refreshAccount,
+    loadChats,
     refreshModels,
     refreshCollaborationModes,
     refreshSkills,
   ]);
 
   useEffect(() => {
-    if (status === "connected" && enabled) return;
-    setThreads([]);
-    setActiveChatId(null);
-    setActiveThread(null);
-  }, [status, enabled]);
+    if (!activeThread?.chatId) return;
+    if (activeThread.running) return;
+    const chatId = activeThread.chatId;
+    const timer = setTimeout(() => {
+      clearQueuedNotice(chatId);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [activeThread, clearQueuedNotice]);
 
   useEffect(() => {
     if (!enabled || status !== "connected") return;
@@ -486,7 +498,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg || "Failed to send message");
     }
-  }, [activeThread, buildCollaborationPayload, call, resolveSettings, updateOverrides]);
+  }, [activeThread, buildCollaborationPayload, call, clearQueuedNotice, resolveSettings, updateOverrides]);
 
   const cancelActive = useCallback(async () => {
     if (!activeThread?.activeTurnId) return;

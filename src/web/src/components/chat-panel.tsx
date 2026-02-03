@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Folder } from "lucide-react";
-import { ChatTurns, groupTurns } from "@/components/chat-turns";
+import { ChatTurns } from "@/components/chat-turns";
+import { groupTurns } from "@/lib/chat-turns-utils";
 import { ChatComposerBar } from "@/components/chat-composer-bar";
 import { ChatInlineMenu } from "@/components/chat-inline-menu";
 import { ChatThreadList } from "@/components/chat-thread-list";
@@ -47,7 +48,10 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   } = useChat({ status, call, onEvent, enabled, namespace });
 
   const [draft, setDraft] = useState("");
-  const [showThreadList, setShowThreadList] = useState(true);
+  const [showThreadList, setShowThreadList] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.innerWidth >= 640;
+  });
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
@@ -66,9 +70,12 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const mentionSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mentionQueryRef = useRef("");
   const [visibleTurnCount, setVisibleTurnCount] = useState(40);
 
   const activeTitle = activeThread?.title ?? "";
+  const isMobileViewport = typeof window !== "undefined" ? window.innerWidth < 640 : false;
   const canSend = status === "connected" && !!activeThread;
   const canEditSettings = status === "connected" && !!activeThread;
   const attachedFolder = activeSettings.attachedFolder;
@@ -102,73 +109,23 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   }, [mentionOptions, mentionSkillOptions, skillOptions, trigger]);
 
   useEffect(() => {
-    setIsEditingTitle(false);
-    setTitleDraft(activeTitle);
-    if (!activeThread) {
-      if (typeof window !== "undefined" && window.innerWidth < 640) {
-        setShowThreadList(true);
-      }
-      return;
-    }
-    if (typeof window !== "undefined" && window.innerWidth < 640) {
-      setShowThreadList(false);
-    }
-  }, [activeThread?.chatId, activeTitle, activeThread]);
-
-  useEffect(() => {
     if (typeof window === "undefined") return;
     const onResize = () => {
       if (window.innerWidth >= 640) {
         setShowThreadList(true);
       }
     };
-    onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
   useEffect(() => {
-    setAttachDraft(attachedFolder ?? "");
-  }, [attachedFolder, activeThread?.chatId]);
-
-  useEffect(() => {
-    stickToBottomRef.current = true;
-    setVisibleTurnCount(40);
-  }, [activeThread?.chatId]);
-
-  useEffect(() => {
-    setMenuIndex(0);
-  }, [trigger?.type, trigger?.query, activeMenuItems.length]);
-
-  useEffect(() => {
-    if (!trigger) {
-      setMenuVisible(false);
-      return;
-    }
-    const handle = requestAnimationFrame(() => setMenuVisible(true));
-    return () => cancelAnimationFrame(handle);
-  }, [trigger]);
-
-  useEffect(() => {
-    if (!trigger || trigger.type !== "mention") {
-      setFileOptions([]);
-      return;
-    }
-    if (!attachedFolder || !activeThread) {
-      setFileOptions([]);
-      return;
-    }
-    if (!trigger.query.trim()) {
-      setFileOptions([]);
-      return;
-    }
-    const handle = setTimeout(() => {
-      void searchFiles(activeThread.chatId, trigger.query, attachedFolder).then((results) =>
-        setFileOptions(results),
-      );
-    }, 150);
-    return () => clearTimeout(handle);
-  }, [activeThread, attachedFolder, searchFiles, trigger]);
+    return () => {
+      if (mentionSearchRef.current) {
+        clearTimeout(mentionSearchRef.current);
+      }
+    };
+  }, []);
 
   const listState = useMemo(() => {
     if (!enabled) return { message: "Chat service not enabled for this gateway." };
@@ -183,6 +140,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     await sendMessage(draft);
     setDraft("");
     setTrigger(null);
+    setMenuVisible(false);
   };
 
   const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
@@ -205,7 +163,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     if (!activeThread) return;
     if (!stickToBottomRef.current) return;
     scrollToBottom("auto");
-  }, [activeThread?.running, lastItemSignature]);
+  }, [activeThread, activeThread?.running, lastItemSignature]);
 
   const updateMenuPosition = (value: string, cursorPosition: number) => {
     if (!inputRef.current) return;
@@ -241,12 +199,29 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
       const valid = /\s/.test(charBefore) || /[("']/.test(charBefore) || start === 0;
       if (valid) {
         updateMenuPosition(value, cursorPosition);
-        setTrigger({
+        const nextTrigger = {
           type: "mention",
           start,
           cursor: cursorPosition,
           query: atMatch[1] ?? "",
-        });
+        };
+        setTrigger(nextTrigger);
+        setMenuIndex(0);
+        setMenuVisible(true);
+        setFileOptions([]);
+        if (nextTrigger.query.trim()) {
+          mentionQueryRef.current = nextTrigger.query;
+          if (mentionSearchRef.current) {
+            clearTimeout(mentionSearchRef.current);
+          }
+          if (attachedFolder && activeThread) {
+            mentionSearchRef.current = setTimeout(() => {
+              void searchFiles(activeThread.chatId, mentionQueryRef.current, attachedFolder).then((results) =>
+                setFileOptions(results),
+              );
+            }, 150);
+          }
+        }
         return;
       }
     }
@@ -259,9 +234,17 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
         cursor: cursorPosition,
         query: slashMatch[1] ?? "",
       });
+      setMenuIndex(0);
+      setMenuVisible(true);
       return;
     }
     setTrigger(null);
+    setMenuVisible(false);
+    setFileOptions([]);
+    if (mentionSearchRef.current) {
+      clearTimeout(mentionSearchRef.current);
+      mentionSearchRef.current = null;
+    }
   };
 
   const insertAtTrigger = (text: string) => {
@@ -271,12 +254,44 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     const next = `${before}${text}${after}`;
     setDraft(next);
     setTrigger(null);
+    setMenuVisible(false);
+    setFileOptions([]);
+    if (mentionSearchRef.current) {
+      clearTimeout(mentionSearchRef.current);
+      mentionSearchRef.current = null;
+    }
     requestAnimationFrame(() => {
       if (!inputRef.current) return;
       const pos = before.length + text.length;
       inputRef.current.focus();
       inputRef.current.setSelectionRange(pos, pos);
     });
+  };
+
+  const handleSelectChat = (nextChatId: string) => {
+    selectChat(nextChatId);
+    setIsEditingTitle(false);
+    setTitleDraft("");
+    setAttachOpen(false);
+    setAttachDraft("");
+    setVisibleTurnCount(40);
+    stickToBottomRef.current = true;
+    if (isMobileViewport) {
+      setShowThreadList(false);
+    }
+  };
+
+  const handleCreateChat = () => {
+    void createChat();
+    setIsEditingTitle(false);
+    setTitleDraft("");
+    setAttachOpen(false);
+    setAttachDraft("");
+    setVisibleTurnCount(40);
+    stickToBottomRef.current = true;
+    if (isMobileViewport) {
+      setShowThreadList(false);
+    }
   };
 
   return (
@@ -287,17 +302,16 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
         listMessage={listState.message}
         canCreate={status === "connected"}
         formatRelativeTime={formatRelativeTime}
-        onCreate={createChat}
-        onSelect={(chatId) => {
-          selectChat(chatId);
-          if (typeof window !== "undefined" && window.innerWidth < 640) {
-            setShowThreadList(false);
-          }
-        }}
-        mobileHidden={!showThreadList}
+        onCreate={handleCreateChat}
+        onSelect={handleSelectChat}
+        mobileHidden={isMobileViewport && !showThreadList}
       />
 
-      <section className={`flex-1 min-h-0 flex flex-col ${showThreadList ? "hidden sm:flex" : "flex"}`}>
+      <section
+        className={`flex-1 min-h-0 flex flex-col ${
+          isMobileViewport ? (showThreadList ? "hidden" : "flex") : "flex"
+        }`}
+      >
         <ChatThreadHeader
           activeThread={activeThread}
           activeTitle={activeTitle}
@@ -319,8 +333,11 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
             if (!activeThread) return;
             archiveChat(activeThread.chatId);
           }}
-          onBack={() => setShowThreadList(true)}
-          showBackButton={!showThreadList}
+          onBack={() => {
+            setShowThreadList(true);
+            setIsEditingTitle(false);
+          }}
+          showBackButton={isMobileViewport && !showThreadList}
         />
 
         <div
@@ -433,7 +450,15 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               )}
               <button
                 type="button"
-                onClick={() => setAttachOpen((prev) => !prev)}
+                onClick={() =>
+                  setAttachOpen((prev) => {
+                    const next = !prev;
+                    if (next) {
+                      setAttachDraft(attachedFolder ?? "");
+                    }
+                    return next;
+                  })
+                }
                 disabled={!canEditSettings}
                 className="inline-flex items-center gap-2 px-2 py-1.5 min-h-[32px] rounded-md border border-border text-xs hover:bg-muted/50 disabled:opacity-50"
               >
@@ -526,6 +551,12 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
                   if (e.key === "Escape") {
                     e.preventDefault();
                     setTrigger(null);
+                    setMenuVisible(false);
+                    setFileOptions([]);
+                    if (mentionSearchRef.current) {
+                      clearTimeout(mentionSearchRef.current);
+                      mentionSearchRef.current = null;
+                    }
                     return;
                   }
                 }

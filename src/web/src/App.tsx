@@ -37,9 +37,6 @@ function App() {
   const [terminalFocusSessionId, setTerminalFocusSessionId] = useState<string | null>(null);
 
   const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
-  const sessionMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const sessionMenuRef = useRef<HTMLDivElement | null>(null);
-  const sessionMenuFirstItemRef = useRef<HTMLButtonElement | null>(null);
   const [runningSessions, setRunningSessions] = useState<SessionInfo[]>([]);
   const [runningSessionsLoading, setRunningSessionsLoading] = useState(false);
   const [runningSessionsError, setRunningSessionsError] = useState<string | null>(null);
@@ -103,44 +100,8 @@ function App() {
 
   useEffect(() => {
     if (!isSessionMenuOpen) return;
-    sessionMenuFirstItemRef.current?.focus();
-  }, [isSessionMenuOpen]);
-
-  useEffect(() => {
-    if (isSessionMenuOpen) return;
-    sessionMenuTriggerRef.current?.focus();
-  }, [isSessionMenuOpen]);
-
-  useEffect(() => {
-    if (!isSessionMenuOpen) return;
     void fetchRunningSessions();
   }, [isSessionMenuOpen, fetchRunningSessions, refreshToken]);
-
-  useEffect(() => {
-    if (!isSessionMenuOpen) return;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsSessionMenuOpen(false);
-        sessionMenuTriggerRef.current?.focus();
-      }
-    };
-
-    const onPointerDown = (e: PointerEvent) => {
-      const t = e.target as Node | null;
-      if (!t) return;
-
-      const inside = sessionMenuRef.current?.contains(t) || sessionMenuTriggerRef.current?.contains(t);
-      if (!inside) setIsSessionMenuOpen(false);
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('pointerdown', onPointerDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('pointerdown', onPointerDown);
-    };
-  }, [isSessionMenuOpen]);
 
   useEffect(() => {
     if (!isTargetOpen) return;
@@ -291,9 +252,6 @@ function App() {
             isOpen: isSessionMenuOpen,
             onToggle: () => setIsSessionMenuOpen((v) => !v),
             onClose: () => setIsSessionMenuOpen(false),
-            triggerRef: sessionMenuTriggerRef,
-            menuRef: sessionMenuRef,
-            firstItemRef: sessionMenuFirstItemRef,
             sessions: runningActive,
             loading: runningSessionsLoading,
             error: runningSessionsError,

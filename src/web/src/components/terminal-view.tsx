@@ -165,7 +165,7 @@ export function TerminalView({ status, attachedSessions, onDetach, call, onBinar
     void call("terminal.session.resize", { session_id: sessionId, cols, rows }).catch(() => {});
   }, [call]);
 
-  const handleKeybarAction = async (action: string) => {
+  const handleKeybarAction = useCallback(async (action: string) => {
     if (!activeSessionId) return;
     
     let sequence = "";
@@ -188,7 +188,7 @@ export function TerminalView({ status, attachedSessions, onDetach, call, onBinar
         default: return;
     }
     handleInput(activeSessionId, sequence);
-  };
+  }, [activeSessionId, handleInput]);
 
   if (attachedSessions.length === 0) {
     return <div className="text-muted-foreground text-center p-10">No active terminal sessions</div>;

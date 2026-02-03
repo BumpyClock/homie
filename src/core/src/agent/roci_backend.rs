@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use roci::agent_loop::{
     ApprovalDecision, ApprovalPolicy, ApprovalRequest, LoopRunner, RunEvent, RunEventPayload,
-    RunLifecycle, RunRequest, Runner,
+    RunHooks, RunLifecycle, RunRequest, Runner,
 };
 use roci::config::RociConfig;
 use roci::models::LanguageModel;
@@ -59,6 +59,7 @@ struct PendingRun {
     settings: GenerationSettings,
     approval_policy: ApprovalPolicy,
     config: RociConfig,
+    collaboration_mode: Option<String>,
 }
 
 impl RociBackend {
@@ -106,6 +107,7 @@ impl RociBackend {
         state.runs.retain(|_, run| run.thread_id != thread_id);
         state.run_queue.remove(thread_id);
         state.active_threads.remove(thread_id);
+        state.approval_cache.remove(thread_id);
     }
 
     pub async fn start_run(
@@ -117,6 +119,7 @@ impl RociBackend {
         settings: GenerationSettings,
         approval_policy: ApprovalPolicy,
         config: RociConfig,
+        collaboration_mode: Option<String>,
         system_prompt: Option<String>,
     ) -> Result<String, String> {
         self.ensure_thread(thread_id).await;
@@ -188,6 +191,7 @@ impl RociBackend {
             settings,
             approval_policy,
             config,
+            collaboration_mode,
         };
 
         let mut pending = Some(pending);
@@ -317,9 +321,11 @@ impl RociBackend {
 
         let state = self.state.clone();
         let exec_policy = self.exec_policy.clone();
+        let thread_id_for_cache = pending.thread_id.clone();
         let approval_handler: roci::agent_loop::ApprovalHandler = Arc::new(move |request| {
             let state = state.clone();
             let exec_policy = exec_policy.clone();
+            let thread_id = thread_id_for_cache.clone();
             Box::pin(async move {
                 if request.kind == roci::agent_loop::ApprovalKind::CommandExecution {
                     if let Some(argv) = approval_command_argv(&request.payload) {
@@ -331,6 +337,20 @@ impl RociBackend {
                         }
                     }
                 }
+                let cache_key = approval_cache_key(&request);
+                if let Some(key) = cache_key.as_ref() {
+                    let cached = {
+                        let guard = state.lock().await;
+                        guard
+                            .approval_cache
+                            .get(&thread_id)
+                            .map(|set| set.contains(key))
+                            .unwrap_or(false)
+                    };
+                    if cached {
+                        return ApprovalDecision::Accept;
+                    }
+                }
                 let (tx, rx) = oneshot::channel();
                 {
                     let mut guard = state.lock().await;
@@ -339,6 +359,15 @@ impl RociBackend {
                 let decision = rx.await.unwrap_or(ApprovalDecision::Decline);
                 let mut guard = state.lock().await;
                 guard.approvals.remove(&request.id);
+                if matches!(decision, ApprovalDecision::AcceptForSession) {
+                    if let Some(key) = cache_key {
+                        guard
+                            .approval_cache
+                            .entry(thread_id)
+                            .or_default()
+                            .insert(key);
+                    }
+                }
                 decision
             })
         });
@@ -350,6 +379,10 @@ impl RociBackend {
         run_request.approval_policy = pending.approval_policy;
         run_request.event_sink = Some(event_sink);
         run_request.approval_handler = Some(approval_handler);
+        run_request.hooks = RunHooks {
+            compaction: Some(Arc::new(|messages| compact_messages(messages))),
+            tool_result_persist: Some(Arc::new(|result| trim_tool_result(result))),
+        };
 
         let runner = LoopRunner::new(pending.config);
         let handle = runner
@@ -375,6 +408,7 @@ impl RociBackend {
         let turn_id_clone = pending.turn_id.clone();
         let chat_id = pending.chat_id.clone();
         let assistant_item_id_clone = pending.assistant_item_id.clone();
+        let collaboration_mode = pending.collaboration_mode.clone();
         let backend = self.clone();
 
         tokio::spawn(async move {
@@ -592,6 +626,16 @@ impl RociBackend {
                                     &assistant_item_id_clone,
                                     &assistant_text,
                                 );
+                                if collaboration_mode.as_deref() == Some("plan") && !assistant_text.trim().is_empty() {
+                                    emit_plan_updated(
+                                        &outbound,
+                                        &store,
+                                        &chat_id,
+                                        &thread_id,
+                                        &turn_id_clone,
+                                        &assistant_text,
+                                    );
+                                }
                                 emit_turn_completed(
                                     &outbound,
                                     &store,
@@ -753,6 +797,27 @@ impl RociBackend {
         }
     }
 
+    pub fn parse_collaboration_mode(mode: Option<&Value>) -> Option<String> {
+        let raw = mode?;
+        if let Some(value) = raw.as_str() {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_lowercase());
+            }
+        }
+        let obj = raw.as_object()?;
+        let value = obj
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .or_else(|| obj.get("id").and_then(|v| v.as_str()))?;
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_lowercase())
+        }
+    }
+
     pub async fn respond_approval(&self, request_id: &str, decision: ApprovalDecision) -> bool {
         let mut state = self.state.lock().await;
         if let Some(tx) = state.approvals.remove(request_id) {
@@ -769,6 +834,7 @@ struct RociState {
     run_queue: HashMap<String, VecDeque<PendingRun>>,
     active_threads: HashMap<String, String>,
     approvals: HashMap<String, oneshot::Sender<ApprovalDecision>>,
+    approval_cache: HashMap<String, HashSet<String>>,
 }
 
 struct RociRunState {
@@ -1276,6 +1342,10 @@ fn approval_command_from_payload(payload: &Value) -> (Option<String>, Option<Str
         Some(obj) => obj,
         None => return (None, None),
     };
+    let args = payload_arguments(payload)
+        .and_then(|v| v.as_object())
+        .or(Some(obj))
+        .unwrap();
     let command = if let Some(argv) = obj.get("argv").and_then(|v| v.as_array()) {
         let parts: Vec<String> = argv
             .iter()
@@ -1288,6 +1358,18 @@ fn approval_command_from_payload(payload: &Value) -> (Option<String>, Option<Str
         }
     } else if let Some(cmd) = obj.get("command").and_then(|v| v.as_str()) {
         Some(cmd.to_string())
+    } else if let Some(argv) = args.get("argv").and_then(|v| v.as_array()) {
+        let parts: Vec<String> = argv
+            .iter()
+            .filter_map(|value| value.as_str().map(|s| s.to_string()))
+            .collect();
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(" "))
+        }
+    } else if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
+        Some(cmd.to_string())
     } else if let Some(tool) = obj.get("tool_name").and_then(|v| v.as_str()) {
         Some(tool.to_string())
     } else {
@@ -1296,12 +1378,16 @@ fn approval_command_from_payload(payload: &Value) -> (Option<String>, Option<Str
     let cwd = obj
         .get("cwd")
         .and_then(|v| v.as_str())
+        .or_else(|| args.get("cwd").and_then(|v| v.as_str()))
         .map(|s| s.to_string());
     (command, cwd)
 }
 
 fn approval_command_argv(payload: &Value) -> Option<Vec<String>> {
     let obj = payload.as_object()?;
+    let args = payload_arguments(payload)
+        .and_then(|v| v.as_object())
+        .unwrap_or(obj);
     if let Some(argv) = obj.get("argv").and_then(|v| v.as_array()) {
         let parts: Vec<String> = argv
             .iter()
@@ -1311,11 +1397,91 @@ fn approval_command_argv(payload: &Value) -> Option<Vec<String>> {
             return Some(parts);
         }
     }
-    let command = obj.get("command")?.as_str()?.trim();
+    if let Some(argv) = args.get("argv").and_then(|v| v.as_array()) {
+        let parts: Vec<String> = argv
+            .iter()
+            .filter_map(|value| value.as_str().map(|s| s.to_string()))
+            .collect();
+        if !parts.is_empty() {
+            return Some(parts);
+        }
+    }
+    let command = obj
+        .get("command")
+        .and_then(|v| v.as_str())
+        .or_else(|| args.get("command").and_then(|v| v.as_str()))?
+        .trim();
     if command.is_empty() {
         return None;
     }
     shell_words::split(command).ok()
+}
+
+fn payload_arguments<'a>(payload: &'a Value) -> Option<&'a Value> {
+    let obj = payload.as_object()?;
+    obj.get("arguments")
+        .or_else(|| obj.get("args"))
+        .or_else(|| obj.get("input"))
+}
+
+fn approval_cache_key(request: &ApprovalRequest) -> Option<String> {
+    let mut payload = request.payload.clone();
+    if let Some(obj) = payload.as_object_mut() {
+        obj.remove("tool_call_id");
+    }
+    let normalized = normalize_json(payload);
+    let kind = match request.kind {
+        roci::agent_loop::ApprovalKind::CommandExecution => "command",
+        roci::agent_loop::ApprovalKind::FileChange => "file",
+        roci::agent_loop::ApprovalKind::Other => "other",
+    };
+    Some(format!("{kind}|{}", canonical_json(&normalized)))
+}
+
+fn canonical_json(value: &Value) -> String {
+    serde_json::to_string(value).unwrap_or_default()
+}
+
+fn normalize_json(value: Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut entries: Vec<_> = map.into_iter().collect();
+            entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+            let mut normalized = serde_json::Map::new();
+            for (key, value) in entries {
+                normalized.insert(key, normalize_json(value));
+            }
+            Value::Object(normalized)
+        }
+        Value::Array(items) => {
+            Value::Array(items.into_iter().map(normalize_json).collect())
+        }
+        other => other,
+    }
+}
+
+fn compact_messages(messages: &[ModelMessage]) -> Option<Vec<ModelMessage>> {
+    if messages.len() <= 80 {
+        return None;
+    }
+    Some(messages[messages.len().saturating_sub(80)..].to_vec())
+}
+
+fn trim_tool_result(mut result: roci::types::AgentToolResult) -> roci::types::AgentToolResult {
+    if let Some(text) = result.result.as_str() {
+        let truncated: String = text.chars().take(8000).collect();
+        result.result = serde_json::Value::String(truncated);
+        return result;
+    }
+    if let Some(obj) = result.result.as_object_mut() {
+        if let Some(val) = obj.get_mut("output") {
+            if let Some(text) = val.as_str() {
+                let truncated: String = text.chars().take(8000).collect();
+                *val = serde_json::Value::String(truncated);
+            }
+        }
+    }
+    result
 }
 
 fn debug_enabled() -> bool {

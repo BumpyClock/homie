@@ -77,11 +77,7 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
     debug.current = readDebugFlag();
 
     if (!url) {
-      setStatus("disconnected");
-      setError(null);
-      setRejection(null);
-      setServerHello(null);
-      return () => {
+      const cleanup = () => {
         mounted.current = false;
         shouldReconnect.current = false;
         clearHandshakeTimeout();
@@ -101,6 +97,14 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
           }
         }
       };
+      setTimeout(() => {
+        if (!mounted.current) return;
+        setStatus("disconnected");
+        setError(null);
+        setRejection(null);
+        setServerHello(null);
+      }, 0);
+      return cleanup;
     }
 
     const connect = () => {
@@ -321,23 +325,24 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
 
     connect();
 
+    const pendingRequestsRef = pendingRequests.current;
     return () => {
-        mounted.current = false;
-        shouldReconnect.current = false;
-        clearHandshakeTimeout();
-        clearBinaryBacklog();
-        if (wsRef.current) {
-            wsRef.current.close();
-        }
-        wsRef.current = null;
-        handshakeCompleted.current = false;
-        for (const pending of pendingRequests.current.values()) {
-          pending.reject(new Error("Connection closed"));
-        }
-        pendingRequests.current.clear();
-        if (reconnectTimeoutRef.current) {
-            clearTimeout(reconnectTimeoutRef.current);
-        }
+      mounted.current = false;
+      shouldReconnect.current = false;
+      clearHandshakeTimeout();
+      clearBinaryBacklog();
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      wsRef.current = null;
+      handshakeCompleted.current = false;
+      for (const pending of pendingRequestsRef.values()) {
+        pending.reject(new Error("Connection closed"));
+      }
+      pendingRequestsRef.clear();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
     };
   }, [url, authToken, log, clearHandshakeTimeout, clearBinaryBacklog]);
 

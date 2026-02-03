@@ -356,6 +356,8 @@ impl CodexChatCore {
                 self.homie_config.chat.stream_idle_timeout_ms,
             );
             let roci_policy = RociBackend::parse_approval_policy(approval_policy.as_ref());
+            let roci_collab_mode =
+                RociBackend::parse_collaboration_mode(collaboration_mode.as_ref());
             let roci_config = match self.roci_config_for_model(&roci_model).await {
                 Ok(config) => config,
                 Err(err) => {
@@ -376,6 +378,7 @@ impl CodexChatCore {
                     roci_settings,
                     roci_policy,
                     roci_config,
+                    roci_collab_mode,
                     Some(self.homie_config.chat.system_prompt.clone()),
                 )
                 .await
