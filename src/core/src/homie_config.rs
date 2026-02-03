@@ -149,12 +149,12 @@ impl Default for ChatConfig {
     fn default() -> Self {
         Self {
             system_prompt_path: None,
-            system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
+            system_prompt: DEFAULT_SYSTEM_PROMPT.trim().to_string(),
         }
     }
 }
 
-const DEFAULT_SYSTEM_PROMPT: &str = "You are Homie, a helpful assistant for remote machine access.";
+const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../system_prompt.md");
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]

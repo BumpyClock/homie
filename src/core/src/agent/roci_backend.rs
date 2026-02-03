@@ -12,11 +12,14 @@ use roci::agent_loop::{
 };
 use roci::config::RociConfig;
 use roci::models::LanguageModel;
+use roci::tools::Tool;
 use roci::types::{ModelMessage, Role};
 use roci::types::{GenerationSettings, ReasoningEffort};
 
+use crate::agent::tools::{build_tools, ToolContext};
 use crate::outbound::OutboundMessage;
 use crate::storage::Store;
+use crate::ExecPolicy;
 
 const DEFAULT_ROCI_MODEL: &str = "openai-codex:gpt-5.1-codex";
 
@@ -42,14 +45,24 @@ pub struct RociBackend {
     state: Arc<Mutex<RociState>>,
     outbound_tx: mpsc::Sender<OutboundMessage>,
     store: Arc<dyn Store>,
+    tools: Vec<Arc<dyn Tool>>,
+    exec_policy: Arc<ExecPolicy>,
 }
 
 impl RociBackend {
-    pub fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
+    pub fn new(
+        outbound_tx: mpsc::Sender<OutboundMessage>,
+        store: Arc<dyn Store>,
+        exec_policy: Arc<ExecPolicy>,
+    ) -> Self {
+        let tool_ctx = ToolContext::new();
+        let tools = build_tools(tool_ctx);
         Self {
             state: Arc::new(Mutex::new(RociState::default())),
             outbound_tx,
             store,
+            tools,
+            exec_policy,
         }
     }
 
@@ -169,9 +182,21 @@ impl RociBackend {
         });
 
         let state = self.state.clone();
+        let exec_policy = self.exec_policy.clone();
         let approval_handler: roci::agent_loop::ApprovalHandler = Arc::new(move |request| {
             let state = state.clone();
+            let exec_policy = exec_policy.clone();
             Box::pin(async move {
+                if request.kind == roci::agent_loop::ApprovalKind::CommandExecution {
+                    if let Some(argv) = approval_command_argv(&request.payload) {
+                        if exec_policy.is_allowed(&argv) {
+                            if debug_enabled() {
+                                tracing::debug!(argv = ?argv, "roci execpolicy auto-approve");
+                            }
+                            return ApprovalDecision::Accept;
+                        }
+                    }
+                }
                 let (tx, rx) = oneshot::channel();
                 {
                     let mut guard = state.lock().await;
@@ -187,6 +212,7 @@ impl RociBackend {
         let mut run_request = RunRequest::new(model, messages);
         run_request.run_id = run_id;
         run_request.settings = settings;
+        run_request.tools = self.tools.clone();
         run_request.approval_policy = approval_policy;
         run_request.event_sink = Some(event_sink);
         run_request.approval_handler = Some(approval_handler);
@@ -303,6 +329,7 @@ impl RociBackend {
                                 %turn_id_clone,
                                 tool_call_id = %result.tool_call_id,
                                 is_error = result.is_error,
+                                result = %result.result,
                                 "roci tool result"
                             );
                         }
@@ -324,6 +351,18 @@ impl RociBackend {
                             &result.result,
                             result.is_error,
                         );
+                        if info.name == "apply_patch" {
+                            if let Some(diff) = result.result.get("diff").and_then(|v| v.as_str()) {
+                                emit_diff_updated(
+                                    &outbound,
+                                    &store,
+                                    &chat_id,
+                                    &thread_id,
+                                    &turn_id_clone,
+                                    diff,
+                                );
+                            }
+                        }
                     }
                     RunEventPayload::PlanUpdated { plan } => {
                         if debug_enabled() {
@@ -976,6 +1015,24 @@ fn approval_command_from_payload(payload: &Value) -> (Option<String>, Option<Str
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
     (command, cwd)
+}
+
+fn approval_command_argv(payload: &Value) -> Option<Vec<String>> {
+    let obj = payload.as_object()?;
+    if let Some(argv) = obj.get("argv").and_then(|v| v.as_array()) {
+        let parts: Vec<String> = argv
+            .iter()
+            .filter_map(|value| value.as_str().map(|s| s.to_string()))
+            .collect();
+        if !parts.is_empty() {
+            return Some(parts);
+        }
+    }
+    let command = obj.get("command")?.as_str()?.trim();
+    if command.is_empty() {
+        return None;
+    }
+    shell_words::split(command).ok()
 }
 
 fn debug_enabled() -> bool {

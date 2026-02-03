@@ -86,7 +86,7 @@ impl CodexChatCore {
         exec_policy: Arc<ExecPolicy>,
     ) -> Self {
         let backend = ChatBackend::from_env();
-        let roci = RociBackend::new(outbound_tx.clone(), store.clone());
+        let roci = RociBackend::new(outbound_tx.clone(), store.clone(), exec_policy.clone());
         Self {
             backend,
             outbound_tx,

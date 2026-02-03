@@ -45,3 +45,4 @@
 - 2026-02-03: Added chat.account.list for provider login status using roci token store.
 - 2026-02-03: chat.account.list now auto-imports Codex/Claude CLI creds into Homie token store; Codex import respects CODEX_HOME.
 - 2026-02-03: Added roci agent_loop scaffolding (run/events/approvals) behind feature gate; added chat.account.login.start/poll device-code RPCs in gateway.
+- 2026-02-03: Added Roci tool set in homie-core (read/ls/find/grep/apply_patch/exec/process) with background process registry; exec/process approvals now categorized in roci runner and safe tools auto-accept; apply_patch emits diff updates and deletes move to ~/.homie/trash.
