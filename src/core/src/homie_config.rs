@@ -141,6 +141,7 @@ impl Default for ModelsConfig {
 #[serde(default)]
 pub struct ChatConfig {
     pub system_prompt_path: Option<String>,
+    pub stream_idle_timeout_ms: Option<u64>,
     #[serde(skip)]
     pub system_prompt: String,
 }
@@ -149,6 +150,7 @@ impl Default for ChatConfig {
     fn default() -> Self {
         Self {
             system_prompt_path: None,
+            stream_idle_timeout_ms: None,
             system_prompt: DEFAULT_SYSTEM_PROMPT.trim().to_string(),
         }
     }

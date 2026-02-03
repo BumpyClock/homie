@@ -101,6 +101,7 @@ interface ChatComposerBarProps {
   settings: ChatSettings;
   tokenUsage?: ThreadTokenUsage;
   running: boolean;
+  queuedHint?: boolean;
   disabled?: boolean;
   onChangeSettings: (updates: Partial<ChatSettings>) => void;
 }
@@ -154,6 +155,7 @@ export function ChatComposerBar({
   settings,
   tokenUsage,
   running,
+  queuedHint,
   disabled,
   onChangeSettings,
 }: ChatComposerBarProps) {
@@ -299,9 +301,11 @@ export function ChatComposerBar({
       </div>
 
       <div className="ml-auto flex items-center gap-4">
-        {running && (
+        {queuedHint ? (
+          <div className="text-xs text-muted-foreground">Queued for next step</div>
+        ) : running ? (
           <div className="text-xs text-muted-foreground">Applies next message</div>
-        )}
+        ) : null}
         {tokenUsage && <ContextRing usage={tokenUsage} />}
       </div>
     </div>

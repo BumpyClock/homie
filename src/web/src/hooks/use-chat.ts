@@ -102,6 +102,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   const [activeThread, setActiveThread] = useState<ActiveChatThread | null>(null);
   const [account, setAccount] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [queuedNoticeByChatId, setQueuedNoticeByChatId] = useState<Record<string, boolean>>({});
   const [models, setModels] = useState<ModelOption[]>([]);
   const [collaborationModes, setCollaborationModes] = useState<CollaborationModeOption[]>([]);
   const [skills, setSkills] = useState<SkillOption[]>([]);
@@ -112,6 +113,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   const threadIdLookupRef = useRef<Map<string, string>>(new Map());
   const activeChatIdRef = useRef<string | null>(null);
   const runningTurnsRef = useRef<Map<string, string>>(new Map());
+  const queuedTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const hydratedRef = useRef<Set<string>>(new Set());
   const messageBufferRef = useRef<Map<string, string>>(new Map());
 
@@ -130,6 +132,27 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     threads.forEach((thread) => map.set(thread.threadId, thread.chatId));
     threadIdLookupRef.current = map;
   }, [threads]);
+
+  const clearQueuedNotice = useCallback((chatId: string) => {
+    setQueuedNoticeByChatId((prev) => {
+      if (!prev[chatId]) return prev;
+      const next = { ...prev };
+      delete next[chatId];
+      return next;
+    });
+    const timer = queuedTimersRef.current[chatId];
+    if (timer) {
+      clearTimeout(timer);
+      delete queuedTimersRef.current[chatId];
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeThread?.chatId) return;
+    if (!activeThread.running) {
+      clearQueuedNotice(activeThread.chatId);
+    }
+  }, [activeThread?.chatId, activeThread?.running, clearQueuedNotice]);
 
   const defaultModel = useMemo(() => {
     const preferred = models.find((model) => model.isDefault) ?? models[0];
@@ -419,6 +442,16 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     const approvalPolicy = approvalPolicyForPermission(settings.permission);
     const effort = settings.effort !== "auto" ? settings.effort : undefined;
     const collaborationMode = buildCollaborationPayload(settings);
+    const inject = activeThread.running;
+    if (inject) {
+      const chatId = activeThread.chatId;
+      setQueuedNoticeByChatId((prev) => ({ ...prev, [chatId]: true }));
+      const existingTimer = queuedTimersRef.current[chatId];
+      if (existingTimer) clearTimeout(existingTimer);
+      queuedTimersRef.current[chatId] = setTimeout(() => {
+        clearQueuedNotice(chatId);
+      }, 4000);
+    }
     const localId = uuid();
     setActiveThread((prev) => prev ? {
       ...prev,
@@ -436,6 +469,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
         effort,
         approval_policy: approvalPolicy,
         collaboration_mode: collaborationMode ?? undefined,
+        inject,
       }) as { turn_id?: string };
       if (res?.turn_id) {
         runningTurnsRef.current.set(activeThread.chatId, res.turn_id);
@@ -555,6 +589,8 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     return { ok: true, message: "" };
   }, [account]);
 
+  const queuedNotice = activeThread ? queuedNoticeByChatId[activeThread.chatId] ?? false : false;
+
   return {
     threads: sortedThreads,
     activeChatId,
@@ -579,5 +615,6 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     activeTokenUsage,
     searchFiles,
     formatRelativeTime,
+    queuedNotice,
   };
 }

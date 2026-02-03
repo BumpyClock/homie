@@ -220,7 +220,7 @@ impl RociBackend {
             return Ok(turn_id);
         }
 
-        if let Err(err) = self.start_run_inner(pending.take().unwrap()).await {
+        if let Err(err) = self.clone().start_run_inner(pending.take().unwrap()).await {
             {
                 let mut state = self.state.lock().await;
                 if state.active_threads.get(thread_id) == Some(&turn_id) {
@@ -228,7 +228,7 @@ impl RociBackend {
                 }
             }
             if let Some(next) = self.dequeue_next_run(thread_id).await {
-                if let Err(next_err) = self.start_run_inner(next).await {
+                if let Err(next_err) = self.clone().start_run_inner(next).await {
                     if debug_enabled() {
                         tracing::debug!(
                             %chat_id,
@@ -245,7 +245,59 @@ impl RociBackend {
         Ok(turn_id)
     }
 
-    async fn start_run_inner(&self, pending: PendingRun) -> Result<(), String> {
+    pub async fn queue_message(
+        &self,
+        chat_id: &str,
+        thread_id: &str,
+        message: &str,
+    ) -> Option<String> {
+        let (turn_id, item_id, queued) = {
+            let mut state = self.state.lock().await;
+            let turn_id = state.active_threads.get(thread_id)?.clone();
+            let turn_exists = state
+                .threads
+                .get(thread_id)
+                .map(|thread| thread.thread.turns.iter().any(|turn| turn.id == turn_id))
+                .unwrap_or(false);
+            if !turn_exists {
+                return None;
+            }
+            let queued = {
+                let run = state.runs.get(&turn_id)?;
+                let handle = run.handle.as_ref()?;
+                handle.queue_message(ModelMessage::user(message.to_string()))
+            };
+            if !queued {
+                return None;
+            }
+            let item_id = Uuid::new_v4().to_string();
+            let thread = state.threads.get_mut(thread_id)?;
+            if let Some(turn) = thread.thread.turns.iter_mut().find(|turn| turn.id == turn_id) {
+                turn.items
+                    .push(RociItem::user(item_id.clone(), message.to_string()));
+            }
+            thread.thread.updated_at = now_unix();
+            thread.messages.push(ModelMessage::user(message.to_string()));
+            (turn_id, item_id, queued)
+        };
+
+        if queued {
+            emit_user_item(
+                &self.outbound_tx,
+                &self.store,
+                chat_id,
+                thread_id,
+                &turn_id,
+                item_id,
+                message,
+            );
+            return Some(turn_id);
+        }
+
+        None
+    }
+
+    async fn start_run_inner(self, pending: PendingRun) -> Result<(), String> {
         let run_id = Uuid::parse_str(&pending.turn_id).unwrap_or_else(|_| Uuid::new_v4());
         if debug_enabled() {
             tracing::debug!(
@@ -549,16 +601,12 @@ impl RociBackend {
                                     "completed",
                                 );
                                 if let Some(next) = backend.dequeue_next_run(&thread_id).await {
-                                    if let Err(err) = backend.start_run_inner(next).await {
-                                        if debug_enabled() {
-                                            tracing::debug!(
-                                                %chat_id,
-                                                %thread_id,
-                                                error = %err,
-                                                "roci queued run start failed"
-                                            );
-                                        }
-                                    }
+                                    spawn_next_run(
+                                        backend.clone(),
+                                        next,
+                                        chat_id.clone(),
+                                        thread_id.clone(),
+                                    );
                                 }
                                 break;
                             }
@@ -572,16 +620,12 @@ impl RociBackend {
                                     }
                                 }
                                 if let Some(next) = backend.dequeue_next_run(&thread_id).await {
-                                    if let Err(err) = backend.start_run_inner(next).await {
-                                        if debug_enabled() {
-                                            tracing::debug!(
-                                                %chat_id,
-                                                %thread_id,
-                                                error = %err,
-                                                "roci queued run start failed"
-                                            );
-                                        }
-                                    }
+                                    spawn_next_run(
+                                        backend.clone(),
+                                        next,
+                                        chat_id.clone(),
+                                        thread_id.clone(),
+                                    );
                                 }
                                 break;
                             }
@@ -602,16 +646,12 @@ impl RociBackend {
                                     }
                                 }
                                 if let Some(next) = backend.dequeue_next_run(&thread_id).await {
-                                    if let Err(err) = backend.start_run_inner(next).await {
-                                        if debug_enabled() {
-                                            tracing::debug!(
-                                                %chat_id,
-                                                %thread_id,
-                                                error = %err,
-                                                "roci queued run start failed"
-                                            );
-                                        }
-                                    }
+                                    spawn_next_run(
+                                        backend.clone(),
+                                        next,
+                                        chat_id.clone(),
+                                        thread_id.clone(),
+                                    );
                                 }
                                 break;
                             }
@@ -689,13 +729,17 @@ impl RociBackend {
             .map_err(|e| format!("invalid model: {e}"))
     }
 
-    pub fn parse_settings(effort: Option<&String>) -> GenerationSettings {
+    pub fn parse_settings(
+        effort: Option<&String>,
+        stream_idle_timeout_ms: Option<u64>,
+    ) -> GenerationSettings {
         let mut settings = GenerationSettings::default();
         if let Some(effort) = effort {
             if let Ok(parsed) = effort.parse::<ReasoningEffort>() {
                 settings.reasoning_effort = Some(parsed);
             }
         }
+        settings.stream_idle_timeout_ms = stream_idle_timeout_ms;
         settings
     }
 
@@ -824,6 +868,22 @@ enum RociContent {
 
 fn default_roci_model() -> String {
     std::env::var("HOMIE_ROCI_MODEL").unwrap_or_else(|_| DEFAULT_ROCI_MODEL.to_string())
+}
+
+fn spawn_next_run(backend: RociBackend, next: PendingRun, chat_id: String, thread_id: String) {
+    tokio::task::spawn_blocking(move || {
+        let handle = tokio::runtime::Handle::current();
+        if let Err(err) = handle.block_on(backend.start_run_inner(next)) {
+            if debug_enabled() {
+                tracing::debug!(
+                    %chat_id,
+                    %thread_id,
+                    error = %err,
+                    "roci queued run start failed"
+                );
+            }
+        }
+    });
 }
 
 fn now_unix() -> u64 {
@@ -1002,6 +1062,71 @@ fn emit_item_completed(
         "chat.item.completed",
         Some(serde_json::json!({ "threadId": thread_id, "turnId": turn_id, "item": item })),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::SqliteStore;
+    use roci::types::ContentPart;
+
+    #[tokio::test]
+    async fn queue_message_appends_to_active_turn() {
+        let (outbound_tx, _outbound_rx) = mpsc::channel(4);
+        let store = Arc::new(SqliteStore::open_memory().expect("store"));
+        let backend = RociBackend::new(outbound_tx, store, Arc::new(ExecPolicy::empty()));
+        let thread_id = "thread-1";
+        let chat_id = "chat-1";
+
+        backend.ensure_thread(thread_id).await;
+        let turn_id = Uuid::new_v4().to_string();
+        let assistant_id = Uuid::new_v4().to_string();
+        let (handle, _abort_rx, _result_tx, mut input_rx) =
+            roci::agent_loop::RunHandle::new(Uuid::new_v4());
+        {
+            let mut state = backend.state.lock().await;
+            let thread = state.threads.get_mut(thread_id).expect("thread");
+            thread.thread.turns.push(RociTurn::new(
+                turn_id.clone(),
+                vec![RociItem::assistant(assistant_id, String::new())],
+            ));
+            state
+                .active_threads
+                .insert(thread_id.to_string(), turn_id.clone());
+            state.runs.insert(
+                turn_id.clone(),
+                RociRunState {
+                    thread_id: thread_id.to_string(),
+                    handle: Some(handle),
+                },
+            );
+        }
+
+        let queued = backend
+            .queue_message(chat_id, thread_id, "hello world")
+            .await;
+        assert_eq!(queued.as_deref(), Some(turn_id.as_str()));
+
+        let message = input_rx.try_recv().expect("queued message");
+        assert_eq!(message.role, Role::User);
+        assert_eq!(
+            message.content,
+            vec![ContentPart::Text {
+                text: "hello world".to_string()
+            }]
+        );
+
+        let state = backend.state.lock().await;
+        let thread = state.threads.get(thread_id).expect("thread");
+        let turn = thread
+            .thread
+            .turns
+            .iter()
+            .find(|turn| turn.id == turn_id)
+            .expect("turn");
+        assert_eq!(turn.items.len(), 2);
+    }
+
 }
 
 fn emit_tool_item_started(

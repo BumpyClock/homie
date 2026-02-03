@@ -43,6 +43,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     activeTokenUsage,
     searchFiles,
     formatRelativeTime,
+    queuedNotice,
   } = useChat({ status, call, onEvent, enabled, namespace });
 
   const [draft, setDraft] = useState("");
@@ -405,6 +406,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               settings={activeSettings}
               tokenUsage={activeTokenUsage}
               running={!!activeThread?.running}
+              queuedHint={queuedNotice}
               disabled={!canEditSettings}
               onChangeSettings={(updates) => {
                 if (!activeThread) return;

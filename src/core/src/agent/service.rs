@@ -285,7 +285,7 @@ impl CodexChatCore {
     }
 
     async fn chat_message_send(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
-        let (chat_id, message, model, effort, approval_policy, collaboration_mode) =
+        let (chat_id, message, model, effort, approval_policy, collaboration_mode, inject) =
             match parse_message_params(&params) {
             Some(v) => v,
             None => {
@@ -328,6 +328,19 @@ impl CodexChatCore {
                 }
             }
 
+            if inject {
+                if let Some(turn_id) = self
+                    .roci
+                    .queue_message(&chat_id, &thread_id, &message)
+                    .await
+                {
+                    return Response::success(
+                        req_id,
+                        json!({ "chat_id": chat_id, "turn_id": turn_id, "queued": true }),
+                    );
+                }
+            }
+
             let roci_model = match RociBackend::parse_model(model.as_ref()) {
                 Ok(model) => model,
                 Err(err) => {
@@ -338,7 +351,10 @@ impl CodexChatCore {
                     )
                 }
             };
-            let roci_settings = RociBackend::parse_settings(effort.as_ref());
+            let roci_settings = RociBackend::parse_settings(
+                effort.as_ref(),
+                self.homie_config.chat.stream_idle_timeout_ms,
+            );
             let roci_policy = RociBackend::parse_approval_policy(approval_policy.as_ref());
             let roci_config = match self.roci_config_for_model(&roci_model).await {
                 Ok(config) => config,
@@ -1945,6 +1961,7 @@ fn parse_message_params(
     Option<String>,
     Option<String>,
     Option<Value>,
+    bool,
 )> {
     let p = params.as_ref()?;
     let chat_id = p.get("chat_id")?.as_str()?.to_string();
@@ -1960,7 +1977,16 @@ fn parse_message_params(
         .get("collaboration_mode")
         .or_else(|| p.get("collaborationMode"))
         .cloned();
-    Some((chat_id, message, model, effort, approval_policy, collaboration_mode))
+    let inject = p.get("inject").and_then(|v| v.as_bool()).unwrap_or(false);
+    Some((
+        chat_id,
+        message,
+        model,
+        effort,
+        approval_policy,
+        collaboration_mode,
+        inject,
+    ))
 }
 
 fn build_chat_settings(
@@ -2579,7 +2605,7 @@ mod tests {
             "chat_id": "abc-123",
             "message": "hello world"
         }));
-        let (chat_id, message, model, effort, approval_policy, collaboration_mode) =
+        let (chat_id, message, model, effort, approval_policy, collaboration_mode, inject) =
             parse_message_params(&params).unwrap();
         assert_eq!(chat_id, "abc-123");
         assert_eq!(message, "hello world");
@@ -2587,6 +2613,7 @@ mod tests {
         assert!(effort.is_none());
         assert!(approval_policy.is_none());
         assert!(collaboration_mode.is_none());
+        assert!(!inject);
     }
 
     #[test]
@@ -2594,6 +2621,17 @@ mod tests {
         assert!(parse_message_params(&None).is_none());
         assert!(parse_message_params(&Some(json!({"chat_id": "x"}))).is_none());
         assert!(parse_message_params(&Some(json!({"message": "x"}))).is_none());
+    }
+
+    #[test]
+    fn parse_message_params_reads_inject_flag() {
+        let params = Some(json!({
+            "chat_id": "abc-123",
+            "message": "hello world",
+            "inject": true
+        }));
+        let (_, _, _, _, _, _, inject) = parse_message_params(&params).unwrap();
+        assert!(inject);
     }
 
     #[test]
