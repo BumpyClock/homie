@@ -10,6 +10,8 @@ use super::types::{
 };
 use super::Store;
 
+const MAX_RAW_EVENT_BYTES: usize = 64 * 1024;
+
 /// SQLite-backed store for chat + terminal metadata.
 ///
 /// Uses a `Mutex<Connection>` for thread-safe interior mutability.
@@ -97,6 +99,21 @@ impl SqliteStore {
                 body            TEXT NOT NULL,
                 target          TEXT,
                 created_at      INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_runs (
+                run_id      TEXT PRIMARY KEY,
+                thread_id   TEXT NOT NULL,
+                started_at  INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_raw_events (
+                event_id    TEXT PRIMARY KEY,
+                run_id      TEXT NOT NULL,
+                thread_id   TEXT NOT NULL,
+                method      TEXT NOT NULL,
+                params_json TEXT NOT NULL,
+                created_at  INTEGER NOT NULL
             );
             ",
         )
@@ -670,6 +687,63 @@ impl Store for SqliteStore {
         .map_err(|e| format!("prune_notifications subs: {e}"))?;
         Ok(())
     }
+
+    fn insert_chat_raw_event(
+        &self,
+        run_id: &str,
+        thread_id: &str,
+        method: &str,
+        params: &serde_json::Value,
+    ) -> Result<(), String> {
+        let params_json =
+            serde_json::to_string(params).map_err(|e| format!("serialize raw event: {e}"))?;
+        if params_json.len() > MAX_RAW_EVENT_BYTES {
+            return Ok(());
+        }
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let started_at = now_unix();
+        conn.execute(
+            "INSERT OR IGNORE INTO chat_runs (run_id, thread_id, started_at)
+             VALUES (?1, ?2, ?3)",
+            params![run_id, thread_id, started_at as i64],
+        )
+        .map_err(|e| format!("insert_chat_raw_event run: {e}"))?;
+        conn.execute(
+            "INSERT INTO chat_raw_events (event_id, run_id, thread_id, method, params_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                Uuid::new_v4().to_string(),
+                run_id,
+                thread_id,
+                method,
+                params_json,
+                started_at as i64
+            ],
+        )
+        .map_err(|e| format!("insert_chat_raw_event event: {e}"))?;
+        Ok(())
+    }
+
+    fn prune_chat_raw_events(&self, max_runs: usize) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        conn.execute(
+            "DELETE FROM chat_raw_events
+             WHERE run_id NOT IN (
+                SELECT run_id FROM chat_runs ORDER BY started_at DESC LIMIT ?1
+             )",
+            params![max_runs as i64],
+        )
+        .map_err(|e| format!("prune_chat_raw_events events: {e}"))?;
+        conn.execute(
+            "DELETE FROM chat_runs
+             WHERE run_id NOT IN (
+                SELECT run_id FROM chat_runs ORDER BY started_at DESC LIMIT ?1
+             )",
+            params![max_runs as i64],
+        )
+        .map_err(|e| format!("prune_chat_raw_events runs: {e}"))?;
+        Ok(())
+    }
 }
 
 fn parse_settings_json(
@@ -1063,5 +1137,63 @@ mod tests {
         store.prune_notifications(1).unwrap();
         let subs = store.list_notification_subscriptions().unwrap();
         assert_eq!(subs.len(), 1);
+    }
+
+    #[test]
+    fn raw_event_pruning_keeps_the_latest_runs() {
+        let store = make_store();
+        let params = serde_json::json!({"ok": true});
+        store
+            .insert_chat_raw_event("run-1", "thread-1", "m1", &params)
+            .unwrap();
+        store
+            .insert_chat_raw_event("run-2", "thread-2", "m2", &params)
+            .unwrap();
+        store
+            .insert_chat_raw_event("run-3", "thread-3", "m3", &params)
+            .unwrap();
+
+        {
+            let conn = store.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE chat_runs SET started_at = ?1 WHERE run_id = ?2",
+                params![1_i64, "run-1"],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE chat_runs SET started_at = ?1 WHERE run_id = ?2",
+                params![2_i64, "run-2"],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE chat_runs SET started_at = ?1 WHERE run_id = ?2",
+                params![3_i64, "run-3"],
+            )
+            .unwrap();
+        }
+
+        store.prune_chat_raw_events(2).unwrap();
+
+        let conn = store.conn.lock().unwrap();
+        let run_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM chat_runs", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(run_count, 2);
+        let run1_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM chat_runs WHERE run_id = 'run-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(run1_count, 0);
+        let event_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM chat_raw_events WHERE run_id = 'run-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(event_count, 0);
     }
 }

@@ -56,9 +56,7 @@ struct CodexChatCore {
     reap_events: Vec<ReapEvent>,
     thread_ids: HashMap<String, String>,
     store: Arc<dyn Store>,
-    #[allow(dead_code)]
     homie_config: Arc<HomieConfig>,
-    #[allow(dead_code)]
     exec_policy: Arc<ExecPolicy>,
 }
 
@@ -93,6 +91,7 @@ impl CodexChatCore {
         let outbound = self.outbound_tx.clone();
         let store = self.store.clone();
         let exec_policy = self.exec_policy.clone();
+        let homie_config = self.homie_config.clone();
         let response_sender = process.response_sender();
         let forwarder = tokio::spawn(event_forwarder_loop(
             event_rx,
@@ -100,6 +99,7 @@ impl CodexChatCore {
             store,
             response_sender,
             exec_policy,
+            homie_config,
         ));
         self.event_forwarder = Some(forwarder);
         self.process = Some(process);
@@ -1011,24 +1011,38 @@ async fn event_forwarder_loop(
     store: Arc<dyn Store>,
     response_sender: CodexResponseSender,
     exec_policy: Arc<ExecPolicy>,
+    homie_config: Arc<HomieConfig>,
 ) {
     while let Some(event) = event_rx.recv().await {
+        let raw_params = event.params.unwrap_or(json!({}));
+        if homie_config.raw_events_enabled() {
+            if let (Some(thread_id), Some(run_id)) = (
+                extract_thread_id(&raw_params),
+                extract_turn_id(&raw_params),
+            ) {
+                if store
+                    .insert_chat_raw_event(&run_id, &thread_id, &event.method, &raw_params)
+                    .is_ok()
+                {
+                    let _ = store.prune_chat_raw_events(10);
+                }
+            }
+        }
+
         if event.method == "item/commandExecution/requestApproval" {
             if let Some(id) = event.id.clone() {
-                if let Some(params) = event.params.as_ref() {
-                    if let Some(argv) = approval_command_argv(params) {
-                        if exec_policy.is_allowed(&argv) {
-                            if let Some(thread_id) = extract_thread_id(params) {
-                                if let Ok(Some(chat)) = store.get_chat(&thread_id) {
-                                    let next = chat.event_pointer.saturating_add(1);
-                                    let _ = store.update_event_pointer(&chat.chat_id, next);
-                                }
+                if let Some(argv) = approval_command_argv(&raw_params) {
+                    if exec_policy.is_allowed(&argv) {
+                        if let Some(thread_id) = extract_thread_id(&raw_params) {
+                            if let Ok(Some(chat)) = store.get_chat(&thread_id) {
+                                let next = chat.event_pointer.saturating_add(1);
+                                let _ = store.update_event_pointer(&chat.chat_id, next);
                             }
-                            let result = json!({ "decision": "accept" });
-                            if response_sender.send_response(id, result).await.is_ok() {
-                                tracing::info!("execpolicy auto-approved command");
-                                continue;
-                            }
+                        }
+                        let result = json!({ "decision": "accept" });
+                        if response_sender.send_response(id, result).await.is_ok() {
+                            tracing::info!("execpolicy auto-approved command");
+                            continue;
                         }
                     }
                 }
@@ -1043,7 +1057,7 @@ async fn event_forwarder_loop(
             }
         };
 
-        let mut event_params = event.params.unwrap_or(json!({}));
+        let mut event_params = raw_params;
 
         if let Some(codex_id) = event.id {
             if let Some(obj) = event_params.as_object_mut() {
@@ -1333,6 +1347,20 @@ fn extract_thread_id(params: &Value) -> Option<String> {
         .get("threadId")
         .and_then(|v| v.as_str())
         .or_else(|| params.get("thread_id").and_then(|v| v.as_str()))
+        .map(|s| s.to_string())
+}
+
+fn extract_turn_id(params: &Value) -> Option<String> {
+    params
+        .get("turnId")
+        .and_then(|v| v.as_str())
+        .or_else(|| params.get("turn_id").and_then(|v| v.as_str()))
+        .or_else(|| {
+            params
+                .get("turn")
+                .and_then(|v| v.get("id"))
+                .and_then(|v| v.as_str())
+        })
         .map(|s| s.to_string())
 }
 

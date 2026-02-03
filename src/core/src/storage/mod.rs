@@ -93,4 +93,16 @@ pub trait Store: Send + Sync + 'static {
 
     /// Remove notification records beyond retention window.
     fn prune_notifications(&self, retention_days: u64) -> Result<(), String>;
+
+    /// Insert a raw provider event for debugging.
+    fn insert_chat_raw_event(
+        &self,
+        run_id: &str,
+        thread_id: &str,
+        method: &str,
+        params: &serde_json::Value,
+    ) -> Result<(), String>;
+
+    /// Prune raw provider events to keep only the latest runs.
+    fn prune_chat_raw_events(&self, max_runs: usize) -> Result<(), String>;
 }

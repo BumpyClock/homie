@@ -40,3 +40,4 @@
 - 2026-02-02: pwsh/PSReadLine emits DSR query `ESC[6n` on startup; ghostty-web doesn't reliably reply. Fix: detect `ESC[6n` in PTY output and inject a cursor report reply `ESC[1;1R` from client to unblock startup (also strip query so preview doesn't show `[6n`).
 - 2026-02-02: Added cross-platform homie home resolution via `directories` crate + `HOMIE_HOME` override; used for codex app-server dir and `~` expansion.
 - 2026-02-03: Added Homie config loader + execpolicy parser/matcher (token glob + shorthand), with debug raw event gating and cross-platform home resolution helpers.
+- 2026-02-03: Persist raw provider events in sqlite when debug is enabled; keep last 10 runs via chat_runs/chat_raw_events retention.
