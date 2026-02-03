@@ -18,6 +18,7 @@ use crate::agent::ChatService;
 use crate::auth::AuthOutcome;
 use crate::authz::{context_for_outcome, scope_for_method, AuthContext, Scope};
 use crate::config::ServerConfig;
+use crate::{ExecPolicy, HomieConfig};
 use crate::jobs::JobsService;
 use crate::notifications::NotificationsService;
 use crate::outbound::OutboundMessage;
@@ -48,6 +49,8 @@ pub struct ConnectionParams {
     pub nodes: Arc<Mutex<NodeRegistry>>,
     pub terminal_registry: Arc<Mutex<TerminalRegistry>>,
     pub event_tx: broadcast::Sender<crate::router::ReapEvent>,
+    pub homie_config: Arc<HomieConfig>,
+    pub exec_policy: Arc<ExecPolicy>,
     pub pairing_default_ttl_secs: u64,
     pub pairing_retention_secs: u64,
 }
@@ -63,6 +66,8 @@ struct MessageLoopParams {
     nodes: Arc<Mutex<NodeRegistry>>,
     terminal_registry: Arc<Mutex<TerminalRegistry>>,
     event_tx: broadcast::Sender<crate::router::ReapEvent>,
+    homie_config: Arc<HomieConfig>,
+    exec_policy: Arc<ExecPolicy>,
     pairing_default_ttl_secs: u64,
     pairing_retention_secs: u64,
 }
@@ -79,6 +84,8 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
         nodes,
         terminal_registry,
         event_tx,
+        homie_config,
+        exec_policy,
         pairing_default_ttl_secs,
         pairing_retention_secs,
     } = params;
@@ -172,6 +179,8 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
         nodes,
         terminal_registry,
         event_tx,
+        homie_config,
+        exec_policy,
         pairing_default_ttl_secs,
         pairing_retention_secs,
     };
@@ -195,6 +204,8 @@ async fn run_message_loop(
         nodes,
         terminal_registry,
         event_tx,
+        homie_config,
+        exec_policy,
         pairing_default_ttl_secs,
         pairing_retention_secs,
     } = params;
@@ -214,8 +225,12 @@ async fn run_message_loop(
         outbound_tx.clone(),
         event_tx.clone(),
     )));
-    let (chat_service, agent_service) =
-        ChatService::new_shared(outbound_tx.clone(), store.clone());
+    let (chat_service, agent_service) = ChatService::new_shared(
+        outbound_tx.clone(),
+        store.clone(),
+        homie_config,
+        exec_policy,
+    );
     router.register(Box::new(chat_service));
     router.register(Box::new(agent_service));
     router.register(Box::new(PresenceService::new(nodes)));

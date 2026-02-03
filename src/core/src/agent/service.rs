@@ -13,6 +13,7 @@ use super::process::{CodexEvent, CodexProcess, CodexRequestId};
 use crate::outbound::OutboundMessage;
 use crate::router::{ReapEvent, ServiceHandler};
 use crate::storage::{ChatRecord, SessionStatus, Store};
+use crate::{ExecPolicy, HomieConfig};
 
 /// Maps Codex notification methods to Homie event topics.
 fn codex_method_to_topics(method: &str) -> Option<(&'static str, &'static str)> {
@@ -55,10 +56,19 @@ struct CodexChatCore {
     reap_events: Vec<ReapEvent>,
     thread_ids: HashMap<String, String>,
     store: Arc<dyn Store>,
+    #[allow(dead_code)]
+    homie_config: Arc<HomieConfig>,
+    #[allow(dead_code)]
+    exec_policy: Arc<ExecPolicy>,
 }
 
 impl CodexChatCore {
-    fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
+    fn new(
+        outbound_tx: mpsc::Sender<OutboundMessage>,
+        store: Arc<dyn Store>,
+        homie_config: Arc<HomieConfig>,
+        exec_policy: Arc<ExecPolicy>,
+    ) -> Self {
         Self {
             outbound_tx,
             process: None,
@@ -66,6 +76,8 @@ impl CodexChatCore {
             reap_events: Vec::new(),
             thread_ids: HashMap::new(),
             store,
+            homie_config,
+            exec_policy,
         }
     }
 
@@ -773,17 +785,35 @@ pub struct AgentService {
 }
 
 impl ChatService {
-    pub fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
+    #[allow(dead_code)]
+    pub fn new(
+        outbound_tx: mpsc::Sender<OutboundMessage>,
+        store: Arc<dyn Store>,
+        homie_config: Arc<HomieConfig>,
+        exec_policy: Arc<ExecPolicy>,
+    ) -> Self {
         Self {
-            core: Arc::new(Mutex::new(CodexChatCore::new(outbound_tx, store))),
+            core: Arc::new(Mutex::new(CodexChatCore::new(
+                outbound_tx,
+                store,
+                homie_config,
+                exec_policy,
+            ))),
         }
     }
 
     pub fn new_shared(
         outbound_tx: mpsc::Sender<OutboundMessage>,
         store: Arc<dyn Store>,
+        homie_config: Arc<HomieConfig>,
+        exec_policy: Arc<ExecPolicy>,
     ) -> (Self, AgentService) {
-        let core = Arc::new(Mutex::new(CodexChatCore::new(outbound_tx, store)));
+        let core = Arc::new(Mutex::new(CodexChatCore::new(
+            outbound_tx,
+            store,
+            homie_config,
+            exec_policy,
+        )));
         (
             Self {
                 core: core.clone(),
@@ -810,9 +840,20 @@ impl ChatService {
 }
 
 impl AgentService {
-    pub fn new(outbound_tx: mpsc::Sender<OutboundMessage>, store: Arc<dyn Store>) -> Self {
+    #[allow(dead_code)]
+    pub fn new(
+        outbound_tx: mpsc::Sender<OutboundMessage>,
+        store: Arc<dyn Store>,
+        homie_config: Arc<HomieConfig>,
+        exec_policy: Arc<ExecPolicy>,
+    ) -> Self {
         Self {
-            core: Arc::new(Mutex::new(CodexChatCore::new(outbound_tx, store))),
+            core: Arc::new(Mutex::new(CodexChatCore::new(
+                outbound_tx,
+                store,
+                homie_config,
+                exec_policy,
+            ))),
         }
     }
 
@@ -1534,7 +1575,12 @@ mod tests {
     #[tokio::test]
     async fn agent_service_returns_error_for_unknown_method() {
         let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
-        let mut svc = AgentService::new(tx, make_store());
+        let mut svc = AgentService::new(
+            tx,
+            make_store(),
+            Arc::new(HomieConfig::default()),
+            Arc::new(ExecPolicy::empty()),
+        );
         let id = Uuid::new_v4();
         let resp = svc.handle_request(id, "agent.unknown.method", None).await;
         assert!(resp.error.is_some());
@@ -1544,21 +1590,36 @@ mod tests {
     #[test]
     fn agent_service_namespace_is_agent() {
         let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
-        let svc = AgentService::new(tx, make_store());
+        let svc = AgentService::new(
+            tx,
+            make_store(),
+            Arc::new(HomieConfig::default()),
+            Arc::new(ExecPolicy::empty()),
+        );
         assert_eq!(svc.namespace(), "agent");
     }
 
     #[test]
     fn agent_service_reap_returns_empty_initially() {
         let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
-        let mut svc = AgentService::new(tx, make_store());
+        let mut svc = AgentService::new(
+            tx,
+            make_store(),
+            Arc::new(HomieConfig::default()),
+            Arc::new(ExecPolicy::empty()),
+        );
         assert!(svc.reap().is_empty());
     }
 
     #[tokio::test]
     async fn chat_list_returns_empty_initially() {
         let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
-        let mut svc = AgentService::new(tx, make_store());
+        let mut svc = AgentService::new(
+            tx,
+            make_store(),
+            Arc::new(HomieConfig::default()),
+            Arc::new(ExecPolicy::empty()),
+        );
         let id = Uuid::new_v4();
         let resp = svc.handle_request(id, "agent.chat.list", None).await;
         assert!(resp.error.is_none());

@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct ExecPolicy {
@@ -20,6 +21,15 @@ impl ExecPolicy {
             }
         }
         Ok(Self { rules: compiled })
+    }
+
+    pub fn load_from_path(path: &Path) -> Result<Self, String> {
+        if !path.exists() {
+            return Ok(Self::empty());
+        }
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| format!("read execpolicy {}: {e}", path.display()))?;
+        Self::load_from_str(&raw)
     }
 
     pub fn is_allowed(&self, argv: &[String]) -> bool {
