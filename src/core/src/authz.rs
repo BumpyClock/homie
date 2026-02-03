@@ -93,6 +93,7 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         | "chat.thread.read"
         | "chat.thread.list"
         | "chat.account.read"
+        | "chat.account.list"
         | "chat.skills.list"
         | "chat.model.list"
         | "chat.collaboration.mode.list"
@@ -113,7 +114,9 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         | "chat.thread.archive"
         | "chat.thread.rename"
         | "chat.settings.update"
-        | "chat.skills.config.write" => Some(Scope::AgentWrite),
+        | "chat.skills.config.write"
+        | "chat.account.login.start"
+        | "chat.account.login.poll" => Some(Scope::AgentWrite),
         "presence.list" => Some(Scope::PresenceRead),
         "presence.register" | "presence.heartbeat" | "presence.unregister" => {
             Some(Scope::PresenceWrite)

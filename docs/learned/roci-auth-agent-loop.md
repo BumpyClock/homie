@@ -125,3 +125,7 @@ Approval key shape (Codex behavior):
 - Windows matching: case-insensitive argv/path comparisons by default.
 - Tool runtime defaults (Windows): `pwsh` → `powershell` → `cmd`.
 - Windows auth import: file-only for Codex; skip keychain; Claude Code at `$USERHOME/.claude/`.
+
+## 2026-02-03 updates
+- Implemented `roci::auth` module (device-code sessions, file token store, provider helpers for Codex/Copilot/Claude Code).
+- Added Homie `chat.account.list` endpoint using roci token store for provider login status.

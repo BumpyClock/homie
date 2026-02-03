@@ -42,3 +42,6 @@
 - 2026-02-03: Added Homie config loader + execpolicy parser/matcher (token glob + shorthand), with debug raw event gating and cross-platform home resolution helpers.
 - 2026-02-03: Persist raw provider events in sqlite when debug is enabled; keep last 10 runs via chat_runs/chat_raw_events retention.
 - 2026-02-03: Added roci auth scaffolding (device-code sessions, file token store, provider helpers) in submodule.
+- 2026-02-03: Added chat.account.list for provider login status using roci token store.
+- 2026-02-03: chat.account.list now auto-imports Codex/Claude CLI creds into Homie token store; Codex import respects CODEX_HOME.
+- 2026-02-03: Added roci agent_loop scaffolding (run/events/approvals) behind feature gate; added chat.account.login.start/poll device-code RPCs in gateway.

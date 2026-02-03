@@ -5,6 +5,9 @@ members = [
   "src/gateway",
   "src/infra/homie-protocol",
 ]
+exclude = [
+  "src/infra/roci",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -16,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
