@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,18 @@ pub struct RociBackend {
     exec_policy: Arc<ExecPolicy>,
 }
 
+struct PendingRun {
+    chat_id: String,
+    thread_id: String,
+    turn_id: String,
+    assistant_item_id: String,
+    messages: Vec<ModelMessage>,
+    model: LanguageModel,
+    settings: GenerationSettings,
+    approval_policy: ApprovalPolicy,
+    config: RociConfig,
+}
+
 impl RociBackend {
     pub fn new(
         outbound_tx: mpsc::Sender<OutboundMessage>,
@@ -92,6 +104,8 @@ impl RociBackend {
         let mut state = self.state.lock().await;
         state.threads.remove(thread_id);
         state.runs.retain(|_, run| run.thread_id != thread_id);
+        state.run_queue.remove(thread_id);
+        state.active_threads.remove(thread_id);
     }
 
     pub async fn start_run(
@@ -164,18 +178,86 @@ impl RociBackend {
                 .map(|thread| thread.messages.clone())
                 .unwrap_or_default()
         };
+        let pending = PendingRun {
+            chat_id: chat_id.to_string(),
+            thread_id: thread_id.to_string(),
+            turn_id: turn_id.clone(),
+            assistant_item_id: assistant_item_id.clone(),
+            messages,
+            model,
+            settings,
+            approval_policy,
+            config,
+        };
 
-        let run_id = Uuid::parse_str(&turn_id).unwrap_or_else(|_| Uuid::new_v4());
+        let mut pending = Some(pending);
+        let should_start = {
+            let mut state = self.state.lock().await;
+            if state.active_threads.contains_key(thread_id) {
+                state
+                    .run_queue
+                    .entry(thread_id.to_string())
+                    .or_default()
+                    .push_back(pending.take().unwrap());
+                false
+            } else {
+                state
+                    .active_threads
+                    .insert(thread_id.to_string(), turn_id.clone());
+                true
+            }
+        };
+
+        if !should_start {
+            if debug_enabled() {
+                tracing::debug!(
+                    %chat_id,
+                    %thread_id,
+                    %turn_id,
+                    "roci run queued"
+                );
+            }
+            return Ok(turn_id);
+        }
+
+        if let Err(err) = self.start_run_inner(pending.take().unwrap()).await {
+            {
+                let mut state = self.state.lock().await;
+                if state.active_threads.get(thread_id) == Some(&turn_id) {
+                    state.active_threads.remove(thread_id);
+                }
+            }
+            if let Some(next) = self.dequeue_next_run(thread_id).await {
+                if let Err(next_err) = self.start_run_inner(next).await {
+                    if debug_enabled() {
+                        tracing::debug!(
+                            %chat_id,
+                            %thread_id,
+                            error = %next_err,
+                            "roci queued run start failed"
+                        );
+                    }
+                }
+            }
+            return Err(err);
+        }
+
+        Ok(turn_id)
+    }
+
+    async fn start_run_inner(&self, pending: PendingRun) -> Result<(), String> {
+        let run_id = Uuid::parse_str(&pending.turn_id).unwrap_or_else(|_| Uuid::new_v4());
         if debug_enabled() {
             tracing::debug!(
-                %chat_id,
-                %thread_id,
-                %turn_id,
+                chat_id = %pending.chat_id,
+                thread_id = %pending.thread_id,
+                turn_id = %pending.turn_id,
                 run_id = %run_id,
-                model = %model.to_string(),
+                model = %pending.model.to_string(),
                 "roci start_run"
             );
         }
+
         let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RunEvent>();
         let event_sink = Arc::new(move |event: RunEvent| {
             let _ = event_tx.send(event);
@@ -209,15 +291,15 @@ impl RociBackend {
             })
         });
 
-        let mut run_request = RunRequest::new(model, messages);
+        let mut run_request = RunRequest::new(pending.model, pending.messages);
         run_request.run_id = run_id;
-        run_request.settings = settings;
+        run_request.settings = pending.settings;
         run_request.tools = self.tools.clone();
-        run_request.approval_policy = approval_policy;
+        run_request.approval_policy = pending.approval_policy;
         run_request.event_sink = Some(event_sink);
         run_request.approval_handler = Some(approval_handler);
 
-        let runner = LoopRunner::new(config);
+        let runner = LoopRunner::new(pending.config);
         let handle = runner
             .start(run_request)
             .await
@@ -226,9 +308,9 @@ impl RociBackend {
         {
             let mut state = self.state.lock().await;
             state.runs.insert(
-                turn_id.clone(),
+                pending.turn_id.clone(),
                 RociRunState {
-                    thread_id: thread_id.to_string(),
+                    thread_id: pending.thread_id.clone(),
                     handle: Some(handle),
                 },
             );
@@ -237,10 +319,11 @@ impl RociBackend {
         let outbound = self.outbound_tx.clone();
         let store = self.store.clone();
         let state = self.state.clone();
-        let thread_id = thread_id.to_string();
-        let turn_id_clone = turn_id.clone();
-        let chat_id = chat_id.to_string();
-        let assistant_item_id_clone = assistant_item_id.clone();
+        let thread_id = pending.thread_id.clone();
+        let turn_id_clone = pending.turn_id.clone();
+        let chat_id = pending.chat_id.clone();
+        let assistant_item_id_clone = pending.assistant_item_id.clone();
+        let backend = self.clone();
 
         tokio::spawn(async move {
             let mut assistant_text = String::new();
@@ -437,13 +520,16 @@ impl RociBackend {
                                 {
                                     let mut guard = state.lock().await;
                                     if let Some(thread) = guard.threads.get_mut(&thread_id) {
-                                        if let Some(item_id) = thread.last_assistant_item_id.clone() {
-                                            thread.update_assistant_text(&item_id, &assistant_text);
-                                            thread.messages.push(ModelMessage::assistant(assistant_text.clone()));
-                                        }
+                                        thread.update_assistant_text(&assistant_item_id_clone, &assistant_text);
+                                        thread
+                                            .messages
+                                            .push(ModelMessage::assistant(assistant_text.clone()));
                                         thread.thread.updated_at = now_unix();
                                     }
                                     guard.runs.remove(&turn_id_clone);
+                                    if guard.active_threads.get(&thread_id) == Some(&turn_id_clone) {
+                                        guard.active_threads.remove(&thread_id);
+                                    }
                                 }
                                 emit_item_completed(
                                     &outbound,
@@ -462,12 +548,41 @@ impl RociBackend {
                                     &turn_id_clone,
                                     "completed",
                                 );
+                                if let Some(next) = backend.dequeue_next_run(&thread_id).await {
+                                    if let Err(err) = backend.start_run_inner(next).await {
+                                        if debug_enabled() {
+                                            tracing::debug!(
+                                                %chat_id,
+                                                %thread_id,
+                                                error = %err,
+                                                "roci queued run start failed"
+                                            );
+                                        }
+                                    }
+                                }
                                 break;
                             }
                             RunLifecycle::Failed { error } => {
                                 emit_error(&outbound, &store, &chat_id, &thread_id, &turn_id_clone, error);
-                                let mut guard = state.lock().await;
-                                guard.runs.remove(&turn_id_clone);
+                                {
+                                    let mut guard = state.lock().await;
+                                    guard.runs.remove(&turn_id_clone);
+                                    if guard.active_threads.get(&thread_id) == Some(&turn_id_clone) {
+                                        guard.active_threads.remove(&thread_id);
+                                    }
+                                }
+                                if let Some(next) = backend.dequeue_next_run(&thread_id).await {
+                                    if let Err(err) = backend.start_run_inner(next).await {
+                                        if debug_enabled() {
+                                            tracing::debug!(
+                                                %chat_id,
+                                                %thread_id,
+                                                error = %err,
+                                                "roci queued run start failed"
+                                            );
+                                        }
+                                    }
+                                }
                                 break;
                             }
                             RunLifecycle::Canceled => {
@@ -479,8 +594,25 @@ impl RociBackend {
                                     &turn_id_clone,
                                     "canceled",
                                 );
-                                let mut guard = state.lock().await;
-                                guard.runs.remove(&turn_id_clone);
+                                {
+                                    let mut guard = state.lock().await;
+                                    guard.runs.remove(&turn_id_clone);
+                                    if guard.active_threads.get(&thread_id) == Some(&turn_id_clone) {
+                                        guard.active_threads.remove(&thread_id);
+                                    }
+                                }
+                                if let Some(next) = backend.dequeue_next_run(&thread_id).await {
+                                    if let Err(err) = backend.start_run_inner(next).await {
+                                        if debug_enabled() {
+                                            tracing::debug!(
+                                                %chat_id,
+                                                %thread_id,
+                                                error = %err,
+                                                "roci queued run start failed"
+                                            );
+                                        }
+                                    }
+                                }
                                 break;
                             }
                             RunLifecycle::Started => {}
@@ -495,7 +627,21 @@ impl RociBackend {
             }
         });
 
-        Ok(turn_id)
+        Ok(())
+    }
+
+    async fn dequeue_next_run(&self, thread_id: &str) -> Option<PendingRun> {
+        let mut state = self.state.lock().await;
+        let next = state
+            .run_queue
+            .get_mut(thread_id)
+            .and_then(|queue| queue.pop_front());
+        if let Some(run) = next.as_ref() {
+            state
+                .active_threads
+                .insert(thread_id.to_string(), run.turn_id.clone());
+        }
+        next
     }
 
     pub async fn cancel_run(&self, turn_id: &str) -> bool {
@@ -505,7 +651,15 @@ impl RociBackend {
                 return handle.abort();
             }
         }
-        false
+        let mut removed = false;
+        for queue in state.run_queue.values_mut() {
+            if let Some(idx) = queue.iter().position(|run| run.turn_id == turn_id) {
+                queue.remove(idx);
+                removed = true;
+                break;
+            }
+        }
+        removed
     }
 
     pub async fn shutdown(&self) {
@@ -516,6 +670,8 @@ impl RociBackend {
             }
         }
         state.runs.clear();
+        state.run_queue.clear();
+        state.active_threads.clear();
     }
 
     pub fn parse_model(input: Option<&String>) -> Result<LanguageModel, String> {
@@ -566,6 +722,8 @@ impl RociBackend {
 struct RociState {
     threads: HashMap<String, RociThreadState>,
     runs: HashMap<String, RociRunState>,
+    run_queue: HashMap<String, VecDeque<PendingRun>>,
+    active_threads: HashMap<String, String>,
     approvals: HashMap<String, oneshot::Sender<ApprovalDecision>>,
 }
 
