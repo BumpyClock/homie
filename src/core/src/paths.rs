@@ -72,3 +72,7 @@ pub fn homie_credentials_dir() -> Result<PathBuf, String> {
 pub fn homie_execpolicy_path() -> Result<PathBuf, String> {
     Ok(homie_home_dir()?.join("execpolicy.toml"))
 }
+
+pub fn homie_system_prompt_path() -> Result<PathBuf, String> {
+    Ok(homie_home_dir()?.join("system_prompt.md"))
+}

@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use crate::paths::{
-    homie_config_path, homie_credentials_dir, homie_execpolicy_path, homie_home_dir, user_home_dir,
+    homie_config_path, homie_credentials_dir, homie_execpolicy_path, homie_home_dir,
+    homie_system_prompt_path, user_home_dir,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -34,11 +35,16 @@ impl HomieConfig {
     pub fn load() -> Result<Self, String> {
         let path = homie_config_path()?;
         if !path.exists() {
-            return Ok(Self::default());
+            let mut config = Self::default();
+            config.ensure_system_prompt()?;
+            return Ok(config);
         }
         let raw =
             std::fs::read_to_string(&path).map_err(|e| format!("read config.toml: {e}"))?;
-        toml::from_str(&raw).map_err(|e| format!("parse config.toml: {e}"))
+        let mut config: Self =
+            toml::from_str(&raw).map_err(|e| format!("parse config.toml: {e}"))?;
+        config.ensure_system_prompt()?;
+        Ok(config)
     }
 
     pub fn config_path() -> Result<PathBuf, String> {
@@ -70,6 +76,32 @@ impl HomieConfig {
         let home_debug = std::env::var(&self.debug.home_debug_env).ok();
         matches!(homie_debug.as_deref(), Some("1"))
             || matches!(home_debug.as_deref(), Some("1"))
+    }
+
+    fn ensure_system_prompt(&mut self) -> Result<(), String> {
+        let path = if let Some(path) = self.chat.system_prompt_path.as_ref() {
+            resolve_path(path)?
+        } else {
+            homie_system_prompt_path()?
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("create system prompt dir: {e}"))?;
+        }
+        if path.exists() {
+            let raw = std::fs::read_to_string(&path)
+                .map_err(|e| format!("read system prompt: {e}"))?;
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                self.chat.system_prompt = trimmed.to_string();
+                return Ok(());
+            }
+        } else {
+            std::fs::write(&path, DEFAULT_SYSTEM_PROMPT)
+                .map_err(|e| format!("write system prompt: {e}"))?;
+        }
+        self.chat.system_prompt = DEFAULT_SYSTEM_PROMPT.to_string();
+        Ok(())
     }
 }
 
@@ -108,16 +140,21 @@ impl Default for ModelsConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ChatConfig {
+    pub system_prompt_path: Option<String>,
+    #[serde(skip)]
     pub system_prompt: String,
 }
 
 impl Default for ChatConfig {
     fn default() -> Self {
         Self {
-            system_prompt: "You are Homie, a helpful assistant for remote machine access.".to_string(),
+            system_prompt_path: None,
+            system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
         }
     }
 }
+
+const DEFAULT_SYSTEM_PROMPT: &str = "You are Homie, a helpful assistant for remote machine access.";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
