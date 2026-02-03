@@ -344,7 +344,7 @@ function KeyButton({ label, onClick }: { label: string; onClick: () => void }) {
     return (
         <button 
             onClick={onClick}
-            className="px-4 py-2 bg-card hover:bg-muted text-foreground border border-border rounded text-xs font-mono font-bold shadow-sm active:transform active:scale-95 transition-colors"
+            className="px-3 sm:px-4 py-2 min-h-[44px] bg-card hover:bg-muted text-foreground border border-border rounded text-xs font-mono font-bold shadow-sm active:transform active:scale-95 transition-colors"
         >
             {label}
         </button>

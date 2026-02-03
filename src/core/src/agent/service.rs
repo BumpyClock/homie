@@ -360,6 +360,7 @@ impl CodexChatCore {
                     roci_settings,
                     roci_policy,
                     roci_config,
+                    Some(self.homie_config.chat.system_prompt.clone()),
                 )
                 .await
             {
@@ -1164,10 +1165,18 @@ impl CodexChatCore {
                 }
             }
             "openai-codex" => {
-                if cfg.openai_codex.enabled && config.get_api_key("openai-codex").is_none() {
+                if cfg.openai_codex.enabled {
                     let auth = self.openai_codex_auth(store.clone(), "default");
                     if let Ok(token) = auth.get_token().await {
-                        config.set_api_key("openai-codex", token.access_token);
+                        if config.get_api_key("openai-codex").is_none() {
+                            config.set_api_key("openai-codex", token.access_token);
+                        }
+                        if let Some(account_id) = token.account_id {
+                            config.set_account_id("openai-codex", account_id);
+                            if debug_enabled() {
+                                tracing::debug!("openai-codex account_id set");
+                            }
+                        }
                         if config.get_base_url("openai-codex").is_none() {
                             if let Some(base) = config.get_base_url("openai") {
                                 config.set_base_url("openai-codex", base);
@@ -1637,6 +1646,11 @@ impl AgentService {
     fn reap_core(&mut self) -> Vec<ReapEvent> {
         self.core.try_lock().map(|mut core| core.reap()).unwrap_or_default()
     }
+}
+
+fn debug_enabled() -> bool {
+    matches!(std::env::var("HOMIE_DEBUG").as_deref(), Ok("1" | "true" | "TRUE"))
+        || matches!(std::env::var("HOME_DEBUG").as_deref(), Ok("1" | "true" | "TRUE"))
 }
 
 impl ServiceHandler for ChatService {

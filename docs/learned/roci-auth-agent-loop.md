@@ -49,6 +49,22 @@ Exec allowlist patterns (future Homie allowlist):
 - `~/Projects/openclaw/src/infra/exec-approvals.ts`
   - resolves executable path + pattern matching for approvals/allowlists
 
+OpenAI Codex request mechanics (pi-ai):
+- `~/Projects/openclaw/node_modules/@mariozechner/pi-ai/dist/providers/openai-codex-responses.js`
+  - URL: `https://chatgpt.com/backend-api/codex/responses`
+  - Auth headers:
+    - `Authorization: Bearer <oauth_access_token>`
+    - `chatgpt-account-id: <account_id>` extracted from JWT claim `https://api.openai.com/auth.chatgpt_account_id`
+    - `OpenAI-Beta: responses=experimental`
+    - `originator: pi`
+    - `User-Agent: pi (<os> <arch>)`
+    - `accept: text/event-stream`
+    - `content-type: application/json`
+    - `session_id` header when session caching is used
+  - Body: `model`, `store: false`, `stream: true`, `instructions` (system prompt),
+    `input` (messages sans system), `text.verbosity`, `include: ["reasoning.encrypted_content"]`,
+    `prompt_cache_key`, `tool_choice: "auto"`, `parallel_tool_calls: true`, `reasoning` (effort/summary)
+
 ## codex-rs mechanics to mirror (code refs)
 Device-code flow (Codex subscription):
 - `~/Projects/references/codex/codex-rs/login/src/device_code_auth.rs`
@@ -56,6 +72,10 @@ Device-code flow (Codex subscription):
   - verification URL: `{issuer}/codex/device`
   - PKCE redirect URI: `{issuer}/deviceauth/callback`
   - poll treats `403/404` as pending; 15m timeout
+
+Auth headers for Codex OAuth:
+- `~/Projects/references/codex/codex-rs/codex-api/src/auth.rs`
+  - Adds `Authorization: Bearer <access_token>` and `ChatGPT-Account-ID` when account_id is present.
 
 Token storage + keyring mapping:
 - `~/Projects/references/codex/codex-rs/core/src/auth/storage.rs`

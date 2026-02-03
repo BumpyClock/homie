@@ -12,6 +12,7 @@ pub struct HomieConfig {
     pub version: u32,
     pub debug: DebugConfig,
     pub models: ModelsConfig,
+    pub chat: ChatConfig,
     pub providers: ProvidersConfig,
     pub paths: PathsConfig,
 }
@@ -22,6 +23,7 @@ impl Default for HomieConfig {
             version: 1,
             debug: DebugConfig::default(),
             models: ModelsConfig::default(),
+            chat: ChatConfig::default(),
             providers: ProvidersConfig::default(),
             paths: PathsConfig::default(),
         }
@@ -99,6 +101,20 @@ impl Default for ModelsConfig {
     fn default() -> Self {
         Self {
             catalog_ttl_secs: 300,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ChatConfig {
+    pub system_prompt: String,
+}
+
+impl Default for ChatConfig {
+    fn default() -> Self {
+        Self {
+            system_prompt: "You are Homie, a helpful assistant for remote machine access.".to_string(),
         }
     }
 }

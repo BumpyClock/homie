@@ -9,6 +9,7 @@ interface ChatThreadListProps {
   formatRelativeTime: (value?: number) => string;
   onCreate: () => void;
   onSelect: (chatId: string) => void;
+  mobileHidden?: boolean;
 }
 
 export function ChatThreadList({
@@ -19,9 +20,14 @@ export function ChatThreadList({
   formatRelativeTime,
   onCreate,
   onSelect,
+  mobileHidden,
 }: ChatThreadListProps) {
   return (
-    <aside className="w-[320px] max-w-[40%] border-r border-border bg-card/40 flex flex-col min-h-0">
+    <aside
+      className={`w-full sm:w-[320px] sm:max-w-[40%] border-r border-border bg-card/40 flex flex-col min-h-0 ${
+        mobileHidden ? "hidden sm:flex" : ""
+      }`}
+    >
       <div className="p-4 border-b border-border flex items-center justify-between gap-2">
         <div>
           <div className="text-sm font-semibold">Chats</div>

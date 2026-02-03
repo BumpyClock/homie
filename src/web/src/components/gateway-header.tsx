@@ -63,19 +63,24 @@ export function GatewayHeader({
 }: GatewayHeaderProps) {
   return (
     <header className="border-b border-border bg-card/40 backdrop-blur">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 px-4 sm:px-6 py-3 sm:py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-baseline gap-3">
-            <div className="text-lg font-semibold">Homie Web</div>
+            <div className="text-base sm:text-lg font-semibold">Homie Web</div>
             <div className="text-xs text-muted-foreground">Gateway Console</div>
           </div>
+          <div className="flex items-center gap-2">
+            <ThemeSelector />
+          </div>
+        </div>
 
-          <div className="relative">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[220px]">
             <button
               ref={targetTriggerRef}
               type="button"
               onClick={() => setIsTargetOpen(!isTargetOpen)}
-              className="flex items-center gap-2 px-3 py-2 min-h-[44px] bg-card/60 border border-border rounded-md text-sm text-foreground hover:bg-card/80 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 min-h-[44px] bg-card/60 border border-border rounded-md text-sm text-foreground hover:bg-card/80 transition-colors"
               aria-haspopup="dialog"
               aria-expanded={isTargetOpen}
             >
@@ -137,7 +142,7 @@ export function GatewayHeader({
                 aria-pressed={activeTab === "terminals"}
               >
                 <TerminalSquare className="w-4 h-4" />
-                Terminals
+                <span className="hidden sm:inline">Terminals</span>
               </button>
               <button
                 type="button"
@@ -150,15 +155,13 @@ export function GatewayHeader({
                 aria-pressed={activeTab === "chat"}
               >
                 <MessageSquareText className="w-4 h-4" />
-                Chat
+                <span className="hidden sm:inline">Chat</span>
               </button>
             </div>
           )}
-        </div>
 
-        <div className="flex items-center gap-2">
           {serverHello && activeTab === "terminals" && (
-            <>
+            <div className="flex flex-wrap items-center gap-2">
               <div className="hidden sm:flex items-center gap-2 bg-muted/40 border border-border rounded px-2">
                 <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Preview</span>
                 <select
@@ -193,12 +196,11 @@ export function GatewayHeader({
                 className="flex items-center gap-1 px-3 py-2 min-h-[44px] bg-primary hover:bg-primary/90 rounded text-primary-foreground text-sm font-medium transition-colors disabled:opacity-50"
               >
                 <Plus className="w-4 h-4" />
-                New Session
+                <span className="hidden sm:inline">New Session</span>
+                <span className="sm:hidden">New</span>
               </button>
-            </>
+            </div>
           )}
-
-          <ThemeSelector />
         </div>
       </div>
     </header>

@@ -46,6 +46,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   } = useChat({ status, call, onEvent, enabled, namespace });
 
   const [draft, setDraft] = useState("");
+  const [showThreadList, setShowThreadList] = useState(true);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
@@ -102,7 +103,28 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   useEffect(() => {
     setIsEditingTitle(false);
     setTitleDraft(activeTitle);
-  }, [activeThread?.chatId, activeTitle]);
+    if (!activeThread) {
+      if (typeof window !== "undefined" && window.innerWidth < 640) {
+        setShowThreadList(true);
+      }
+      return;
+    }
+    if (typeof window !== "undefined" && window.innerWidth < 640) {
+      setShowThreadList(false);
+    }
+  }, [activeThread?.chatId, activeTitle, activeThread]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => {
+      if (window.innerWidth >= 640) {
+        setShowThreadList(true);
+      }
+    };
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     setAttachDraft(attachedFolder ?? "");
@@ -265,10 +287,16 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
         canCreate={status === "connected"}
         formatRelativeTime={formatRelativeTime}
         onCreate={createChat}
-        onSelect={selectChat}
+        onSelect={(chatId) => {
+          selectChat(chatId);
+          if (typeof window !== "undefined" && window.innerWidth < 640) {
+            setShowThreadList(false);
+          }
+        }}
+        mobileHidden={!showThreadList}
       />
 
-      <section className="flex-1 min-h-0 flex flex-col">
+      <section className={`flex-1 min-h-0 flex flex-col ${showThreadList ? "hidden sm:flex" : "flex"}`}>
         <ChatThreadHeader
           activeThread={activeThread}
           activeTitle={activeTitle}
@@ -290,6 +318,8 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
             if (!activeThread) return;
             archiveChat(activeThread.chatId);
           }}
+          onBack={() => setShowThreadList(true)}
+          showBackButton={!showThreadList}
         />
 
         <div
@@ -321,7 +351,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
                 }
               }
             }}
-            className="h-full overflow-y-auto px-6 py-6 space-y-4"
+            className="h-full overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4"
           >
           {!accountStatus.ok && (
             <div className="rounded-lg border border-amber-400/60 bg-amber-50/70 dark:bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
@@ -443,7 +473,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
             </div>
           )}
           <form
-            className="flex gap-2 items-end"
+            className="flex flex-col sm:flex-row gap-2 items-end"
             onSubmit={(e) => {
               e.preventDefault();
               void handleSend();
@@ -514,7 +544,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
             <button
               type="submit"
               disabled={!canSend || !draft.trim()}
-              className="px-4 py-2 min-h-[44px] rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="w-full sm:w-auto px-4 py-2 min-h-[44px] rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               Send
             </button>

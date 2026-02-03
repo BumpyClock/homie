@@ -42,12 +42,12 @@ export function TerminalScreen({
   sessionMenu,
 }: TerminalScreenProps) {
   return (
-    <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
+    <div className="min-h-[100dvh] w-screen flex flex-col bg-background overflow-hidden">
       <div className="flex items-center justify-between p-2 bg-muted/50 border-b border-border shrink-0">
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
-            className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors"
+            className="p-2 min-h-[44px] min-w-[44px] hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors"
             title="Back to dashboard"
             aria-label="Back to dashboard"
           >

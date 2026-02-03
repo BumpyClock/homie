@@ -12,7 +12,7 @@ use roci::agent_loop::{
 };
 use roci::config::RociConfig;
 use roci::models::LanguageModel;
-use roci::types::ModelMessage;
+use roci::types::{ModelMessage, Role};
 use roci::types::{GenerationSettings, ReasoningEffort};
 
 use crate::outbound::OutboundMessage;
@@ -90,14 +90,27 @@ impl RociBackend {
         settings: GenerationSettings,
         approval_policy: ApprovalPolicy,
         config: RociConfig,
+        system_prompt: Option<String>,
     ) -> Result<String, String> {
         self.ensure_thread(thread_id).await;
+        let system_prompt = system_prompt
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty());
         let (turn_id, user_item_id, assistant_item_id) = {
             let mut state = self.state.lock().await;
             let thread = state
                 .threads
                 .get_mut(thread_id)
                 .ok_or_else(|| "thread missing".to_string())?;
+            if let Some(prompt) = system_prompt.as_ref() {
+                let has_system = thread
+                    .messages
+                    .iter()
+                    .any(|msg| msg.role == Role::System);
+                if !has_system {
+                    thread.messages.insert(0, ModelMessage::system(prompt.clone()));
+                }
+            }
             let turn_id = Uuid::new_v4().to_string();
             let user_item_id = Uuid::new_v4().to_string();
             let assistant_item_id = Uuid::new_v4().to_string();

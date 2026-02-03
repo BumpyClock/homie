@@ -1,4 +1,4 @@
-import { Pencil, Square, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Square, Trash2 } from "lucide-react";
 import type { ActiveChatThread } from "@/lib/chat-utils";
 
 interface ChatThreadHeaderProps {
@@ -12,6 +12,8 @@ interface ChatThreadHeaderProps {
   onSaveTitle: () => void;
   onCancelActive: () => void;
   onArchive: () => void;
+  onBack?: () => void;
+  showBackButton?: boolean;
 }
 
 export function ChatThreadHeader({
@@ -25,6 +27,8 @@ export function ChatThreadHeader({
   onSaveTitle,
   onCancelActive,
   onArchive,
+  onBack,
+  showBackButton,
 }: ChatThreadHeaderProps) {
   return (
     <div className="border-b border-border p-4 flex items-start justify-between gap-3">
@@ -32,6 +36,16 @@ export function ChatThreadHeader({
         {activeThread ? (
           isEditingTitle ? (
             <div className="flex items-center gap-2">
+              {showBackButton && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="p-2 rounded-md hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Back to chats"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+              )}
               <input
                 type="text"
                 value={titleDraft}
@@ -59,6 +73,16 @@ export function ChatThreadHeader({
             </div>
           ) : (
             <div className="flex items-center gap-2">
+              {showBackButton && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="p-2 rounded-md hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Back to chats"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+              )}
               <div className="text-base font-semibold truncate">{activeTitle}</div>
               <button
                 type="button"
