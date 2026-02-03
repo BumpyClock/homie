@@ -41,3 +41,4 @@
 - 2026-02-02: Added cross-platform homie home resolution via `directories` crate + `HOMIE_HOME` override; used for codex app-server dir and `~` expansion.
 - 2026-02-03: Added Homie config loader + execpolicy parser/matcher (token glob + shorthand), with debug raw event gating and cross-platform home resolution helpers.
 - 2026-02-03: Persist raw provider events in sqlite when debug is enabled; keep last 10 runs via chat_runs/chat_raw_events retention.
+- 2026-02-03: Added roci auth scaffolding (device-code sessions, file token store, provider helpers) in submodule.
