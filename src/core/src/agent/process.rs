@@ -60,6 +60,32 @@ pub struct CodexProcess {
     writer_task: Option<tokio::task::JoinHandle<()>>,
 }
 
+#[derive(Clone)]
+pub struct CodexResponseSender {
+    stdin_tx: mpsc::Sender<String>,
+}
+
+impl CodexResponseSender {
+    pub async fn send_response(
+        &self,
+        id: CodexRequestId,
+        result: Value,
+    ) -> Result<(), String> {
+        let msg = serde_json::json!({
+            "id": id.to_json(),
+            "result": result,
+        });
+
+        let line = serde_json::to_string(&msg)
+            .map_err(|e| format!("failed to serialize response: {e}"))?;
+
+        self.stdin_tx
+            .send(line)
+            .await
+            .map_err(|_| "writer task closed".to_string())
+    }
+}
+
 /// Internal entry for registering a pending request waiter.
 struct PendingEntry {
     id: u64,
@@ -188,6 +214,12 @@ impl CodexProcess {
             .send(line)
             .await
             .map_err(|_| "writer task closed".to_string())
+    }
+
+    pub fn response_sender(&self) -> CodexResponseSender {
+        CodexResponseSender {
+            stdin_tx: self.stdin_tx.clone(),
+        }
     }
 
     /// Shut down the process and background tasks.

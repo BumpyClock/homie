@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use homie_protocol::{error_codes, BinaryFrame, Response};
 
-use super::process::{CodexEvent, CodexProcess, CodexRequestId};
+use super::process::{CodexEvent, CodexProcess, CodexRequestId, CodexResponseSender};
 use crate::outbound::OutboundMessage;
 use crate::router::{ReapEvent, ServiceHandler};
 use crate::storage::{ChatRecord, SessionStatus, Store};
@@ -92,7 +92,15 @@ impl CodexChatCore {
 
         let outbound = self.outbound_tx.clone();
         let store = self.store.clone();
-        let forwarder = tokio::spawn(event_forwarder_loop(event_rx, outbound, store));
+        let exec_policy = self.exec_policy.clone();
+        let response_sender = process.response_sender();
+        let forwarder = tokio::spawn(event_forwarder_loop(
+            event_rx,
+            outbound,
+            store,
+            response_sender,
+            exec_policy,
+        ));
         self.event_forwarder = Some(forwarder);
         self.process = Some(process);
         Ok(())
@@ -1001,8 +1009,32 @@ async fn event_forwarder_loop(
     mut event_rx: mpsc::Receiver<CodexEvent>,
     outbound_tx: mpsc::Sender<OutboundMessage>,
     store: Arc<dyn Store>,
+    response_sender: CodexResponseSender,
+    exec_policy: Arc<ExecPolicy>,
 ) {
     while let Some(event) = event_rx.recv().await {
+        if event.method == "item/commandExecution/requestApproval" {
+            if let Some(id) = event.id.clone() {
+                if let Some(params) = event.params.as_ref() {
+                    if let Some(argv) = approval_command_argv(params) {
+                        if exec_policy.is_allowed(&argv) {
+                            if let Some(thread_id) = extract_thread_id(params) {
+                                if let Ok(Some(chat)) = store.get_chat(&thread_id) {
+                                    let next = chat.event_pointer.saturating_add(1);
+                                    let _ = store.update_event_pointer(&chat.chat_id, next);
+                                }
+                            }
+                            let result = json!({ "decision": "accept" });
+                            if response_sender.send_response(id, result).await.is_ok() {
+                                tracing::info!("execpolicy auto-approved command");
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let (chat_topic, agent_topic) = match codex_method_to_topics(&event.method) {
             Some(t) => t,
             None => {
@@ -1067,6 +1099,14 @@ async fn event_forwarder_loop(
     }
 
     tracing::debug!("agent event forwarder exited");
+}
+
+fn approval_command_argv(params: &Value) -> Option<Vec<String>> {
+    let command = params.get("command")?.as_str()?;
+    if command.trim().is_empty() {
+        return None;
+    }
+    shell_words::split(command).ok()
 }
 
 fn chrono_now() -> String {
