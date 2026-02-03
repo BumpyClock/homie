@@ -57,3 +57,18 @@ pub fn homie_skills_dir() -> Result<PathBuf, String> {
         .map_err(|e| format!("failed to create ~/.homie/skills: {e}"))?;
     Ok(skills_dir)
 }
+
+pub fn homie_config_path() -> Result<PathBuf, String> {
+    Ok(homie_home_dir()?.join("config.toml"))
+}
+
+pub fn homie_credentials_dir() -> Result<PathBuf, String> {
+    let dir = homie_home_dir()?.join("credentials");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("failed to create ~/.homie/credentials: {e}"))?;
+    Ok(dir)
+}
+
+pub fn homie_execpolicy_path() -> Result<PathBuf, String> {
+    Ok(homie_home_dir()?.join("execpolicy.toml"))
+}

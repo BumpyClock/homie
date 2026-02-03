@@ -20,6 +20,8 @@ futures.workspace = true
 portable-pty.workspace = true
 rusqlite.workspace = true
 directories.workspace = true
+toml.workspace = true
+shell-words.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

@@ -25,5 +25,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures = "0.3"
 portable-pty = "0.9"
 rusqlite = { version = "0.38", features = ["bundled"] }
-directories = "5"
+directories = "6"
+toml = "0.9"
+shell-words = "1.1.1"
 homie-protocol = { path = "src/infra/homie-protocol" }
