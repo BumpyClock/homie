@@ -1,4 +1,4 @@
-import type { SessionInfo } from "@/lib/protocol";
+import type { SessionInfo } from "@homie/shared";
 
 export type TmuxCloseBehavior = "detach" | "kill";
 export type PreviewRefresh = "10s" | "30s" | "1m" | "5m" | "15m" | "never";

@@ -1,25 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  GatewayTransport,
   type ConnectionStatus,
+  type GatewayTransport,
+  type GatewayTransportState,
   type HelloReject,
-  type RpcEvent,
   type ServerHello,
 } from "@homie/shared";
+import { callGatewayRpc, sendGatewayBinary } from "@/hooks/gateway/gateway-rpc";
+import {
+  type GatewayTopicEvent,
+  subscribeGatewayBinary,
+  subscribeGatewayEvents,
+} from "@/hooks/gateway/gateway-subscriptions";
+import {
+  createGatewayTransport,
+  readGatewayDebugFlag,
+} from "@/hooks/gateway/gateway-transport";
 
 interface UseGatewayOptions {
   url: string;
   authToken?: string;
 }
 
-function readDebugFlag() {
-  if (import.meta.env.VITE_DEBUG_WS === "1") return true;
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem("homie-debug") === "1";
-  } catch {
-    return false;
-  }
+function applyGatewayState(
+  nextState: GatewayTransportState,
+  setStatus: (status: ConnectionStatus) => void,
+  setServerHello: (value: ServerHello | null) => void,
+  setRejection: (value: HelloReject | null) => void,
+  setError: (value: Event | null) => void,
+) {
+  setStatus(nextState.status);
+  setServerHello(nextState.serverHello);
+  setRejection(nextState.rejection);
+  setError((nextState.error as Event | null) ?? null);
 }
 
 export function useGateway({ url, authToken }: UseGatewayOptions) {
@@ -38,24 +51,18 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
   }, []);
 
   useEffect(() => {
-    debugRef.current = readDebugFlag();
+    debugRef.current = readGatewayDebugFlag();
 
-    const transport = new GatewayTransport({
-      url: url || "",
+    const transport = createGatewayTransport({
+      url,
       authToken,
-      clientId: "homie-web/0.0.1",
-      capabilities: ["terminal", "chat"],
       logger: (...args: unknown[]) => log(...args),
-      reconnect: true,
     });
 
     transportRef.current = transport;
 
     const unsubscribeState = transport.onStateChange((nextState) => {
-      setStatus(nextState.status);
-      setServerHello(nextState.serverHello);
-      setRejection(nextState.rejection);
-      setError((nextState.error as Event | null) ?? null);
+      applyGatewayState(nextState, setStatus, setServerHello, setRejection, setError);
     });
 
     transport.start();
@@ -68,36 +75,22 @@ export function useGateway({ url, authToken }: UseGatewayOptions) {
   }, [authToken, log, url]);
 
   const call = useCallback((method: string, params?: unknown) => {
-    const transport = transportRef.current;
-    if (!transport) {
-      return Promise.reject(new Error("Not connected"));
-    }
-    return transport.call(method, params);
+    return callGatewayRpc(transportRef.current, method, params);
   }, []);
 
   const sendBinary = useCallback((data: Uint8Array | ArrayBuffer) => {
-    const transport = transportRef.current;
-    if (!transport) return;
-    transport.sendBinary(data);
+    sendGatewayBinary(transportRef.current, data);
   }, []);
 
   const onBinaryMessage = useCallback((callback: (data: ArrayBuffer) => void) => {
-    const transport = transportRef.current;
-    if (!transport) {
-      return () => undefined;
-    }
-    return transport.onBinaryMessage(callback);
+    return subscribeGatewayBinary(transportRef.current, callback);
   }, []);
 
-  const onEvent = useCallback((callback: (event: { topic: string; params?: unknown }) => void) => {
-    const transport = transportRef.current;
-    if (!transport) {
-      return () => undefined;
-    }
-    return transport.onEvent((event: RpcEvent) => {
-      callback({ topic: event.topic, params: event.params });
-    });
+  const onEvent = useCallback((callback: (event: GatewayTopicEvent) => void) => {
+    return subscribeGatewayEvents(transportRef.current, callback);
   }, []);
 
   return { status, serverHello, rejection, error, call, sendBinary, onBinaryMessage, onEvent };
 }
+
+export type { ConnectionStatus, GatewayTopicEvent };

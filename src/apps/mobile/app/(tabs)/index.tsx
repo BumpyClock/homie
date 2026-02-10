@@ -1,99 +1,167 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ChatComposer } from '@/components/chat/ChatComposer';
+import { ChatTimeline } from '@/components/chat/ChatTimeline';
+import { ThreadList } from '@/components/chat/ThreadList';
+import { GatewayTargetForm } from '@/components/gateway/GatewayTargetForm';
 import { ScreenSurface } from '@/components/ui/ScreenSurface';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { useGatewayChat } from '@/hooks/useGatewayChat';
+import { useGatewayTarget } from '@/hooks/useGatewayTarget';
 import { radius, spacing, typography } from '@/theme/tokens';
-
-type ThreadPreview = {
-  id: string;
-  title: string;
-  preview: string;
-  updatedAt: string;
-  running: boolean;
-};
-
-const mockThreads: ThreadPreview[] = [
-  {
-    id: 'chat-1',
-    title: 'Fix ws reconnect issue',
-    preview: 'I checked reconnection logs and found two duplicate subscriptions after resume.',
-    updatedAt: '2m ago',
-    running: true,
-  },
-  {
-    id: 'chat-2',
-    title: 'Add web search provider',
-    preview: 'SearXNG provider works with format=json and self-hosted base URL settings.',
-    updatedAt: '34m ago',
-    running: false,
-  },
-  {
-    id: 'chat-3',
-    title: 'Terminal snapshot cadence',
-    preview: 'Preview refresh set to 30s with immediate populate on list load.',
-    updatedAt: 'Yesterday',
-    running: false,
-  },
-];
+import { useState } from 'react';
 
 export default function ChatTabScreen() {
   const { palette } = useAppTheme();
+  const [savingTarget, setSavingTarget] = useState(false);
+  const {
+    loading: loadingTarget,
+    targetUrl,
+    hasTarget,
+    targetHint,
+    error: targetError,
+    saveTarget,
+  } = useGatewayTarget();
+  const {
+    status,
+    statusBadge,
+    threads,
+    activeChatId,
+    activeThread,
+    error,
+    loadingThreads,
+    loadingMessages,
+    creatingChat,
+    sendingMessage,
+    selectThread,
+    refreshThreads,
+    createChat,
+    sendMessage,
+  } = useGatewayChat(targetUrl ?? '');
+
+  const handleSaveTarget = async (value: string) => {
+    setSavingTarget(true);
+    try {
+      await saveTarget(value);
+    } finally {
+      setSavingTarget(false);
+    }
+  };
 
   return (
     <ScreenSurface>
-      <View style={[styles.container, { backgroundColor: palette.background }]}> 
+      <View style={[styles.container, { backgroundColor: palette.background }]}>
         <View style={styles.headerRow}>
           <View>
             <Text style={[styles.eyebrow, { color: palette.textSecondary }]}>Gateway</Text>
             <Text style={[styles.title, { color: palette.text }]}>Chat</Text>
           </View>
-          <StatusPill label="Connected" tone="success" />
+          <StatusPill
+            label={hasTarget ? statusBadge.label : 'Setup'}
+            tone={hasTarget ? statusBadge.tone : 'warning'}
+          />
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.newChatButton,
-            {
-              backgroundColor: palette.accent,
-              opacity: pressed ? 0.86 : 1,
-            },
-          ]}>
-          <Text style={[styles.newChatLabel, { color: palette.surface }]}>New Chat</Text>
-        </Pressable>
+        {loadingTarget ? (
+          <View style={[styles.setupCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <Text style={[styles.setupTitle, { color: palette.text }]}>Loading target</Text>
+            <Text style={[styles.setupBody, { color: palette.textSecondary }]}>
+              Checking saved gateway configuration...
+            </Text>
+          </View>
+        ) : null}
 
-        <ScrollView contentContainerStyle={styles.threadList} showsVerticalScrollIndicator={false}>
-          {mockThreads.map((thread) => (
-            <Pressable
-              key={thread.id}
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.threadCard,
-                {
-                  backgroundColor: palette.surface,
-                  borderColor: palette.border,
-                  opacity: pressed ? 0.93 : 1,
-                },
-              ]}>
-              <View style={styles.threadHeader}>
-                <Text numberOfLines={1} style={[styles.threadTitle, { color: palette.text }]}>
-                  {thread.title}
-                </Text>
-                <Text style={[styles.threadTime, { color: palette.textSecondary }]}>{thread.updatedAt}</Text>
-              </View>
-              <Text numberOfLines={2} style={[styles.threadPreview, { color: palette.textSecondary }]}>
-                {thread.preview}
-              </Text>
-              {thread.running ? (
-                <View style={styles.runningRow}>
-                  <View style={[styles.runningDot, { backgroundColor: palette.success }]} />
-                  <Text style={[styles.runningText, { color: palette.success }]}>Turn running</Text>
-                </View>
-              ) : null}
-            </Pressable>
-          ))}
-        </ScrollView>
+        {!loadingTarget && !hasTarget ? (
+          <View style={[styles.setupCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <Text style={[styles.setupTitle, { color: palette.text }]}>Connect your gateway</Text>
+            <Text style={[styles.setupBody, { color: palette.textSecondary }]}>
+              Add a gateway URL to enable chat on this device.
+            </Text>
+            <GatewayTargetForm
+              initialValue={targetHint}
+              hintValue={targetHint}
+              saving={savingTarget}
+              saveLabel="Save and Connect"
+              onSave={handleSaveTarget}
+            />
+            {targetError ? (
+              <Text style={[styles.setupHint, { color: palette.textSecondary }]}>{targetError}</Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {hasTarget ? (
+          <View style={[styles.targetRow, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <Text numberOfLines={1} style={[styles.targetValue, { color: palette.textSecondary }]}>
+              {targetUrl}
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={styles.actionsRow}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={creatingChat || status !== 'connected' || !hasTarget}
+            onPress={() => {
+              void createChat();
+            }}
+            style={({ pressed }) => [
+              styles.actionButton,
+              styles.primaryAction,
+              {
+                backgroundColor: palette.accent,
+                borderColor: palette.accent,
+                opacity: pressed ? 0.86 : 1,
+              },
+            ]}>
+            <Text style={[styles.actionLabel, { color: palette.surface }]}>
+              {creatingChat ? 'Creating...' : 'New Chat'}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={loadingThreads || status !== 'connected' || !hasTarget}
+            onPress={() => {
+              void refreshThreads();
+            }}
+            style={({ pressed }) => [
+              styles.actionButton,
+              {
+                backgroundColor: palette.surface,
+                borderColor: palette.border,
+                opacity: pressed ? 0.86 : 1,
+              },
+            ]}>
+            <Text style={[styles.actionLabel, { color: palette.text }]}>
+              {loadingThreads ? 'Refreshing...' : 'Refresh'}
+            </Text>
+          </Pressable>
+        </View>
+
+        {error ? (
+          <View style={[styles.errorCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <Text style={[styles.errorText, { color: palette.danger }]}>{error}</Text>
+          </View>
+        ) : null}
+
+        {hasTarget ? (
+          <ThreadList
+            threads={threads}
+            activeChatId={activeChatId}
+            loading={loadingThreads}
+            onSelect={selectThread}
+          />
+        ) : null}
+
+        <View style={styles.chatPane}>
+          <ChatTimeline thread={hasTarget ? activeThread : null} loading={loadingMessages && hasTarget} />
+          <ChatComposer
+            disabled={status !== 'connected' || !activeThread || !hasTarget}
+            sending={sendingMessage}
+            onSend={sendMessage}
+          />
+        </View>
       </View>
     </ScreenSurface>
   );
@@ -118,57 +186,65 @@ const styles = StyleSheet.create({
   title: {
     ...typography.display,
   },
-  newChatButton: {
-    borderRadius: radius.md,
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  newChatLabel: {
-    ...typography.body,
-    fontWeight: '700',
-  },
-  threadList: {
-    gap: spacing.md,
-    paddingBottom: spacing.xxl,
-  },
-  threadCard: {
+  setupCard: {
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.lg,
     gap: spacing.sm,
   },
-  threadHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  threadTitle: {
+  setupTitle: {
     ...typography.title,
-    flex: 1,
-    fontSize: 17,
+    fontSize: 20,
   },
-  threadTime: {
-    ...typography.data,
-  },
-  threadPreview: {
+  setupBody: {
     ...typography.body,
     fontWeight: '400',
   },
-  runningRow: {
-    marginTop: spacing.xs,
-    alignItems: 'center',
+  setupHint: {
+    ...typography.data,
+    fontSize: 12,
+  },
+  targetRow: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  targetValue: {
+    ...typography.data,
+  },
+  actionsRow: {
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  runningDot: {
-    width: 8,
-    height: 8,
-    borderRadius: radius.pill,
+  actionButton: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
   },
-  runningText: {
+  primaryAction: {
+    flex: 1,
+  },
+  actionLabel: {
     ...typography.label,
-    fontSize: 12,
+    fontSize: 13,
+  },
+  errorCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: spacing.sm,
+  },
+  errorText: {
+    ...typography.body,
+    fontWeight: '500',
+    fontSize: 13,
+  },
+  chatPane: {
+    flex: 1,
+    minHeight: 0,
+    gap: spacing.md,
   },
 });

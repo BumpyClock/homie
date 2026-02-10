@@ -1,13 +1,17 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { ConnectionStatus } from "@/hooks/use-gateway";
 import {
-  type ChatThreadSummary,
-  deriveTitleFromThread,
-  extractLastMessage,
   itemsFromThread,
   parseCreatedAt,
+  parseThreadReadResult,
+  normalizeChatThreadRecords,
   shortId,
   truncateText,
+  type ChatThreadSummary,
+} from "@homie/shared";
+import {
+  deriveTitleFromThread,
+  extractLastMessage,
 } from "@/lib/chat-utils";
 
 type CallFn = (method: string, params?: unknown) => Promise<unknown>;
@@ -30,27 +34,26 @@ export async function hydrateThread({
   applySettings,
 }: HydrateThreadArgs) {
   try {
-    const res = await call("chat.thread.read", {
+    const raw = await call("chat.thread.read", {
       chat_id: chatId,
       thread_id: threadId,
       include_turns: true,
     });
-    const settings = (res as Record<string, unknown>)?.settings;
+    const { thread, settings } = parseThreadReadResult(raw);
     if (settings) {
       applySettings?.(chatId, settings);
     }
-    const thread = (res as Record<string, unknown>)?.thread ?? res;
-    if (!thread || typeof thread !== "object") return;
-    const items = itemsFromThread(thread as Record<string, unknown>);
+    if (!thread) return;
+    const items = itemsFromThread(thread);
     const preview = extractLastMessage(items);
     const updatedAt =
-      typeof (thread as Record<string, unknown>).updated_at === "number"
-        ? ((thread as Record<string, unknown>).updated_at as number) * 1000
+      typeof thread.updated_at === "number"
+        ? (thread.updated_at as number) * 1000
         : undefined;
     setThreads((prev) =>
       prev.map((t) => {
         if (t.chatId !== chatId) return t;
-        const baseTitle = overrides[chatId] ?? deriveTitleFromThread(thread as Record<string, unknown>, t.title);
+        const baseTitle = overrides[chatId] ?? deriveTitleFromThread(thread, t.title);
         return {
           ...t,
           title: baseTitle,
@@ -89,20 +92,11 @@ export async function loadChats({
 }: LoadChatsArgs) {
   if (!enabled || status !== "connected") return;
   try {
-    const res = (await call("chat.list")) as {
-      chats?: Array<{
-        chat_id: string;
-        thread_id: string;
-        created_at: string;
-        status: ChatThreadSummary["status"];
-        settings?: unknown;
-      }>;
-    };
-    const list = res.chats || [];
-    for (const entry of list) {
+    const records = normalizeChatThreadRecords(await call("chat.list"));
+    for (const entry of records) {
       if (entry.settings) applySettings?.(entry.chat_id, entry.settings);
     }
-    const next = list.map((rec) => {
+    const next = records.map((rec) => {
       const fallback = `Chat ${shortId(rec.chat_id)}`;
       const title = overrides[rec.chat_id] ?? fallback;
       return {

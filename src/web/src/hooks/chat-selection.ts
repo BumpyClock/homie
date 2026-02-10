@@ -1,6 +1,12 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type { ChatThreadSummary, ActiveChatThread } from "@/lib/chat-utils";
-import { deriveTitleFromThread, extractLastMessage, itemsFromThread, truncateText } from "@/lib/chat-utils";
+import {
+  itemsFromThread,
+  parseThreadReadResult,
+  truncateText,
+  type ActiveChatThread,
+  type ChatThreadSummary,
+} from "@homie/shared";
+import { deriveTitleFromThread, extractLastMessage } from "@/lib/chat-utils";
 
 type CallFn = (method: string, params?: unknown) => Promise<unknown>;
 
@@ -38,17 +44,16 @@ export async function selectChat({
     // ignore resume errors; allow read attempt
   }
   try {
-    const res = await call("chat.thread.read", {
+    const raw = await call("chat.thread.read", {
       chat_id: chatId,
       thread_id: thread.threadId,
       include_turns: true,
     });
-    const settings = (res as Record<string, unknown>)?.settings;
+    const { thread: threadRes, settings } = parseThreadReadResult(raw);
     if (settings) {
       applySettings?.(chatId, settings);
     }
-    const threadRes = (res as Record<string, unknown>)?.thread ?? res;
-    if (!threadRes || typeof threadRes !== "object") {
+    if (!threadRes) {
       setActiveThread({
         chatId,
         threadId: thread.threadId,
@@ -58,13 +63,13 @@ export async function selectChat({
       });
       return;
     }
-    const items = itemsFromThread(threadRes as Record<string, unknown>);
+    const items = itemsFromThread(threadRes);
     const preview = extractLastMessage(items);
     const updatedAt =
-      typeof (threadRes as Record<string, unknown>).updated_at === "number"
-        ? ((threadRes as Record<string, unknown>).updated_at as number) * 1000
+      typeof threadRes.updated_at === "number"
+        ? (threadRes.updated_at as number) * 1000
         : undefined;
-    const title = overrides[chatId] ?? deriveTitleFromThread(threadRes as Record<string, unknown>, thread.title);
+    const title = overrides[chatId] ?? deriveTitleFromThread(threadRes, thread.title);
     setThreads((prev) =>
       prev.map((t) =>
         t.chatId === chatId

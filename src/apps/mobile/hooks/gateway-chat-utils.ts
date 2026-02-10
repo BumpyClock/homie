@@ -1,0 +1,221 @@
+import {
+  extractLastMessage,
+  shortId,
+  truncateText,
+  type ChatItem,
+  type ChatMappedEvent,
+  type ChatThreadSummary,
+  type ConnectionStatus,
+} from '@homie/shared';
+
+const PREVIEW_LIMIT = 96;
+
+export type StatusTone = 'accent' | 'success' | 'warning';
+
+export interface StatusBadgeState {
+  label: string;
+  tone: StatusTone;
+}
+
+export interface ActiveMobileThread {
+  chatId: string;
+  threadId: string;
+  title: string;
+  items: ChatItem[];
+  running: boolean;
+  activeTurnId?: string;
+}
+
+function fallbackOutputId(turnId: string | undefined, count: number): string {
+  return `output-${turnId ?? 'thread'}-${count + 1}`;
+}
+
+export function fallbackThreadTitle(chatId: string) {
+  return `Chat ${shortId(chatId)}`;
+}
+
+function asTimestampSeconds(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+export function threadLastActivityAt(
+  thread: Record<string, unknown> | null,
+  fallback: number,
+): number {
+  if (!thread) return fallback;
+  const updatedAt = asTimestampSeconds(thread.updated_at);
+  if (updatedAt !== undefined) return updatedAt * 1000;
+  const createdAt = asTimestampSeconds(thread.created_at);
+  if (createdAt !== undefined) return createdAt * 1000;
+  return fallback;
+}
+
+export function sortThreads(threads: ChatThreadSummary[]): ChatThreadSummary[] {
+  return [...threads].sort((left, right) => {
+    const leftValue = left.lastActivityAt ?? 0;
+    const rightValue = right.lastActivityAt ?? 0;
+    return rightValue - leftValue;
+  });
+}
+
+export function previewFromItems(items: ChatItem[]): string {
+  const text = extractLastMessage(items);
+  return text ? truncateText(text, PREVIEW_LIMIT) : '';
+}
+
+export function statusBadgeFor(status: ConnectionStatus): StatusBadgeState {
+  if (status === 'connected') return { label: 'Connected', tone: 'success' };
+  if (status === 'connecting' || status === 'handshaking') {
+    return { label: 'Connecting', tone: 'accent' };
+  }
+  if (status === 'rejected') return { label: 'Rejected', tone: 'warning' };
+  if (status === 'error') return { label: 'Error', tone: 'warning' };
+  return { label: 'Disconnected', tone: 'warning' };
+}
+
+export function formatError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
+  return 'Gateway request failed';
+}
+
+function upsertItem(items: ChatItem[], item: ChatItem): ChatItem[] {
+  const index = items.findIndex((entry) => entry.id === item.id);
+  if (index === -1) return [...items, item];
+  const next = [...items];
+  next[index] = { ...next[index], ...item };
+  return next;
+}
+
+function mapOutputToItems(
+  items: ChatItem[],
+  itemId: string | undefined,
+  delta: string,
+  turnId: string | undefined,
+): ChatItem[] {
+  if (!itemId) {
+    if (!delta) return items;
+    return [
+      ...items,
+      {
+        id: fallbackOutputId(turnId, items.length),
+        kind: 'system',
+        turnId,
+        text: delta,
+      },
+    ];
+  }
+
+  let updated = false;
+  const next = items.map((entry) => {
+    if (entry.id !== itemId) return entry;
+    updated = true;
+    if (entry.kind === 'command') {
+      return {
+        ...entry,
+        output: `${entry.output ?? ''}${delta}`,
+      };
+    }
+    return {
+      ...entry,
+      text: `${entry.text ?? ''}${delta}`,
+    };
+  });
+
+  if (updated) return next;
+  if (!delta) return items;
+
+  return [
+    ...items,
+    {
+      id: itemId,
+      kind: 'system',
+      turnId,
+      text: delta,
+    },
+  ];
+}
+
+export function applyMappedEventToThread(
+  thread: ActiveMobileThread,
+  mapped: ChatMappedEvent,
+): ActiveMobileThread {
+  let nextItems = thread.items;
+  let running = thread.running;
+  let activeTurnId = thread.activeTurnId;
+
+  if (mapped.type === 'turn.started') {
+    running = true;
+    activeTurnId = mapped.turnId;
+  }
+
+  if (mapped.type === 'turn.completed') {
+    running = false;
+    if (!mapped.turnId || activeTurnId === mapped.turnId) activeTurnId = undefined;
+  }
+
+  if (mapped.type === 'item.started' || mapped.type === 'item.completed') {
+    nextItems = upsertItem(nextItems, mapped.item);
+  }
+
+  if (mapped.type === 'message.delta') {
+    const id = mapped.itemId ?? `assistant-${mapped.turnId ?? mapped.threadId}`;
+    nextItems = upsertItem(nextItems, {
+      id,
+      kind: 'assistant',
+      role: 'assistant',
+      turnId: mapped.turnId,
+      text: mapped.text,
+    });
+  }
+
+  if (mapped.type === 'command.output' || mapped.type === 'file.output') {
+    nextItems = mapOutputToItems(nextItems, mapped.itemId, mapped.delta, mapped.turnId);
+  }
+
+  if (mapped.type === 'diff.updated') {
+    const id = `diff-${mapped.turnId ?? mapped.threadId}`;
+    nextItems = upsertItem(nextItems, {
+      id,
+      kind: 'diff',
+      turnId: mapped.turnId,
+      text: mapped.diff,
+    });
+  }
+
+  if (mapped.type === 'plan.updated') {
+    const id = `plan-${mapped.turnId ?? mapped.threadId}`;
+    nextItems = upsertItem(nextItems, {
+      id,
+      kind: 'plan',
+      turnId: mapped.turnId,
+      text: mapped.text,
+    });
+  }
+
+  if (mapped.type === 'approval.required') {
+    nextItems = upsertItem(nextItems, {
+      id: mapped.itemId,
+      kind: 'approval',
+      turnId: mapped.turnId,
+      requestId: mapped.requestId,
+      reason: mapped.reason,
+      command: mapped.command,
+      cwd: mapped.cwd,
+      status: 'pending',
+    });
+  }
+
+  return {
+    ...thread,
+    threadId: mapped.threadId,
+    items: nextItems,
+    running,
+    activeTurnId,
+  };
+}

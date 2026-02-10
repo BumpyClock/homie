@@ -1,11 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ConnectionStatus } from "@/hooks/use-gateway";
-import { uuid } from "@/lib/uuid";
+import type { ConnectionStatus } from "@homie/shared";
 import { handleChatEvent } from "@/hooks/chat-event-handler";
 import { hydrateThread as hydrateThreadImpl, loadChats as loadChatsImpl } from "@/hooks/chat-loaders";
 import { selectChat as selectChatImpl } from "@/hooks/chat-selection";
 import {
-  approvalPolicyForPermission,
+  archiveChatThread,
+  createChatThread,
+  renameChatThread,
+} from "@/hooks/chat-thread-actions";
+import {
+  cancelActiveTurn,
+  respondToApproval,
+  searchChatFiles,
+  sendChatMessage,
+  updateChatAttachments,
+} from "@/hooks/chat-composer-actions";
+import { loadOverrides, loadSettings, saveOverrides, saveSettings } from "@/hooks/chat-storage";
+import { resolveChatAccountStatus } from "@/hooks/chat-account-status";
+import { applyThreadOverrides, updateThreadOverrides } from "@/hooks/chat-overrides";
+import {
   buildCollaborationPayload as buildCollaborationPayloadShared,
   type ActiveChatThread,
   type ChatSettings,
@@ -20,11 +33,8 @@ import {
   normalizeCollaborationModes,
   normalizeEnabledWebTools,
   normalizeChatSettings,
-  normalizeFileOptions,
   normalizeModelOptions,
   normalizeSkillOptions,
-  shortId,
-  truncateText,
 } from "@homie/shared";
 
 interface UseChatOptions {
@@ -33,65 +43,6 @@ interface UseChatOptions {
   onEvent: (callback: (event: { topic: string; params?: unknown }) => void) => () => void;
   enabled: boolean;
   namespace: string;
-}
-
-const OVERRIDE_KEY_PREFIX = "homie-chat-overrides:";
-const SETTINGS_KEY_PREFIX = "homie-chat-settings:";
-
-function overridesKey(namespace: string) {
-  return `${OVERRIDE_KEY_PREFIX}${namespace || "default"}`;
-}
-
-function settingsKey(namespace: string) {
-  return `${SETTINGS_KEY_PREFIX}${namespace || "default"}`;
-}
-
-function loadOverrides(namespace: string): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(overridesKey(namespace));
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      return parsed as Record<string, string>;
-    }
-  } catch {
-    return {};
-  }
-  return {};
-}
-
-function saveOverrides(namespace: string, overrides: Record<string, string>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(overridesKey(namespace), JSON.stringify(overrides));
-  } catch {
-    return;
-  }
-}
-
-function loadSettings(namespace: string): Record<string, ChatSettings> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(settingsKey(namespace));
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      return parsed as Record<string, ChatSettings>;
-    }
-  } catch {
-    return {};
-  }
-  return {};
-}
-
-function saveSettings(namespace: string, settings: Record<string, ChatSettings>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(settingsKey(namespace), JSON.stringify(settings));
-  } catch {
-    return;
-  }
 }
 
 export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOptions) {
@@ -206,10 +157,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     [updateSettings],
   );
 
-  const activeSettings = useMemo(
-    () => resolveSettings(activeChatId),
-    [activeChatId, resolveSettings],
-  );
+  const activeSettings = useMemo(() => resolveSettings(activeChatId), [activeChatId, resolveSettings]);
 
   const activeTokenUsage = useMemo(() => {
     if (!activeChatId) return undefined;
@@ -232,26 +180,19 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   );
 
   const applyOverrides = useCallback((list: ChatThreadSummary[]) => {
-    const overrides = overridesRef.current;
-    return list.map((thread) => {
-      const override = overrides[thread.chatId];
-      if (override) return { ...thread, title: override };
-      return thread;
-    });
+    return applyThreadOverrides(list, overridesRef.current);
   }, []);
 
   const updateOverrides = useCallback((chatId: string, title: string | null) => {
-    const next = { ...overridesRef.current };
-    if (title && title.trim()) next[chatId] = title.trim();
-    else delete next[chatId];
+    const next = updateThreadOverrides({
+      chatId,
+      title,
+      overrides: overridesRef.current,
+      setThreads,
+      setActiveThread,
+    });
     overridesRef.current = next;
     saveOverrides(namespace, next);
-    setThreads((prev) =>
-      prev.map((thread) => (thread.chatId === chatId ? { ...thread, title: next[chatId] ?? thread.title } : thread))
-    );
-    setActiveThread((prev) =>
-      prev && prev.chatId === chatId ? { ...prev, title: next[chatId] ?? prev.title } : prev
-    );
   }, [namespace]);
 
   const hydrateThread = useCallback(async (chatId: string, threadId: string) => {
@@ -432,188 +373,91 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   );
 
   const createChat = useCallback(async () => {
-    try {
-      const res = await call("chat.create") as { chat_id?: string; thread_id?: string };
-      if (!res?.chat_id || !res?.thread_id) return;
-      const fallback = `Chat ${shortId(res.chat_id)}`;
-      const next: ChatThreadSummary = {
-        chatId: res.chat_id,
-        threadId: res.thread_id,
-        title: overridesRef.current[res.chat_id] ?? fallback,
-        preview: "",
-        status: "active",
-        lastActivityAt: Date.now(),
-        running: false,
-      };
-      setThreads((prev) => [next, ...prev]);
-      setActiveChatId(res.chat_id);
-      setActiveThread({
-        chatId: res.chat_id,
-        threadId: res.thread_id,
-        title: next.title,
-        items: [],
-        running: false,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg || "Failed to create chat");
-    }
+    await createChatThread({
+      call,
+      overrides: overridesRef.current,
+      setThreads,
+      setActiveChatId,
+      setActiveThread,
+      setError,
+    });
   }, [call]);
 
   const sendMessage = useCallback(async (message: string) => {
-    if (!activeThread) return;
-    const trimmed = message.trim();
-    if (!trimmed) return;
-    const settings = resolveSettings(activeThread.chatId);
-    const approvalPolicy = approvalPolicyForPermission(settings.permission);
-    const effort = settings.effort !== "auto" ? settings.effort : undefined;
-    const collaborationMode = buildCollaborationPayload(settings);
-    const inject = activeThread.running;
-    if (inject) {
-      const chatId = activeThread.chatId;
-      setQueuedNoticeByChatId((prev) => ({ ...prev, [chatId]: true }));
-      const existingTimer = queuedTimersRef.current[chatId];
-      if (existingTimer) clearTimeout(existingTimer);
-      queuedTimersRef.current[chatId] = setTimeout(() => {
-        clearQueuedNotice(chatId);
-      }, 4000);
-    }
-    const localId = uuid();
-    setActiveThread((prev) => prev ? {
-      ...prev,
-      items: [...prev.items, { id: localId, kind: "user", role: "user", text: trimmed, optimistic: true }],
-    } : prev);
-    if (!overridesRef.current[activeThread.chatId]) {
-      const autoTitle = truncateText(trimmed, 42);
-      updateOverrides(activeThread.chatId, autoTitle);
-    }
-    try {
-      const res = await call("chat.message.send", {
-        chat_id: activeThread.chatId,
-        message: trimmed,
-        model: settings.model,
-        effort,
-        approval_policy: approvalPolicy,
-        collaboration_mode: collaborationMode ?? undefined,
-        inject,
-      }) as { turn_id?: string };
-      if (res?.turn_id) {
-        runningTurnsRef.current.set(activeThread.chatId, res.turn_id);
-        setActiveThread((prev) => prev ? { ...prev, running: true, activeTurnId: res.turn_id } : prev);
-        setThreads((prev) =>
-          prev.map((thread) =>
-            thread.chatId === activeThread.chatId
-              ? { ...thread, running: true, lastActivityAt: Date.now(), preview: truncateText(trimmed, 96) }
-              : thread
-          )
-        );
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg || "Failed to send message");
-    }
+    await sendChatMessage({
+      activeThread,
+      message,
+      call,
+      resolveSettings,
+      buildCollaborationPayload,
+      overrides: overridesRef.current,
+      updateOverrides,
+      runningTurnsRef,
+      queuedTimersRef,
+      clearQueuedNotice,
+      setQueuedNoticeByChatId,
+      setActiveThread,
+      setThreads,
+      setError,
+    });
   }, [activeThread, buildCollaborationPayload, call, clearQueuedNotice, resolveSettings, updateOverrides]);
 
   const cancelActive = useCallback(async () => {
-    if (!activeThread?.activeTurnId) return;
-    try {
-      await call("chat.cancel", { chat_id: activeThread.chatId, turn_id: activeThread.activeTurnId });
-    } catch {
-      return;
-    }
+    await cancelActiveTurn({ activeThread, call });
   }, [activeThread, call]);
 
   const archiveChat = useCallback(async (chatId: string) => {
-    const thread = threads.find((t) => t.chatId === chatId);
-    if (!thread) return;
-    try {
-      await call("chat.thread.archive", { chat_id: chatId, thread_id: thread.threadId });
-      setThreads((prev) => prev.filter((t) => t.chatId !== chatId));
-      if (activeChatIdRef.current === chatId) {
-        setActiveChatId(null);
-        setActiveThread(null);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg || "Failed to archive chat");
-    }
+    await archiveChatThread({
+      chatId,
+      threads,
+      call,
+      activeChatIdRef,
+      setThreads,
+      setActiveChatId,
+      setActiveThread,
+      setError,
+    });
   }, [call, threads]);
 
   const renameChat = useCallback(async (chatId: string, title: string | null) => {
-    updateOverrides(chatId, title);
-    if (!title || !title.trim()) return;
-    try {
-      await call("chat.thread.rename", { chat_id: chatId, title: title.trim() });
-    } catch {
-      return;
-    }
+    await renameChatThread({ chatId, title, call, updateOverrides });
   }, [call, updateOverrides]);
 
   const respondApproval = useCallback(async (requestId: number | string, decision: "accept" | "decline") => {
-    try {
-      console.debug("[chat] approval respond", { requestId, decision });
-      await call("chat.approval.respond", { codex_request_id: requestId, decision });
-    } catch (err: unknown) {
-      console.error("[chat] approval respond failed", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg || "Approval failed");
-    }
+    await respondToApproval({ requestId, decision, call, setError });
   }, [call]);
 
   const updateAttachments = useCallback(
     async (chatId: string, folder: string | null) => {
-      updateSettings(chatId, { attachedFolder: folder ?? undefined });
-      try {
-        await call("chat.settings.update", {
-          chat_id: chatId,
-          settings: { attachments: folder ? { folder } : null },
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setError(msg || "Failed to update attachments");
-      }
+      await updateChatAttachments({
+        chatId,
+        folder,
+        call,
+        updateSettings,
+        setError,
+      });
     },
     [call, updateSettings],
   );
 
   const searchFiles = useCallback(
     async (chatId: string, query: string, basePath?: string | null, limit = 40): Promise<FileOption[]> => {
-      if (!enabled || status !== "connected") return [];
-      if (!query.trim()) return [];
-      try {
-        console.debug("[chat] files search", { chatId, query, limit, basePath });
-        const res = await call("chat.files.search", {
-          chat_id: chatId,
-          query,
-          limit,
-          base_path: basePath ?? undefined,
-        });
-        const normalized = normalizeFileOptions(res);
-        console.debug("[chat] files search result", { count: normalized.length });
-        return normalized;
-      } catch {
-        console.debug("[chat] files search failed");
-        return [];
-      }
+      return searchChatFiles({
+        chatId,
+        query,
+        basePath,
+        limit,
+        enabled,
+        status,
+        call,
+      });
     },
     [call, enabled, status],
   );
 
   const clearError = useCallback(() => setError(null), []);
 
-  const accountStatus = useMemo(() => {
-    if (!account) return { ok: false, message: "Not connected to Codex CLI." };
-    const raw = account as { requiresOpenaiAuth?: boolean; requires_openai_auth?: boolean; account?: unknown };
-    const requires = raw.requiresOpenaiAuth ?? raw.requires_openai_auth ?? false;
-    const hasAccount = !!raw.account;
-    if (!hasAccount && requires) {
-      return { ok: false, message: "Codex CLI not logged in. Run `codex login` on the gateway host." };
-    }
-    if (!hasAccount) {
-      return { ok: false, message: "Codex CLI not logged in. Run `codex login` on the gateway host." };
-    }
-    return { ok: true, message: "" };
-  }, [account]);
+  const accountStatus = useMemo(() => resolveChatAccountStatus(account), [account]);
 
   const queuedNotice = activeThread ? queuedNoticeByChatId[activeThread.chatId] ?? false : false;
 

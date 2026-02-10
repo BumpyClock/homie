@@ -7,13 +7,45 @@ export const DEFAULT_HANDSHAKE_TIMEOUT_MS = 5000;
 export const DEFAULT_MAX_BINARY_BACKLOG_BYTES = 1024 * 1024;
 export const DEFAULT_BASE_RECONNECT_DELAY_MS = 1000;
 export const DEFAULT_MAX_RECONNECT_DELAY_MS = 30000;
+function randomBytes(length) {
+    const bytes = new Uint8Array(length);
+    const maybeCrypto = globalThis.crypto;
+    if (maybeCrypto && typeof maybeCrypto.getRandomValues === "function") {
+        maybeCrypto.getRandomValues(bytes);
+        return bytes;
+    }
+    for (let i = 0; i < bytes.length; i += 1) {
+        bytes[i] = Math.floor(Math.random() * 256);
+    }
+    return bytes;
+}
+function toHex(value) {
+    return value.toString(16).padStart(2, "0");
+}
+function fallbackUuidV4() {
+    const bytes = randomBytes(16);
+    // UUID v4 variant bits.
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    return [
+        toHex(bytes[0]) + toHex(bytes[1]) + toHex(bytes[2]) + toHex(bytes[3]),
+        toHex(bytes[4]) + toHex(bytes[5]),
+        toHex(bytes[6]) + toHex(bytes[7]),
+        toHex(bytes[8]) + toHex(bytes[9]),
+        toHex(bytes[10]) +
+            toHex(bytes[11]) +
+            toHex(bytes[12]) +
+            toHex(bytes[13]) +
+            toHex(bytes[14]) +
+            toHex(bytes[15]),
+    ].join("-");
+}
 export function createRequestId() {
     const maybeCrypto = globalThis.crypto;
     if (maybeCrypto && typeof maybeCrypto.randomUUID === "function") {
         return maybeCrypto.randomUUID();
     }
-    const random = Math.random().toString(16).slice(2);
-    return `req_${Date.now()}_${random}`;
+    return fallbackUuidV4();
 }
 export function getReconnectDelayMs(retryCount, options = {}) {
     const base = options.baseDelayMs ?? DEFAULT_BASE_RECONNECT_DELAY_MS;

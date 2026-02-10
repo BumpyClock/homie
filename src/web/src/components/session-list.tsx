@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, SessionPreviewResponse, TmuxListResponse, TmuxSessionInfo } from '@/lib/protocol';
+import type { SessionInfo, SessionPreviewResponse, TmuxListResponse, TmuxSessionInfo } from "@homie/shared";
 import { loadPreview, removePreview, savePreview } from '@/lib/session-previews';
 import {
   normalizeRpcError,

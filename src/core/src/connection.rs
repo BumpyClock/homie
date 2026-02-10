@@ -4,7 +4,9 @@ use std::time::Duration;
 use axum::extract::ws::{Message, WebSocket};
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
 use serde_json::json;
+use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
@@ -416,45 +418,158 @@ async fn handle_text_message(
     match decode_message(text) {
         Ok(ProtoMessage::Request(req)) => {
             tracing::debug!(method = %req.method, id = %req.id, "request");
-
-            if let Some(scope) = scope_for_method(&req.method) {
-                if !authz.allows(scope) {
-                    let resp = Response::error(req.id, error_codes::UNAUTHORIZED, "unauthorized");
-                    let msg = ProtoMessage::Response(resp);
-                    if let Ok(json) = encode_message(&msg) {
-                        let _ = sink.send(Message::Text(json.into())).await;
-                    }
-                    return;
-                }
-            }
-
-            // Handle built-in subscription methods.
-            let resp = match req.method.as_str() {
-                "events.subscribe" => handle_subscribe(req.id, req.params, subscriptions),
-                "events.unsubscribe" => handle_unsubscribe(req.id, req.params, subscriptions),
-                "agent.chat.event.subscribe" | "agent.codex.event.subscribe" => {
-                    let params = agent_subscribe_params(req.params);
-                    handle_subscribe(req.id, params, subscriptions)
-                }
-                "chat.event.subscribe" => {
-                    let params = chat_subscribe_params(req.params);
-                    handle_subscribe(req.id, params, subscriptions)
-                }
-                _ => router.route_request(req.id, &req.method, req.params).await,
-            };
-
-            let msg = ProtoMessage::Response(resp);
-            if let Ok(json) = encode_message(&msg) {
-                let _ = sink.send(Message::Text(json.into())).await;
-            }
+            route_and_respond(
+                sink,
+                authz,
+                router,
+                subscriptions,
+                req.id,
+                req.method,
+                req.params,
+                None,
+            )
+            .await;
         }
         Ok(other) => {
             tracing::debug!(?other, "non-request message from client (ignored)");
         }
         Err(e) => {
-            tracing::warn!("failed to decode message: {e}");
+            if let Some(legacy) = decode_legacy_request(text) {
+                tracing::debug!(
+                    method = %legacy.method,
+                    client_id = %legacy.response_id,
+                    internal_id = %legacy.req_id,
+                    "legacy request id accepted"
+                );
+                route_and_respond(
+                    sink,
+                    authz,
+                    router,
+                    subscriptions,
+                    legacy.req_id,
+                    legacy.method,
+                    legacy.params,
+                    Some(legacy.response_id),
+                )
+                .await;
+            } else {
+                tracing::warn!("failed to decode message: {e}");
+            }
         }
     }
+}
+
+async fn route_and_respond(
+    sink: &mut SplitSink<WebSocket, Message>,
+    authz: AuthContext,
+    router: &mut MessageRouter,
+    subscriptions: &mut SubscriptionManager,
+    req_id: Uuid,
+    method: String,
+    params: Option<Value>,
+    response_id_override: Option<Value>,
+) {
+    if let Some(scope) = scope_for_method(&method) {
+        if !authz.allows(scope) {
+            let resp = Response::error(req_id, error_codes::UNAUTHORIZED, "unauthorized");
+            send_response(sink, resp, response_id_override).await;
+            return;
+        }
+    }
+
+    // Handle built-in subscription methods.
+    let resp = match method.as_str() {
+        "events.subscribe" => handle_subscribe(req_id, params, subscriptions),
+        "events.unsubscribe" => handle_unsubscribe(req_id, params, subscriptions),
+        "agent.chat.event.subscribe" | "agent.codex.event.subscribe" => {
+            let params = agent_subscribe_params(params);
+            handle_subscribe(req_id, params, subscriptions)
+        }
+        "chat.event.subscribe" => {
+            let params = chat_subscribe_params(params);
+            handle_subscribe(req_id, params, subscriptions)
+        }
+        _ => router.route_request(req_id, &method, params).await,
+    };
+
+    send_response(sink, resp, response_id_override).await;
+}
+
+async fn send_response(
+    sink: &mut SplitSink<WebSocket, Message>,
+    resp: Response,
+    response_id_override: Option<Value>,
+) {
+    match response_id_override {
+        None => {
+            let msg = ProtoMessage::Response(resp);
+            if let Ok(json) = encode_message(&msg) {
+                let _ = sink.send(Message::Text(json.into())).await;
+            }
+        }
+        Some(override_id) => {
+            let mut payload = match serde_json::to_value(&resp) {
+                Ok(v) => v,
+                Err(_) => return,
+            };
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("type".into(), json!("response"));
+                obj.insert("id".into(), override_id);
+                if obj.get("result").is_some_and(Value::is_null) {
+                    obj.remove("result");
+                }
+                if obj.get("error").is_some_and(Value::is_null) {
+                    obj.remove("error");
+                }
+            }
+            if let Ok(text) = serde_json::to_string(&payload) {
+                let _ = sink.send(Message::Text(text.into())).await;
+            }
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct LooseRequest {
+    #[serde(rename = "type")]
+    message_type: String,
+    id: Value,
+    method: String,
+    #[serde(default)]
+    params: Option<Value>,
+}
+
+#[derive(Debug)]
+struct LegacyRequest {
+    req_id: Uuid,
+    response_id: Value,
+    method: String,
+    params: Option<Value>,
+}
+
+fn decode_legacy_request(text: &str) -> Option<LegacyRequest> {
+    let req = serde_json::from_str::<LooseRequest>(text).ok()?;
+    if req.message_type != "request" {
+        return None;
+    }
+
+    let response_id = match &req.id {
+        Value::String(_) | Value::Number(_) => req.id.clone(),
+        _ => return None,
+    };
+
+    let req_id = match &req.id {
+        Value::String(value) => Uuid::parse_str(value).unwrap_or_else(|_| Uuid::new_v4()),
+        Value::Number(_) => Uuid::new_v4(),
+        _ => return None,
+    };
+
+    Some(LegacyRequest {
+        req_id,
+        response_id,
+        method: req.method,
+        params: req.params,
+    })
 }
 
 /// Handle `events.subscribe` — add a topic subscription.

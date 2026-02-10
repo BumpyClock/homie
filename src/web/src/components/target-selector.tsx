@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus, Trash2, Globe, Server, Check, Settings } from 'lucide-react';
 import type { Target } from '@/hooks/use-targets';
 import type { ConnectionStatus } from '@/hooks/use-gateway';
-import type { HelloReject, ServerHello } from '@/lib/protocol';
+import type { HelloReject, ServerHello } from "@homie/shared";
 
 interface TargetSelectorProps {
   targets: Target[];

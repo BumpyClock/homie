@@ -4,7 +4,7 @@ import { useTargets } from '@/hooks/use-targets'
 import { SessionList } from '@/components/session-list'
 import type { AttachedSession } from '@/components/terminal-view'
 import { PREVIEW_OPTIONS, PREVIEW_REFRESH_KEY, type PreviewRefresh, sessionDisplayName, shortSessionId } from '@/lib/session-utils';
-import type { SessionInfo } from '@/lib/protocol';
+import type { SessionInfo } from "@homie/shared";
 import { TerminalScreen } from '@/components/terminal-screen';
 import { GatewayDetailsModal } from '@/components/gateway-details-modal';
 import { ChatPanel } from '@/components/chat-panel';

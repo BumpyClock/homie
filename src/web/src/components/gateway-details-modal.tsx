@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Check, Trash2, X } from "lucide-react";
-import type { ServerHello } from "@/lib/protocol";
+import type { ServerHello } from "@homie/shared";
 import type { Target } from "@/hooks/use-targets";
 
 interface GatewayDetailsModalProps {

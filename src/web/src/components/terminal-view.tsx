@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef, type RefObject } from "react"
 import { TerminalTab } from "./terminal-tab";
 import { parseBinaryFrame, StreamType } from "@/lib/binary-protocol";
 import { sessionDisplayName } from "@/lib/session-utils";
-import type { SessionInfo } from "@/lib/protocol";
+import type { SessionInfo } from "@homie/shared";
 import type { ConnectionStatus } from "@/hooks/use-gateway";
 import { Plus, X, Terminal } from "lucide-react";
 

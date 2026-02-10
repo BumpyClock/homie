@@ -50,3 +50,5 @@
 - 2026-02-09: Added `chat.tools.list` RPC + dynamic `openclaw_browser` tool provider scaffold (disabled by default), enabling config-driven discovery of tool availability in UI.
 - 2026-02-09: Added env-gated live integration tests `src/core/tests/live_tools.rs` covering `ls`, `web_search`, and `web_fetch` against configured providers when `HOMIE_LIVE_TESTS=1`.
 - 2026-02-10: Added mobile Expo scaffold at `src/apps/mobile` (SDK 54 tabs template) with chat-first tab shell, semantic theme tokens, reduced-motion-aware screen entrance animation, and runtime gateway URL config via `EXPO_PUBLIC_HOMIE_GATEWAY_URL`.
+- 2026-02-10: Mobile chat now requires persisted gateway target setup (OOBE) before use; removed localhost fallback, added async-storage target edit/clear in Settings, and bound chat transport to saved target.
+- 2026-02-10: Web shared-client cleanup completed for `remotely-8di.2.4`: split `use-gateway` into transport/rpc/subscription helpers, split `use-chat` with thread/composer/account helper modules, switched chat event reducer to shared `mapChatEvent`, migrated web protocol types to `@homie/shared`, and removed local `src/web/src/lib/protocol.ts`.

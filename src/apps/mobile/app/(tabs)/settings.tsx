@@ -1,9 +1,12 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
 
+import { GatewayTargetForm } from '@/components/gateway/GatewayTargetForm';
 import { ScreenSurface } from '@/components/ui/ScreenSurface';
 import { runtimeConfig } from '@/config/runtime';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { useGatewayTarget } from '@/hooks/useGatewayTarget';
 import { radius, spacing, typography } from '@/theme/tokens';
 
 type SettingRowProps = {
@@ -24,10 +27,38 @@ function SettingRow({ label, value }: SettingRowProps) {
 
 export default function SettingsTabScreen() {
   const { palette, mode } = useAppTheme();
+  const [saving, setSaving] = useState(false);
+  const {
+    loading,
+    targetUrl,
+    targetHint,
+    hasTarget,
+    error,
+    saveTarget,
+    clearTarget,
+  } = useGatewayTarget();
+
+  const handleSaveTarget = async (value: string) => {
+    setSaving(true);
+    try {
+      await saveTarget(value);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClearTarget = async () => {
+    setSaving(true);
+    try {
+      await clearTarget();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <ScreenSurface>
-      <View style={[styles.container, { backgroundColor: palette.background }]}> 
+      <View style={[styles.container, { backgroundColor: palette.background }]}>
         <View style={styles.headerRow}>
           <Text style={[styles.title, { color: palette.text }]}>Settings</Text>
           <StatusPill label={mode} />
@@ -35,23 +66,28 @@ export default function SettingsTabScreen() {
 
         <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
           <Text style={[styles.cardTitle, { color: palette.text }]}>Gateway</Text>
-          <SettingRow label="Target" value={runtimeConfig.gatewayUrl} />
+          <SettingRow label="Target" value={targetUrl ?? 'Not set'} />
           <SettingRow label="Provider" value="OpenAI Codex" />
           <SettingRow label="Model" value="gpt-5.2-codex" />
+          <GatewayTargetForm
+            initialValue={targetUrl ?? targetHint}
+            hintValue={targetHint}
+            saving={saving || loading}
+            saveLabel={hasTarget ? 'Update Target' : 'Save Target'}
+            onSave={handleSaveTarget}
+            onClear={hasTarget ? handleClearTarget : undefined}
+          />
+          {error ? <Text style={[styles.meta, { color: palette.textSecondary }]}>{error}</Text> : null}
+          {!targetHint ? (
+            <Text style={[styles.meta, { color: palette.textSecondary }]}>
+              No env fallback. Set target manually.
+            </Text>
+          ) : (
+            <Text style={[styles.meta, { color: palette.textSecondary }]}>
+              Env fallback available: {runtimeConfig.gatewayUrl}
+            </Text>
+          )}
         </View>
-
-        <Pressable
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.button,
-            {
-              backgroundColor: palette.surfaceAlt,
-              borderColor: palette.border,
-              opacity: pressed ? 0.86 : 1,
-            },
-          ]}>
-          <Text style={[styles.buttonLabel, { color: palette.text }]}>Manage Targets</Text>
-        </Pressable>
       </View>
     </ScreenSurface>
   );
@@ -94,14 +130,8 @@ const styles = StyleSheet.create({
   settingValue: {
     ...typography.data,
   },
-  button: {
-    minHeight: 48,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonLabel: {
-    ...typography.label,
+  meta: {
+    ...typography.data,
+    fontSize: 12,
   },
 });

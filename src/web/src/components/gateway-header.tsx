@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { ServerHello, HelloReject } from "@/lib/protocol";
+import type { ServerHello, HelloReject } from "@homie/shared";
 import type { Target } from "@/hooks/use-targets";
 import type { ConnectionStatus } from "@/hooks/use-gateway";
 import { TargetSelector } from "@/components/target-selector";

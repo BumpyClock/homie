@@ -4,7 +4,7 @@ import { ThemeSelector } from "@/components/theme-selector";
 import { StatusDot } from "@/components/status-dot";
 import { TerminalView, type AttachedSession } from "@/components/terminal-view";
 import type { ConnectionStatus } from "@/hooks/use-gateway";
-import type { SessionInfo } from "@/lib/protocol";
+import type { SessionInfo } from "@homie/shared";
 
 interface TerminalScreenProps {
   status: ConnectionStatus;

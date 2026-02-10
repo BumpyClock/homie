@@ -1,18 +1,13 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import { uuid } from "@/lib/uuid";
 import {
+  mapChatEvent,
+  truncateText,
   type ActiveChatThread,
+  type ChatGatewayEvent,
   type ChatThreadSummary,
   type ThreadTokenUsage,
-  getItemId,
-  getThreadId,
-  getTurnId,
-  itemsFromThread,
-  normalizeTokenUsage,
-  truncateText,
-} from "@/lib/chat-utils";
-
-type ChatEvent = { topic: string; params?: unknown };
+} from "@homie/shared";
+import { uuid } from "@/lib/uuid";
 
 interface ChatEventContext {
   threadIdLookupRef: MutableRefObject<Map<string, string>>;
@@ -24,259 +19,187 @@ interface ChatEventContext {
   setTokenUsageByChatId: Dispatch<SetStateAction<Record<string, ThreadTokenUsage>>>;
 }
 
-function resolveApprovalRequestId(params: Record<string, unknown>): number | string | undefined {
-  const candidates = [
-    params.codex_request_id,
-    params.codexRequestId,
-    params.request_id,
-    params.requestId,
-    params.id,
-  ];
-  for (const candidate of candidates) {
-    if (typeof candidate === "number" || typeof candidate === "string") {
-      return candidate;
-    }
+function setRunningState(
+  ctx: ChatEventContext,
+  chatId: string,
+  running: boolean,
+  turnId?: string,
+) {
+  if (running && turnId) {
+    ctx.runningTurnsRef.current.set(chatId, turnId);
   }
-  return undefined;
+
+  if (!running) {
+    ctx.runningTurnsRef.current.delete(chatId);
+  }
+
+  ctx.setThreads((prev) =>
+    prev.map((thread) =>
+      thread.chatId === chatId ? { ...thread, running } : thread,
+    ),
+  );
+
+  if (ctx.activeChatIdRef.current === chatId) {
+    ctx.setActiveThread((prev) =>
+      prev
+        ? {
+            ...prev,
+            running,
+            activeTurnId: running ? turnId : undefined,
+          }
+        : prev,
+    );
+  }
 }
 
-export function handleChatEvent(event: ChatEvent, ctx: ChatEventContext) {
-  if (!event.topic.startsWith("chat.")) return;
-  const params = (event.params ?? {}) as Record<string, unknown>;
-  const threadId = getThreadId(params);
-  if (!threadId) return;
-  const chatId = ctx.threadIdLookupRef.current.get(threadId) ?? threadId;
+function upsertThreadActivity(
+  ctx: ChatEventContext,
+  chatId: string,
+  lastActivityAt: number,
+  preview?: string,
+) {
+  ctx.setThreads((prev) =>
+    prev.map((thread) =>
+      thread.chatId === chatId
+        ? {
+            ...thread,
+            preview: preview ?? thread.preview,
+            lastActivityAt,
+          }
+        : thread,
+    ),
+  );
+}
 
-  if (event.topic === "chat.turn.started") {
-    const turnId = getTurnId(params);
-    if (turnId) ctx.runningTurnsRef.current.set(chatId, turnId);
-    ctx.setThreads((prev) =>
-      prev.map((thread) => (thread.chatId === chatId ? { ...thread, running: true } : thread)),
-    );
-    if (ctx.activeChatIdRef.current === chatId) {
-      ctx.setActiveThread((prev) => (prev ? { ...prev, running: true, activeTurnId: turnId } : prev));
-    }
+export function handleChatEvent(event: ChatGatewayEvent, ctx: ChatEventContext) {
+  const mapped = mapChatEvent(event, {
+    threadIdLookup: ctx.threadIdLookupRef.current,
+    messageBuffer: ctx.messageBufferRef.current,
+    idFactory: uuid,
+  });
+
+  if (!mapped) return;
+
+  if (mapped.type === "turn.started") {
+    setRunningState(ctx, mapped.chatId, true, mapped.turnId);
   }
 
-  if (event.topic === "chat.turn.completed") {
-    ctx.runningTurnsRef.current.delete(chatId);
-    ctx.setThreads((prev) =>
-      prev.map((thread) => (thread.chatId === chatId ? { ...thread, running: false } : thread)),
-    );
-    if (ctx.activeChatIdRef.current === chatId) {
-      ctx.setActiveThread((prev) => (prev ? { ...prev, running: false, activeTurnId: undefined } : prev));
-    }
+  if (mapped.type === "turn.completed") {
+    setRunningState(ctx, mapped.chatId, false);
   }
 
-  if (event.topic === "chat.message.delta") {
-    const itemId = getItemId(params);
-    const delta = typeof params.delta === "string" ? params.delta : "";
-    const turnId = getTurnId(params);
-    if (turnId) {
-      ctx.runningTurnsRef.current.set(chatId, turnId);
-      ctx.setThreads((prev) =>
-        prev.map((thread) => (thread.chatId === chatId ? { ...thread, running: true } : thread)),
-      );
-      if (ctx.activeChatIdRef.current === chatId) {
-        ctx.setActiveThread((prev) => (prev ? { ...prev, running: true, activeTurnId: turnId } : prev));
-      }
+  if (mapped.type === "message.delta") {
+    if (mapped.turnId) {
+      setRunningState(ctx, mapped.chatId, true, mapped.turnId);
     }
-    const nextText = itemId ? `${ctx.messageBufferRef.current.get(itemId) ?? ""}${delta}` : delta;
-    if (itemId) ctx.messageBufferRef.current.set(itemId, nextText);
-    if (ctx.activeChatIdRef.current === chatId && itemId) {
+
+    if (ctx.activeChatIdRef.current === mapped.chatId && mapped.itemId) {
       ctx.setActiveThread((prev) => {
         if (!prev) return prev;
-        const idx = prev.items.findIndex((item) => item.id === itemId);
-        if (idx >= 0) {
+        const index = prev.items.findIndex((item) => item.id === mapped.itemId);
+        if (index >= 0) {
           const next = [...prev.items];
-          const current = next[idx];
-          next[idx] = { ...current, text: nextText };
+          next[index] = { ...next[index], text: mapped.text };
           return { ...prev, items: next };
         }
         return {
           ...prev,
-          items: [...prev.items, { id: itemId, kind: "assistant", role: "assistant", text: nextText }],
+          items: [
+            ...prev.items,
+            {
+              id: mapped.itemId,
+              kind: "assistant",
+              role: "assistant",
+              text: mapped.text,
+            },
+          ],
         };
       });
     }
-    ctx.setThreads((prev) =>
-      prev.map((thread) =>
-        thread.chatId === chatId
-          ? {
-              ...thread,
-              preview: truncateText(nextText, 96),
-              lastActivityAt: Date.now(),
-            }
-          : thread,
-      ),
+
+    upsertThreadActivity(
+      ctx,
+      mapped.chatId,
+      mapped.activityAt,
+      truncateText(mapped.text, 96),
     );
   }
 
-  if (event.topic === "chat.item.started" || event.topic === "chat.item.completed") {
-    const item = params.item as Record<string, unknown> | undefined;
-    if (!item || typeof item !== "object") return;
-    const itemId = typeof item.id === "string" ? item.id : uuid();
-    const turnId = getTurnId(params);
-    if (event.topic === "chat.item.started" && turnId) {
-      ctx.runningTurnsRef.current.set(chatId, turnId);
-      ctx.setThreads((prev) =>
-        prev.map((thread) => (thread.chatId === chatId ? { ...thread, running: true } : thread)),
-      );
-      if (ctx.activeChatIdRef.current === chatId) {
-        ctx.setActiveThread((prev) => (prev ? { ...prev, running: true, activeTurnId: turnId } : prev));
-      }
+  if (mapped.type === "item.started" || mapped.type === "item.completed") {
+    if (mapped.type === "item.started" && mapped.turnId) {
+      setRunningState(ctx, mapped.chatId, true, mapped.turnId);
     }
-    if (ctx.activeChatIdRef.current === chatId) {
+
+    if (ctx.activeChatIdRef.current === mapped.chatId) {
       ctx.setActiveThread((prev) => {
         if (!prev) return prev;
-        const nextItem = itemsFromThread({ turns: [{ id: getTurnId(params), items: [item] }] })[0];
-        if (!nextItem) return prev;
-        if (nextItem.kind === "assistant" && nextItem.text) {
-          ctx.messageBufferRef.current.set(nextItem.id, nextItem.text);
+
+        if (mapped.item.kind === "assistant" && mapped.item.text) {
+          ctx.messageBufferRef.current.set(mapped.item.id, mapped.item.text);
         }
-        if (nextItem.kind === "user") {
-          const text = nextItem.text?.trim() ?? "";
+
+        if (mapped.item.kind === "user") {
+          const text = mapped.item.text?.trim() ?? "";
           const optimisticIndex = prev.items.findIndex(
             (existing) =>
               existing.kind === "user" &&
               existing.optimistic &&
               (existing.text?.trim() ?? "") === text,
           );
+
           if (optimisticIndex >= 0) {
             const next = [...prev.items];
-            next[optimisticIndex] = { ...nextItem, optimistic: false };
+            next[optimisticIndex] = { ...mapped.item, optimistic: false };
             return { ...prev, items: next };
           }
         }
-        const idx = prev.items.findIndex((it) => it.id === itemId);
-        if (idx >= 0) {
+
+        const index = prev.items.findIndex((item) => item.id === mapped.item.id);
+        if (index >= 0) {
           const next = [...prev.items];
-          next[idx] = { ...next[idx], ...nextItem };
+          next[index] = { ...next[index], ...mapped.item };
           return { ...prev, items: next };
         }
-        return { ...prev, items: [...prev.items, nextItem] };
+
+        return { ...prev, items: [...prev.items, mapped.item] };
       });
     }
   }
 
-  if (event.topic === "chat.command.output" || event.topic === "chat.file.output") {
-    const itemId = getItemId(params);
-    const delta = typeof params.delta === "string" ? params.delta : "";
-    if (ctx.activeChatIdRef.current === chatId && itemId) {
+  if (mapped.type === "command.output" || mapped.type === "file.output") {
+    if (ctx.activeChatIdRef.current === mapped.chatId && mapped.itemId) {
       ctx.setActiveThread((prev) => {
         if (!prev) return prev;
-        const idx = prev.items.findIndex((item) => item.id === itemId);
-        if (idx < 0) return prev;
+        const index = prev.items.findIndex((item) => item.id === mapped.itemId);
+        if (index < 0) return prev;
         const next = [...prev.items];
-        const current = next[idx];
-        next[idx] = { ...current, output: `${current.output ?? ""}${delta}` };
+        const current = next[index];
+        next[index] = { ...current, output: `${current.output ?? ""}${mapped.delta}` };
         return { ...prev, items: next };
       });
     }
   }
 
-  if (event.topic === "chat.diff.updated") {
-    const turnId = getTurnId(params) ?? "unknown";
-    const diff = typeof params.diff === "string" ? params.diff : "";
-    if (ctx.activeChatIdRef.current === chatId) {
+  if (mapped.type === "diff.updated") {
+    if (ctx.activeChatIdRef.current === mapped.chatId) {
       ctx.setActiveThread((prev) => {
         if (!prev) return prev;
-        const id = `diff-${turnId}`;
-        const idx = prev.items.findIndex((item) => item.id === id);
-        if (idx >= 0) {
+        const id = `diff-${mapped.turnId ?? "unknown"}`;
+        const index = prev.items.findIndex((item) => item.id === id);
+        if (index >= 0) {
           const next = [...prev.items];
-          next[idx] = { ...next[idx], text: diff };
+          next[index] = { ...next[index], text: mapped.diff };
           return { ...prev, items: next };
         }
-        return { ...prev, items: [...prev.items, { id, kind: "diff", turnId, text: diff }] };
-      });
-    }
-  }
-
-  if (event.topic === "chat.plan.updated") {
-    const turnId = getTurnId(params) ?? "unknown";
-    const plan = Array.isArray(params.plan) ? params.plan : [];
-    const explanation = typeof params.explanation === "string" ? params.explanation : "";
-    const text = [
-      explanation ? `Note: ${explanation}` : "",
-      ...plan.map((step: Record<string, unknown>) => {
-        const stepText = typeof step.step === "string" ? step.step : "step";
-        const status = typeof step.status === "string" ? step.status : "pending";
-        return `- [${status}] ${stepText}`;
-      }),
-    ]
-      .filter(Boolean)
-      .join("\n");
-    if (ctx.activeChatIdRef.current === chatId) {
-      ctx.setActiveThread((prev) => {
-        if (!prev) return prev;
-        const id = `plan-${turnId}`;
-        const idx = prev.items.findIndex((item) => item.id === id);
-        if (idx >= 0) {
-          const next = [...prev.items];
-          next[idx] = { ...next[idx], text };
-          return { ...prev, items: next };
-        }
-        return { ...prev, items: [...prev.items, { id, kind: "plan", turnId, text }] };
-      });
-    }
-  }
-
-  if (event.topic === "chat.token.usage.updated") {
-    const tokenUsage =
-      (params.tokenUsage as Record<string, unknown> | undefined) ??
-      (params.token_usage as Record<string, unknown> | undefined);
-    if (tokenUsage) {
-      const normalized = normalizeTokenUsage(tokenUsage);
-      ctx.setTokenUsageByChatId((prev) => ({ ...prev, [chatId]: normalized }));
-    }
-  }
-
-  if (event.topic === "chat.approval.required") {
-    const requestId = resolveApprovalRequestId(params);
-    const itemId = getItemId(params) ?? uuid();
-    const reason = typeof params.reason === "string" ? params.reason : undefined;
-    const command = typeof params.command === "string" ? params.command : undefined;
-    const cwd = typeof params.cwd === "string" ? params.cwd : undefined;
-    const turnId = getTurnId(params);
-    if (turnId) {
-      ctx.runningTurnsRef.current.set(chatId, turnId);
-      ctx.setThreads((prev) =>
-        prev.map((thread) => (thread.chatId === chatId ? { ...thread, running: true } : thread)),
-      );
-      if (ctx.activeChatIdRef.current === chatId) {
-        ctx.setActiveThread((prev) => (prev ? { ...prev, running: true, activeTurnId: turnId } : prev));
-      }
-    }
-    if (typeof window !== "undefined") {
-      console.debug("[chat] approval required", {
-        requestId,
-        threadId,
-        turnId: getTurnId(params),
-        itemId,
-        reason,
-        command,
-        cwd,
-        raw: params,
-      });
-      if (requestId === undefined) {
-        console.warn("[chat] approval request missing id", params);
-      }
-    }
-    if (ctx.activeChatIdRef.current === chatId) {
-      ctx.setActiveThread((prev) => {
-        if (!prev) return prev;
         return {
           ...prev,
           items: [
             ...prev.items,
             {
-              id: itemId,
-              kind: "approval",
-              requestId,
-              reason,
-              command,
-              cwd,
+              id,
+              kind: "diff",
+              turnId: mapped.turnId,
+              text: mapped.diff,
             },
           ],
         };
@@ -284,9 +207,81 @@ export function handleChatEvent(event: ChatEvent, ctx: ChatEventContext) {
     }
   }
 
-  ctx.setThreads((prev) =>
-    prev.map((thread) =>
-      thread.chatId === chatId ? { ...thread, lastActivityAt: Date.now() } : thread,
-    ),
-  );
+  if (mapped.type === "plan.updated") {
+    if (ctx.activeChatIdRef.current === mapped.chatId) {
+      ctx.setActiveThread((prev) => {
+        if (!prev) return prev;
+        const id = `plan-${mapped.turnId ?? "unknown"}`;
+        const index = prev.items.findIndex((item) => item.id === id);
+        if (index >= 0) {
+          const next = [...prev.items];
+          next[index] = { ...next[index], text: mapped.text };
+          return { ...prev, items: next };
+        }
+        return {
+          ...prev,
+          items: [
+            ...prev.items,
+            {
+              id,
+              kind: "plan",
+              turnId: mapped.turnId,
+              text: mapped.text,
+            },
+          ],
+        };
+      });
+    }
+  }
+
+  if (mapped.type === "token.usage.updated") {
+    ctx.setTokenUsageByChatId((prev) => ({
+      ...prev,
+      [mapped.chatId]: mapped.tokenUsage,
+    }));
+  }
+
+  if (mapped.type === "approval.required") {
+    if (mapped.turnId) {
+      setRunningState(ctx, mapped.chatId, true, mapped.turnId);
+    }
+
+    if (typeof window !== "undefined") {
+      console.debug("[chat] approval required", {
+        requestId: mapped.requestId,
+        threadId: mapped.threadId,
+        turnId: mapped.turnId,
+        itemId: mapped.itemId,
+        reason: mapped.reason,
+        command: mapped.command,
+        cwd: mapped.cwd,
+        raw: mapped.rawParams,
+      });
+      if (mapped.requestId === undefined) {
+        console.warn("[chat] approval request missing id", mapped.rawParams);
+      }
+    }
+
+    if (ctx.activeChatIdRef.current === mapped.chatId) {
+      ctx.setActiveThread((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: [
+            ...prev.items,
+            {
+              id: mapped.itemId,
+              kind: "approval",
+              requestId: mapped.requestId,
+              reason: mapped.reason,
+              command: mapped.command,
+              cwd: mapped.cwd,
+            },
+          ],
+        };
+      });
+    }
+  }
+
+  upsertThreadActivity(ctx, mapped.chatId, mapped.activityAt);
 }
