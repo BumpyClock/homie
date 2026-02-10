@@ -32,4 +32,10 @@ rusqlite = { version = "0.38", features = ["bundled"] }
 directories = "6"
 toml = "0.9"
 shell-words = "1.1.1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+url = "2"
+readabilityrs = "0.1.2"
+htmd = "0.5.0"
+html2text = "0.16.7"
+pulldown-cmark = "0.13.0"
 homie-protocol = { path = "src/infra/homie-protocol" }

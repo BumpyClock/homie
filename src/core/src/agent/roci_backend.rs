@@ -13,8 +13,8 @@ use roci::agent_loop::{
 use roci::config::RociConfig;
 use roci::models::LanguageModel;
 use roci::tools::Tool;
-use roci::types::{ModelMessage, Role};
 use roci::types::{GenerationSettings, ReasoningEffort};
+use roci::types::{ModelMessage, Role};
 
 use crate::agent::tools::{build_tools, ToolContext};
 use crate::outbound::OutboundMessage;
@@ -22,6 +22,7 @@ use crate::storage::Store;
 use crate::ExecPolicy;
 
 const DEFAULT_ROCI_MODEL: &str = "openai-codex:gpt-5.1-codex";
+const TOOL_OUTPUT_RETENTION_TURNS: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChatBackend {
@@ -46,6 +47,7 @@ pub struct RociBackend {
     outbound_tx: mpsc::Sender<OutboundMessage>,
     store: Arc<dyn Store>,
     tools: Vec<Arc<dyn Tool>>,
+    processes: Arc<crate::agent::tools::ProcessRegistry>,
     exec_policy: Arc<ExecPolicy>,
 }
 
@@ -67,23 +69,33 @@ impl RociBackend {
         outbound_tx: mpsc::Sender<OutboundMessage>,
         store: Arc<dyn Store>,
         exec_policy: Arc<ExecPolicy>,
+        homie_config: Arc<crate::HomieConfig>,
     ) -> Self {
-        let tool_ctx = ToolContext::new();
-        let tools = build_tools(tool_ctx);
+        let processes = Arc::new(crate::agent::tools::ProcessRegistry::new());
+        let tool_ctx = ToolContext::with_processes(processes.clone(), homie_config.clone());
+        let tools = match build_tools(tool_ctx, &homie_config) {
+            Ok(tools) => tools,
+            Err(error) => {
+                tracing::error!(%error, "failed to build tool registry; using empty tool set");
+                Vec::new()
+            }
+        };
         Self {
             state: Arc::new(Mutex::new(RociState::default())),
             outbound_tx,
             store,
             tools,
+            processes,
             exec_policy,
         }
     }
 
     pub async fn ensure_thread(&self, thread_id: &str) {
         let mut state = self.state.lock().await;
-        state.threads.entry(thread_id.to_string()).or_insert_with(|| {
-            RociThreadState::new(thread_id.to_string())
-        });
+        state
+            .threads
+            .entry(thread_id.to_string())
+            .or_insert_with(|| RociThreadState::new(thread_id.to_string()));
     }
 
     pub async fn thread_read(&self, thread_id: &str) -> Option<Value> {
@@ -102,12 +114,80 @@ impl RociBackend {
     }
 
     pub async fn thread_archive(&self, thread_id: &str) {
-        let mut state = self.state.lock().await;
-        state.threads.remove(thread_id);
-        state.runs.retain(|_, run| run.thread_id != thread_id);
-        state.run_queue.remove(thread_id);
-        state.active_threads.remove(thread_id);
-        state.approval_cache.remove(thread_id);
+        let evicted = {
+            let mut state = self.state.lock().await;
+            state.threads.remove(thread_id);
+            state.runs.retain(|_, run| run.thread_id != thread_id);
+            state.run_queue.remove(thread_id);
+            state.active_threads.remove(thread_id);
+            state.approval_cache.remove(thread_id);
+            state.tool_output_cache.remove(thread_id)
+        };
+        if let Some(turns) = evicted {
+            for turn in turns {
+                for process_id in turn.process_ids {
+                    self.processes.remove(&process_id);
+                }
+            }
+        }
+    }
+
+    async fn register_tool_turn(&self, thread_id: &str, turn_id: &str) {
+        let evicted = {
+            let mut state = self.state.lock().await;
+            let deque = state
+                .tool_output_cache
+                .entry(thread_id.to_string())
+                .or_default();
+            deque.push_back(ToolOutputRetention {
+                turn_id: turn_id.to_string(),
+                process_ids: Vec::new(),
+            });
+            let mut evicted = Vec::new();
+            while deque.len() > TOOL_OUTPUT_RETENTION_TURNS {
+                if let Some(turn) = deque.pop_front() {
+                    evicted.push(turn);
+                }
+            }
+            evicted
+        };
+        for turn in evicted {
+            for process_id in turn.process_ids {
+                self.processes.remove(&process_id);
+            }
+        }
+    }
+
+    async fn record_tool_process(&self, thread_id: &str, turn_id: &str, process_id: String) {
+        let evicted = {
+            let mut state = self.state.lock().await;
+            let deque = state
+                .tool_output_cache
+                .entry(thread_id.to_string())
+                .or_default();
+            if let Some(entry) = deque
+                .iter_mut()
+                .rev()
+                .find(|entry| entry.turn_id == turn_id)
+            {
+                entry.process_ids.push(process_id);
+            } else {
+                deque.push_back(ToolOutputRetention {
+                    turn_id: turn_id.to_string(),
+                    process_ids: vec![process_id],
+                });
+            }
+            if deque.len() > TOOL_OUTPUT_RETENTION_TURNS {
+                deque.pop_front()
+            } else {
+                None
+            }
+        };
+        if let Some(turn) = evicted {
+            for process_id in turn.process_ids {
+                self.processes.remove(&process_id);
+            }
+        }
     }
 
     pub async fn start_run(
@@ -133,12 +213,11 @@ impl RociBackend {
                 .get_mut(thread_id)
                 .ok_or_else(|| "thread missing".to_string())?;
             if let Some(prompt) = system_prompt.as_ref() {
-                let has_system = thread
-                    .messages
-                    .iter()
-                    .any(|msg| msg.role == Role::System);
+                let has_system = thread.messages.iter().any(|msg| msg.role == Role::System);
                 if !has_system {
-                    thread.messages.insert(0, ModelMessage::system(prompt.clone()));
+                    thread
+                        .messages
+                        .insert(0, ModelMessage::system(prompt.clone()));
                 }
             }
             let turn_id = Uuid::new_v4().to_string();
@@ -149,10 +228,14 @@ impl RociBackend {
             let turn = RociTurn::new(turn_id.clone(), vec![user_item, assistant_item]);
             thread.thread.turns.push(turn);
             thread.thread.updated_at = now_unix();
-            thread.messages.push(ModelMessage::user(message.to_string()));
+            thread
+                .messages
+                .push(ModelMessage::user(message.to_string()));
             thread.last_assistant_item_id = Some(assistant_item_id.clone());
             (turn_id, user_item_id, assistant_item_id)
         };
+
+        self.register_tool_turn(thread_id, &turn_id).await;
 
         emit_turn_started(&self.outbound_tx, &self.store, chat_id, thread_id, &turn_id);
         emit_user_item(
@@ -276,12 +359,19 @@ impl RociBackend {
             }
             let item_id = Uuid::new_v4().to_string();
             let thread = state.threads.get_mut(thread_id)?;
-            if let Some(turn) = thread.thread.turns.iter_mut().find(|turn| turn.id == turn_id) {
+            if let Some(turn) = thread
+                .thread
+                .turns
+                .iter_mut()
+                .find(|turn| turn.id == turn_id)
+            {
                 turn.items
                     .push(RociItem::user(item_id.clone(), message.to_string()));
             }
             thread.thread.updated_at = now_unix();
-            thread.messages.push(ModelMessage::user(message.to_string()));
+            thread
+                .messages
+                .push(ModelMessage::user(message.to_string()));
             (turn_id, item_id, queued)
         };
 
@@ -502,12 +592,19 @@ impl RociBackend {
                                 "roci tool result"
                             );
                         }
-                        let info = tool_calls
-                            .remove(&result.tool_call_id)
-                            .unwrap_or_else(|| ToolCallInfo {
+                        let info = tool_calls.remove(&result.tool_call_id).unwrap_or_else(|| {
+                            ToolCallInfo {
                                 name: "tool".to_string(),
                                 input: serde_json::Value::Null,
-                            });
+                            }
+                        });
+                        if let Some(process_id) =
+                            exec_process_id_from_result(&info.name, &result.result)
+                        {
+                            backend
+                                .record_tool_process(&thread_id, &turn_id_clone, process_id)
+                                .await;
+                        }
                         emit_tool_item_completed(
                             &outbound,
                             &store,
@@ -606,14 +703,18 @@ impl RociBackend {
                                 {
                                     let mut guard = state.lock().await;
                                     if let Some(thread) = guard.threads.get_mut(&thread_id) {
-                                        thread.update_assistant_text(&assistant_item_id_clone, &assistant_text);
+                                        thread.update_assistant_text(
+                                            &assistant_item_id_clone,
+                                            &assistant_text,
+                                        );
                                         thread
                                             .messages
                                             .push(ModelMessage::assistant(assistant_text.clone()));
                                         thread.thread.updated_at = now_unix();
                                     }
                                     guard.runs.remove(&turn_id_clone);
-                                    if guard.active_threads.get(&thread_id) == Some(&turn_id_clone) {
+                                    if guard.active_threads.get(&thread_id) == Some(&turn_id_clone)
+                                    {
                                         guard.active_threads.remove(&thread_id);
                                     }
                                 }
@@ -626,7 +727,9 @@ impl RociBackend {
                                     &assistant_item_id_clone,
                                     &assistant_text,
                                 );
-                                if collaboration_mode.as_deref() == Some("plan") && !assistant_text.trim().is_empty() {
+                                if collaboration_mode.as_deref() == Some("plan")
+                                    && !assistant_text.trim().is_empty()
+                                {
                                     emit_plan_updated(
                                         &outbound,
                                         &store,
@@ -655,11 +758,19 @@ impl RociBackend {
                                 break;
                             }
                             RunLifecycle::Failed { error } => {
-                                emit_error(&outbound, &store, &chat_id, &thread_id, &turn_id_clone, error);
+                                emit_error(
+                                    &outbound,
+                                    &store,
+                                    &chat_id,
+                                    &thread_id,
+                                    &turn_id_clone,
+                                    error,
+                                );
                                 {
                                     let mut guard = state.lock().await;
                                     guard.runs.remove(&turn_id_clone);
-                                    if guard.active_threads.get(&thread_id) == Some(&turn_id_clone) {
+                                    if guard.active_threads.get(&thread_id) == Some(&turn_id_clone)
+                                    {
                                         guard.active_threads.remove(&thread_id);
                                     }
                                 }
@@ -685,7 +796,8 @@ impl RociBackend {
                                 {
                                     let mut guard = state.lock().await;
                                     guard.runs.remove(&turn_id_clone);
-                                    if guard.active_threads.get(&thread_id) == Some(&turn_id_clone) {
+                                    if guard.active_threads.get(&thread_id) == Some(&turn_id_clone)
+                                    {
                                         guard.active_threads.remove(&thread_id);
                                     }
                                 }
@@ -835,6 +947,7 @@ struct RociState {
     active_threads: HashMap<String, String>,
     approvals: HashMap<String, oneshot::Sender<ApprovalDecision>>,
     approval_cache: HashMap<String, HashSet<String>>,
+    tool_output_cache: HashMap<String, VecDeque<ToolOutputRetention>>,
 }
 
 struct RociRunState {
@@ -845,6 +958,11 @@ struct RociRunState {
 struct ToolCallInfo {
     name: String,
     input: serde_json::Value,
+}
+
+struct ToolOutputRetention {
+    turn_id: String,
+    process_ids: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -907,7 +1025,10 @@ impl RociTurn {
 #[serde(tag = "type")]
 enum RociItem {
     #[serde(rename = "userMessage")]
-    UserMessage { id: String, content: Vec<RociContent> },
+    UserMessage {
+        id: String,
+        content: Vec<RociContent>,
+    },
     #[serde(rename = "agentMessage")]
     AgentMessage { id: String, text: String },
 }
@@ -1134,13 +1255,24 @@ fn emit_item_completed(
 mod tests {
     use super::*;
     use crate::storage::SqliteStore;
+    use roci::auth::{providers::openai_codex::OpenAiCodexAuth, FileTokenStore, TokenStoreConfig};
+    use roci::config::RociConfig;
     use roci::types::ContentPart;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::mpsc;
+    use tokio::time::timeout;
 
     #[tokio::test]
     async fn queue_message_appends_to_active_turn() {
         let (outbound_tx, _outbound_rx) = mpsc::channel(4);
         let store = Arc::new(SqliteStore::open_memory().expect("store"));
-        let backend = RociBackend::new(outbound_tx, store, Arc::new(ExecPolicy::empty()));
+        let backend = RociBackend::new(
+            outbound_tx,
+            store,
+            Arc::new(ExecPolicy::empty()),
+            Arc::new(crate::HomieConfig::default()),
+        );
         let thread_id = "thread-1";
         let chat_id = "chat-1";
 
@@ -1193,6 +1325,91 @@ mod tests {
         assert_eq!(turn.items.len(), 2);
     }
 
+    fn live_enabled() -> bool {
+        matches!(std::env::var("HOMIE_LIVE_TESTS").as_deref(), Ok("1"))
+    }
+
+    #[tokio::test]
+    async fn live_tool_calls() {
+        if !live_enabled() {
+            eprintln!("skipping live test; set HOMIE_LIVE_TESTS=1");
+            return;
+        }
+
+        let homie_config = Arc::new(crate::HomieConfig::load().expect("load homie config"));
+        let store = Arc::new(SqliteStore::open_memory().expect("store"));
+        let (outbound_tx, mut outbound_rx) = mpsc::channel::<OutboundMessage>(128);
+
+        let backend = RociBackend::new(
+            outbound_tx,
+            store,
+            Arc::new(ExecPolicy::empty()),
+            homie_config.clone(),
+        );
+
+        let creds_dir = homie_config.credentials_dir().expect("credentials dir");
+        let token_store = FileTokenStore::new(TokenStoreConfig::new(creds_dir));
+        let auth = OpenAiCodexAuth::new(Arc::new(token_store.clone()));
+        let _ = auth.import_codex_auth_json(None);
+        let token = auth.get_token().await.expect("codex token");
+
+        let config = RociConfig::from_env();
+        config.set_api_key("openai-codex", token.access_token);
+        if let Some(account_id) = token.account_id {
+            config.set_account_id("openai-codex", account_id);
+        }
+        if config.get_base_url("openai-codex").is_none() {
+            if let Some(base) = config.get_base_url("openai") {
+                config.set_base_url("openai-codex", base);
+            }
+        }
+
+        let model: LanguageModel = "openai-codex:gpt-5.2-codex".parse().expect("model parse");
+        let settings = GenerationSettings::default();
+
+        backend
+            .start_run(
+                "live-chat",
+                "live-thread",
+                "List the current directory using the ls tool.",
+                model,
+                settings,
+                ApprovalPolicy::Always,
+                config,
+                None,
+                Some(homie_config.chat.system_prompt.clone()),
+            )
+            .await
+            .expect("start run");
+
+        let mut saw_tool_result = false;
+        let deadline = Duration::from_secs(60);
+        let start = std::time::Instant::now();
+        while start.elapsed() < deadline {
+            let msg = timeout(Duration::from_secs(2), outbound_rx.recv()).await;
+            let Some(OutboundMessage::Event { topic, params }) = msg.ok().flatten() else {
+                continue;
+            };
+            if topic == "chat.item.completed" {
+                if let Some(params) = params.as_ref() {
+                    if params
+                        .get("item")
+                        .and_then(|v| v.get("type"))
+                        .and_then(|v| v.as_str())
+                        == Some("mcpToolCall")
+                    {
+                        saw_tool_result = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        assert!(
+            saw_tool_result,
+            "did not receive tool result within timeout"
+        );
+    }
 }
 
 fn emit_tool_item_started(
@@ -1453,9 +1670,7 @@ fn normalize_json(value: Value) -> Value {
             }
             Value::Object(normalized)
         }
-        Value::Array(items) => {
-            Value::Array(items.into_iter().map(normalize_json).collect())
-        }
+        Value::Array(items) => Value::Array(items.into_iter().map(normalize_json).collect()),
         other => other,
     }
 }
@@ -1482,6 +1697,31 @@ fn trim_tool_result(mut result: roci::types::AgentToolResult) -> roci::types::Ag
         }
     }
     result
+}
+
+fn exec_process_id_from_result(tool_name: &str, result: &serde_json::Value) -> Option<String> {
+    if tool_name != "exec" {
+        return None;
+    }
+    let status = result.get("status").and_then(|v| v.as_str());
+    if status != Some("completed") {
+        return None;
+    }
+    let truncated = result
+        .get("stdout_truncated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || result
+            .get("stderr_truncated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+    if !truncated {
+        return None;
+    }
+    result
+        .get("process_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 fn debug_enabled() -> bool {

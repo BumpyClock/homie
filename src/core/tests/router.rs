@@ -507,8 +507,18 @@ async fn exit_events_are_broadcast_to_all_connections() {
     let mut ws1 = connect_and_handshake(addr).await;
     let mut ws2 = connect_and_handshake(addr).await;
 
-    rpc(&mut ws1, "events.subscribe", Some(json!({ "topic": "terminal.*" }))).await;
-    rpc(&mut ws2, "events.subscribe", Some(json!({ "topic": "terminal.*" }))).await;
+    rpc(
+        &mut ws1,
+        "events.subscribe",
+        Some(json!({ "topic": "terminal.*" })),
+    )
+    .await;
+    rpc(
+        &mut ws2,
+        "events.subscribe",
+        Some(json!({ "topic": "terminal.*" })),
+    )
+    .await;
 
     let result = rpc(
         &mut ws1,

@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use roci::error::RociError;
-use roci::tools::{AgentTool, AgentToolParameters, Tool, ToolArguments};
 use roci::tools::tool::ToolExecutionContext;
-use serde::Deserialize;
+use roci::tools::{AgentTool, AgentToolParameters, Tool, ToolArguments};
 
+use super::args::ParsedToolArgs;
 use super::ToolContext;
 
 const BEGIN_PATCH: &str = "*** Begin Patch";
@@ -16,18 +16,26 @@ const UPDATE_FILE: &str = "*** Update File: ";
 const MOVE_TO: &str = "*** Move to: ";
 const END_OF_FILE: &str = "*** End of File";
 
-#[derive(Debug, Deserialize)]
-struct ApplyPatchArgs {
+#[derive(Debug, PartialEq, Eq)]
+struct ApplyPatchRequest {
     patch: String,
-    #[serde(default)]
     cwd: Option<String>,
 }
 
 #[derive(Debug)]
 enum PatchHunk {
-    Add { path: String, contents: Vec<String> },
-    Delete { path: String },
-    Update { path: String, move_path: Option<String>, chunks: Vec<UpdateChunk> },
+    Add {
+        path: String,
+        contents: Vec<String>,
+    },
+    Delete {
+        path: String,
+    },
+    Update {
+        path: String,
+        move_path: Option<String>,
+        chunks: Vec<UpdateChunk>,
+    },
 }
 
 #[derive(Debug)]
@@ -59,10 +67,7 @@ async fn apply_patch_impl(
     ctx: &ToolContext,
     args: &ToolArguments,
 ) -> Result<serde_json::Value, RociError> {
-    let parsed: ApplyPatchArgs = args.deserialize()?;
-    if parsed.patch.trim().is_empty() {
-        return Err(RociError::InvalidArgument("patch must not be empty".into()));
-    }
+    let parsed = parse_apply_patch_request(args)?;
     let cwd = parsed
         .cwd
         .as_deref()
@@ -89,6 +94,27 @@ async fn apply_patch_impl(
         "changes": changes,
         "diff": parsed.patch,
     }))
+}
+
+fn parse_apply_patch_request(args: &ToolArguments) -> Result<ApplyPatchRequest, RociError> {
+    let parsed = ParsedToolArgs::new(args)?;
+    let patch = clean_string(parsed.get_string_any(&["patch", "diff"])?)
+        .or_else(|| clean_literal(parsed.literal()))
+        .ok_or_else(|| RociError::InvalidArgument("patch must not be empty".into()))?;
+    let cwd = clean_string(parsed.get_string_any(&["cwd", "workdir", "working_dir"])?);
+    Ok(ApplyPatchRequest { patch, cwd })
+}
+
+fn clean_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
+}
+
+fn clean_literal(value: Option<&str>) -> Option<String> {
+    value
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
 }
 
 fn parse_patch(patch: &str) -> Result<Vec<PatchHunk>, String> {
@@ -186,7 +212,11 @@ fn parse_update(
             }
             let context = trimmed.strip_prefix("@@").unwrap_or("").trim();
             current = Some(UpdateChunk {
-                context: if context.is_empty() { None } else { Some(context.to_string()) },
+                context: if context.is_empty() {
+                    None
+                } else {
+                    Some(context.to_string())
+                },
                 old_lines: Vec::new(),
                 new_lines: Vec::new(),
                 eof: false,
@@ -350,8 +380,7 @@ fn move_to_trash(path: &Path) -> Result<(), String> {
     let trash_dir = crate::paths::homie_home_dir()
         .map_err(|e| format!("failed to resolve homie home: {e}"))?
         .join("trash");
-    std::fs::create_dir_all(&trash_dir)
-        .map_err(|e| format!("failed to create trash dir: {e}"))?;
+    std::fs::create_dir_all(&trash_dir).map_err(|e| format!("failed to create trash dir: {e}"))?;
     let file_name = path
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
@@ -369,4 +398,37 @@ fn json_change(kind: &str, path: &Path) -> serde_json::Value {
         "action": kind,
         "path": path.to_string_lossy(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use roci::tools::ToolArguments;
+    use serde_json::json;
+
+    use super::parse_apply_patch_request;
+
+    #[test]
+    fn apply_patch_request_accepts_literal_patch() {
+        let args = ToolArguments::new(json!("*** Begin Patch\n*** End Patch"));
+        let parsed = parse_apply_patch_request(&args).expect("parse request");
+        assert!(parsed.patch.contains("*** Begin Patch"));
+        assert_eq!(parsed.cwd, None);
+    }
+
+    #[test]
+    fn apply_patch_request_accepts_diff_alias_and_workdir() {
+        let args = ToolArguments::new(json!({
+            "diff": "*** Begin Patch\n*** End Patch",
+            "workdir": "src"
+        }));
+        let parsed = parse_apply_patch_request(&args).expect("parse request");
+        assert_eq!(parsed.cwd.as_deref(), Some("src"));
+    }
+
+    #[test]
+    fn apply_patch_request_rejects_empty_patch() {
+        let args = ToolArguments::new(json!({ "patch": " " }));
+        let err = parse_apply_patch_request(&args).expect_err("empty patch should fail");
+        assert_eq!(err.to_string(), "Invalid argument: patch must not be empty");
+    }
 }

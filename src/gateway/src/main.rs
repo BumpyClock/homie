@@ -179,14 +179,14 @@ fn parse_role(key: &str, default: Role) -> Role {
 }
 
 fn tracing_filter() -> tracing_subscriber::EnvFilter {
-    let explicit = env::var("HOMIE_LOG")
-        .or_else(|_| env::var("RUST_LOG"))
-        .ok();
+    let explicit = env::var("HOMIE_LOG").or_else(|_| env::var("RUST_LOG")).ok();
     if let Some(filter) = explicit {
         return tracing_subscriber::EnvFilter::new(filter);
     }
-    if matches!(env::var("HOMIE_DEBUG").as_deref(), Ok("1" | "true" | "TRUE" | "yes" | "YES"))
-    {
+    if matches!(
+        env::var("HOMIE_DEBUG").as_deref(),
+        Ok("1" | "true" | "TRUE" | "yes" | "YES")
+    ) {
         return tracing_subscriber::EnvFilter::new("debug");
     }
     tracing_subscriber::EnvFilter::new("info")

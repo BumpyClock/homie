@@ -38,6 +38,8 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     models,
     collaborationModes,
     skills,
+    enabledWebTools,
+    webToolsAvailable,
     activeSettings,
     updateSettings,
     updateAttachments,
@@ -421,6 +423,8 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               models={models}
               collaborationModes={collaborationModes}
               settings={activeSettings}
+              enabledWebTools={enabledWebTools}
+              webToolsAvailable={webToolsAvailable}
               tokenUsage={activeTokenUsage}
               running={!!activeThread?.running}
               queuedHint={queuedNotice}

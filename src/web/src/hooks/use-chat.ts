@@ -8,6 +8,7 @@ import {
   type ActiveChatThread,
   type ChatSettings,
   type ChatThreadSummary,
+  type ChatWebToolName,
   type CollaborationModeOption,
   type FileOption,
   type ModelOption,
@@ -15,6 +16,7 @@ import {
   type ThreadTokenUsage,
   formatRelativeTime,
   normalizeCollaborationModes,
+  normalizeEnabledWebTools,
   normalizeChatSettings,
   normalizeFileOptions,
   normalizeModelOptions,
@@ -106,6 +108,8 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   const [models, setModels] = useState<ModelOption[]>([]);
   const [collaborationModes, setCollaborationModes] = useState<CollaborationModeOption[]>([]);
   const [skills, setSkills] = useState<SkillOption[]>([]);
+  const [enabledWebTools, setEnabledWebTools] = useState<ChatWebToolName[]>([]);
+  const [webToolsAvailable, setWebToolsAvailable] = useState(false);
   const [settingsByChatId, setSettingsByChatId] = useState<Record<string, ChatSettings>>({});
   const [tokenUsageByChatId, setTokenUsageByChatId] = useState<Record<string, ThreadTokenUsage>>({});
   const overridesRef = useRef<Record<string, string>>({});
@@ -116,10 +120,17 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   const queuedTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const hydratedRef = useRef<Set<string>>(new Set());
   const messageBufferRef = useRef<Map<string, string>>(new Map());
+  const bootstrappedRef = useRef(false);
 
   useEffect(() => {
     activeChatIdRef.current = activeChatId;
   }, [activeChatId]);
+
+  useEffect(() => {
+    bootstrappedRef.current = false;
+    setEnabledWebTools([]);
+    setWebToolsAvailable(false);
+  }, [namespace]);
 
   const refreshLocalSettings = useCallback(() => {
     overridesRef.current = loadOverrides(namespace);
@@ -127,7 +138,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     setSettingsByChatId(settingsRef.current);
   }, [namespace]);
 
-  const refreshThreadLookup = useCallback(() => {
+  useEffect(() => {
     const map = new Map<string, string>();
     threads.forEach((thread) => map.set(thread.threadId, thread.chatId));
     threadIdLookupRef.current = map;
@@ -327,8 +338,23 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     }
   }, [call, enabled, status]);
 
+  const refreshWebTools = useCallback(async () => {
+    if (!enabled || status !== "connected") return;
+    try {
+      const res = await call("chat.tools.list", { channel: "web" });
+      setEnabledWebTools(normalizeEnabledWebTools(res));
+      setWebToolsAvailable(true);
+    } catch {
+      setEnabledWebTools([]);
+      setWebToolsAvailable(false);
+    }
+  }, [call, enabled, status]);
+
   useEffect(() => {
     if (status === "connected" && enabled) return;
+    bootstrappedRef.current = false;
+    setEnabledWebTools([]);
+    setWebToolsAvailable(false);
     setTimeout(() => {
       setThreads([]);
       setActiveChatId(null);
@@ -338,26 +364,28 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
 
   useEffect(() => {
     if (!enabled || status !== "connected") return;
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
     const timer = setTimeout(() => {
       refreshLocalSettings();
-      refreshThreadLookup();
       void refreshAccount();
       void loadChats();
       void refreshModels();
       void refreshCollaborationModes();
       void refreshSkills();
+      void refreshWebTools();
     }, 0);
     return () => clearTimeout(timer);
   }, [
     enabled,
     status,
     refreshLocalSettings,
-    refreshThreadLookup,
     refreshAccount,
     loadChats,
     refreshModels,
     refreshCollaborationModes,
     refreshSkills,
+    refreshWebTools,
   ]);
 
   useEffect(() => {
@@ -621,6 +649,8 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     collaborationModes,
     supportsCollaboration,
     skills,
+    enabledWebTools,
+    webToolsAvailable,
     activeSettings,
     updateSettings,
     updateAttachments,

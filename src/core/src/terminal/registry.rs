@@ -5,12 +5,12 @@ use axum::extract::ws::Message as WsMessage;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::process::Command;
 use tokio::sync::mpsc;
 use uuid::Uuid;
-use std::process::Command;
 
-use homie_protocol::{BinaryFrame, StreamType};
 use crate::debug_bytes::{contains_subseq, fmt_bytes, terminal_debug_enabled_for};
+use homie_protocol::{BinaryFrame, StreamType};
 
 use super::runtime::SessionRuntime;
 use crate::outbound::OutboundMessage;
@@ -115,13 +115,7 @@ impl TerminalRegistry {
         rows: u16,
     ) -> Result<SessionInfo, TerminalError> {
         let (display_shell, cmd) = build_shell_command(&shell);
-        self.start_session_with_command(
-            display_shell,
-            cmd,
-            cols,
-            rows,
-            None,
-        )
+        self.start_session_with_command(display_shell, cmd, cols, rows, None)
     }
 
     pub fn list_tmux_sessions(&self) -> Result<(bool, Vec<TmuxSessionInfo>), TerminalError> {
@@ -160,10 +154,7 @@ impl TerminalRegistry {
                 .next()
                 .and_then(|v| v.parse::<u32>().ok())
                 .unwrap_or(0);
-            let attached = parts
-                .next()
-                .map(|v| v == "1")
-                .unwrap_or(false);
+            let attached = parts.next().map(|v| v == "1").unwrap_or(false);
             sessions.push(TmuxSessionInfo {
                 name,
                 windows,
@@ -192,13 +183,7 @@ impl TerminalRegistry {
         cmd.arg("-t");
         cmd.arg(&session_name);
         let display = format!("tmux:{session_name}");
-        self.start_session_with_command(
-            display,
-            cmd,
-            cols,
-            rows,
-            Some(session_name),
-        )
+        self.start_session_with_command(display, cmd, cols, rows, Some(session_name))
     }
 
     pub fn kill_tmux_session(&self, session_name: String) -> Result<(), TerminalError> {
@@ -264,13 +249,9 @@ impl TerminalRegistry {
         let (output_tx, output_rx) = mpsc::channel::<Vec<u8>>(256);
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
-        let reader_handle = SessionRuntime::spawn_reader(
-            &*pair.master,
-            session_id,
-            output_tx,
-            shutdown_rx,
-        )
-        .map_err(|e| TerminalError::Internal(format!("failed to spawn reader: {e}")))?;
+        let reader_handle =
+            SessionRuntime::spawn_reader(&*pair.master, session_id, output_tx, shutdown_rx)
+                .map_err(|e| TerminalError::Internal(format!("failed to spawn reader: {e}")))?;
 
         let runtime = SessionRuntime::new(
             session_id,
@@ -564,7 +545,9 @@ impl TerminalRegistry {
             ));
         }
         rec.name = trimmed;
-        self.store.upsert_terminal(&rec).map_err(TerminalError::Internal)?;
+        self.store
+            .upsert_terminal(&rec)
+            .map_err(TerminalError::Internal)?;
         Ok(())
     }
 
@@ -645,7 +628,9 @@ async fn forward_pty_output(
         };
         for (id, tx) in targets {
             if tx
-                .send(OutboundMessage::raw(WsMessage::Binary(encoded.clone().into())))
+                .send(OutboundMessage::raw(WsMessage::Binary(
+                    encoded.clone().into(),
+                )))
                 .await
                 .is_err()
             {

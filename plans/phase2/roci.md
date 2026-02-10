@@ -222,6 +222,49 @@ Provider specifics (from re-reads):
   - `WorkspaceNotAllowed` (codex forced workspace mismatch)
   - `Network | Unknown`
 
+### 2) Tools architecture + essentials (Phase 2)
+Goal: mirror codex‑rs tool organization while keeping OpenClaw‑style dynamic loading.
+
+Codex‑rs patterns to mirror:
+- Tool specs separate from handlers (`core/src/tools/spec.rs` + `handlers/*`)
+- Registry/builder assembles tools by features/model flags
+- Dynamic tools surfaced via protocol `dynamic_tools` + MCP tools
+
+Homie plan:
+- **ToolSpec + ToolRegistry** (core):
+  - `ToolSpec { name, description, json_schema, supports_parallel, category }`
+  - `ToolHandler { name -> async fn(args, ctx) }`
+  - `ToolRegistryBuilder` assembles enabled tools for a run.
+- **Essential local tools** (MVP, Homie‑core):
+  - `read`, `ls`, `find`, `grep`, `apply_patch`, `exec`, `process`
+  - Strict JSON schema; add tolerant defaults for missing args to avoid tool‑loop failures.
+- **Dynamic tool loading (future‑proof now)**:
+  - `ToolProvider` trait in Homie core (not roci):
+    - `list_specs() -> Vec<ToolSpec>`
+    - `call(name, args, ctx) -> ToolResult`
+  - Built‑in providers: local tools + (future) MCP + plugin tools.
+  - Config‑driven enable/disable by name + allowlist (OpenClaw‑style).
+
+Immediate tasks:
+- Audit current tool schemas vs codex‑rs (names, required fields, strictness).
+- Decide tool naming/aliases for Codex compatibility.
+- Add tests for schema + call flow.
+
+Next after essentials:
+- `web.fetch`, `web.search` (OpenClaw‑inspired).
+
+OpenClaw extras (future; dynamic tools by channel):
+- browser (page nav/snapshot)
+- canvas (render/eval/snapshot)
+- nodes (device list/describe/notify/screen/camera)
+- cron (schedule reminders / wake)
+- sessions_list / sessions_history / sessions_send
+- notifications (system + push)
+- screenshot (capture + annotate)
+- audio (transcribe/tts) — optional
+Plan: keep core tools always-on; load channel-specific tools via ToolProvider config.
+Next note: add `tools.providers.<id>.channels` allowlist (empty/missing = all channels) and gate OpenClaw extras (`openclaw_browser`, then canvas/nodes/cron) on active chat channel.
+
 ### 2) Extend roci: agent loop primitives (OpenClaw-ish)
 Deliverables (roci):
 - Session/run scaffolding (reusable primitives; avoid Homie-specific storage).
@@ -388,6 +431,153 @@ M1: roci auth scaffolding + Codex OAuth adapter + token store
 M2: roci approvals + tool policy hooks (ask/approve flow)
 M3: homie-core uses roci loop (Codex) for chat threads; CLI fallback retained
 M4: add Copilot + Claude adapters; unify account status UX
+
+## Next phase execution slice (current)
+Goal: finish production-safe core tool stack, then move to OpenClaw extras via dynamic providers.
+
+### Slice A: Core tools hardening (do now)
+Scope:
+- Complete local core tools quality bar:
+  - `read`, `ls`, `find`, `grep`, `apply_patch`, `exec`, `process`
+  - `web_fetch`, `web_search`
+- Argument tolerance:
+  - accept missing/partial args with safe defaults
+  - normalize aliases and types before handler dispatch
+- Failure handling:
+  - no panics; structured tool errors only
+  - cap tool-loop retries; emit deterministic terminal failure event
+- Output policy:
+  - keep truncated output in prompt-context window only (last N turns)
+  - preserve full output in persisted run items for diagnostics
+Acceptance gates:
+- live provider tests pass for:
+  - plain response
+  - tool call success (`ls` minimum)
+  - web tool success (`web_search` and `web_fetch`) when configured
+- no runaway UI polling loops after tool failures
+- no `unwrap()` panics in runner/tool path
+
+Status update (2026-02-09):
+- Completed:
+  - `chat.tools.list` backend endpoint (Roci + Codex proxy path)
+  - Web UI wiring for tool availability (shows `web_fetch` / `web_search` status)
+  - Live env-gated integration tests: `ls`, `web_search`, `web_fetch`
+  - Dynamic provider scaffold: `openclaw_browser` (disabled by default)
+
+### Slice B: Dynamic tool loading foundation (do next)
+Scope:
+- Implement `ToolProvider` loading graph in Homie core:
+  - static always-on provider (core tools)
+  - optional providers from config (disabled by default)
+- Add provider registration contract:
+  - `provider_id`, `channel_tags`, `tools`, `enabled`
+  - startup validation + conflict detection on tool name collisions
+- Config shape:
+  - explicit enable per provider/tool
+  - default deny for unknown providers/tools
+Acceptance gates:
+- core provider unchanged behavior
+- enabling/disabling optional provider requires no code change
+- provider conflicts fail fast with actionable config error
+
+### Slice C: OpenClaw extras onboarding (after A+B)
+Initial extras (first batch):
+- `browser`, `canvas`, `nodes`, `cron`, `sessions_*`
+Approach:
+- port one provider at a time behind config flags
+- add integration tests per provider (contract + happy path + failure path)
+- map each extra into existing `chat.item.*` event model, no UI protocol break
+
+### Out of scope for this slice
+- keyring encryption at rest
+- enterprise GitHub host support
+- full plugin marketplace / remote untrusted providers
+
+## Subagent execution strategy (parallel-first)
+Goal: maximize parallel work while minimizing merge conflicts.
+
+### Orchestrator rules
+- Create one subagent per lane with explicit file ownership.
+- Subagents must not edit outside owned paths.
+- Integrate in dependency order at sync points only.
+- Run lane-local tests before merge; run full smoke suite after each sync point.
+
+### Lane map
+1. Lane A — Tool argument normalization + tolerant parsing
+   Ownership:
+   - `src/core/src/agent/tools/*`
+   - `src/core/src/agent/tools/registry.rs`
+   Deliverables:
+   - normalize missing args/defaults for core + web tools
+   - alias/type coercion where safe
+   Gate:
+   - unit tests for each tool arg parser
+
+2. Lane B — Runner reliability + loop bounds
+   Ownership:
+   - `src/infra/roci/src/agent_loop/*`
+   - `src/core/src/agent/roci_backend.rs` (loop integration only)
+   Deliverables:
+   - bounded retries for repeated tool failures
+   - panic-free error path, deterministic terminal events
+   - stale-run cleanup and cancellation robustness
+   Gate:
+   - runner tests: no `unwrap` panics, bounded-failure behavior
+
+3. Lane C — Web tools behavior + integration
+   Ownership:
+   - `src/core/src/agent/tools/web.rs`
+   - `src/core/src/homie_config.rs` (web tool config bits only)
+   Deliverables:
+   - stable Firecrawl/SearXNG/Brave execution paths
+   - uniform result envelope + clear error semantics
+   Gate:
+   - tool integration tests with mocked + live endpoints (env-gated)
+
+4. Lane D — Dynamic tool provider foundation
+   Ownership:
+   - `src/core/src/agent/tools/*provider*`
+   - `src/core/src/agent/tools/registry.rs`
+   - `src/core/src/homie_config.rs` (provider enable/disable schema)
+   Deliverables:
+   - `ToolProvider` loading graph
+   - provider/tool enable toggles, conflict detection
+   Gate:
+   - registry tests for enable/disable + collision failures
+
+5. Lane E — UI/tool event rendering + polling stability
+   Ownership:
+   - `src/web/src/hooks/use-chat.ts`
+   - `src/web/src/components/chat-turns.tsx`
+   - `src/web/src/lib/chat-utils.ts`
+   Deliverables:
+   - render tool outputs/errors consistently (core + web)
+   - prevent polling storms on failure
+   Gate:
+   - UI smoke checks for chat send/tool failure/retry states
+
+### Sync points
+- Sync 1 (A + B + C):
+  - merge arg normalization, runner stability, web tool behavior
+  - run live provider smoke (`HOMIE_LIVE_TESTS=1`) + core unit tests
+- Sync 2 (D):
+  - merge dynamic provider foundation after Sync 1 green
+  - re-run full tool and chat smoke tests
+- Sync 3 (E):
+  - merge UI stabilization + tool rendering last
+  - browser smoke + gateway logs verification
+
+### Suggested subagent dispatch order
+1. Start A, B, C in parallel.
+2. Start D once A shape is stable (registry interfaces finalized).
+3. Start E after Sync 1 event/result schemas are stable.
+
+### Risk controls
+- Freeze shared contracts before parallel coding:
+  - tool result envelope
+  - runner terminal event shape
+  - provider registration interface
+- If contract changes mid-lane, stop and rebroadcast interface diff before continuing.
 
 ## Tests
 Roci:

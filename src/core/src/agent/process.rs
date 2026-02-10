@@ -66,11 +66,7 @@ pub struct CodexResponseSender {
 }
 
 impl CodexResponseSender {
-    pub async fn send_response(
-        &self,
-        id: CodexRequestId,
-        result: Value,
-    ) -> Result<(), String> {
+    pub async fn send_response(&self, id: CodexRequestId, result: Value) -> Result<(), String> {
         let msg = serde_json::json!({
             "id": id.to_json(),
             "result": result,
@@ -449,8 +445,7 @@ mod tests {
             return;
         }
 
-        let (process, mut event_rx) =
-            CodexProcess::spawn().await.expect("spawn codex app-server");
+        let (process, mut event_rx) = CodexProcess::spawn().await.expect("spawn codex app-server");
 
         with_timeout(Duration::from_secs(15), process.initialize())
             .await
@@ -460,8 +455,8 @@ mod tests {
             Duration::from_secs(10),
             process.send_request("account/read", Some(serde_json::json!({}))),
         )
-            .await
-            .expect("account/read");
+        .await
+        .expect("account/read");
         assert!(account.is_object(), "account/read returns an object");
 
         let thread_params = serde_json::json!({ "model": codex_model() });

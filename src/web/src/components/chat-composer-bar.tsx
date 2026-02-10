@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Code2,
   Gauge,
+  Globe,
   ListTodo,
   ShieldCheck,
   ShieldQuestion,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import type {
   ChatSettings,
+  ChatWebToolName,
   CollaborationModeOption,
   ModelOption,
   ThreadTokenUsage,
@@ -99,6 +101,8 @@ interface ChatComposerBarProps {
   models: ModelOption[];
   collaborationModes: CollaborationModeOption[];
   settings: ChatSettings;
+  enabledWebTools: ChatWebToolName[];
+  webToolsAvailable: boolean;
   tokenUsage?: ThreadTokenUsage;
   running: boolean;
   queuedHint?: boolean;
@@ -149,10 +153,49 @@ function ContextRing({ usage }: { usage: ThreadTokenUsage }) {
   );
 }
 
+function WebToolsIndicator({
+  enabledTools,
+  available,
+}: {
+  enabledTools: ChatWebToolName[];
+  available: boolean;
+}) {
+  const enabledSet = useMemo(() => new Set(enabledTools), [enabledTools]);
+
+  return (
+    <div className="flex items-center gap-2 min-h-[28px]">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1">
+        <Globe className="w-3.5 h-3.5" />
+        Web
+      </div>
+      <div className="flex items-center gap-1.5">
+        {(["web_fetch", "web_search"] as const).map((toolName) => {
+          const enabled = available && enabledSet.has(toolName);
+          return (
+            <span
+              key={toolName}
+              className={`inline-flex items-center justify-center rounded-full border px-2 py-1 text-[11px] leading-none font-medium transition-colors motion-reduce:transition-none ${
+                enabled
+                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "border-border bg-muted/40 text-muted-foreground"
+              }`}
+              title={available ? `${toolName} ${enabled ? "enabled" : "disabled"}` : "Web tools unavailable"}
+            >
+              {toolName}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function ChatComposerBar({
   models,
   collaborationModes,
   settings,
+  enabledWebTools,
+  webToolsAvailable,
   tokenUsage,
   running,
   queuedHint,
@@ -301,6 +344,7 @@ export function ChatComposerBar({
       </div>
 
       <div className="ml-auto flex items-center gap-4">
+        <WebToolsIndicator enabledTools={enabledWebTools} available={webToolsAvailable} />
         {queuedHint ? (
           <div className="text-xs text-muted-foreground">Queued for next step</div>
         ) : running ? (

@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use roci::error::RociError;
-use roci::tools::{AgentTool, AgentToolParameters, Tool, ToolArguments};
 use roci::tools::tool::ToolExecutionContext;
-use serde::Deserialize;
+use roci::tools::{AgentTool, AgentToolParameters, Tool, ToolArguments};
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 
+use super::args::ParsedToolArgs;
 use super::ToolContext;
 
 const DEFAULT_READ_LIMIT: usize = 2000;
@@ -20,43 +20,33 @@ const MAX_GREP_LIMIT: usize = 2000;
 const DEFAULT_FIND_LIMIT: usize = 200;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Deserialize)]
-struct ReadArgs {
+#[derive(Debug, PartialEq, Eq)]
+struct ReadRequest {
     path: String,
-    #[serde(default)]
-    offset: Option<usize>,
-    #[serde(default)]
-    limit: Option<usize>,
+    offset: usize,
+    limit: usize,
 }
 
-#[derive(Debug, Deserialize)]
-struct LsArgs {
-    #[serde(default)]
+#[derive(Debug, PartialEq, Eq)]
+struct LsRequest {
     path: Option<String>,
-    #[serde(default)]
-    depth: Option<usize>,
-    #[serde(default)]
-    limit: Option<usize>,
+    depth: usize,
+    limit: usize,
 }
 
-#[derive(Debug, Deserialize)]
-struct FindArgs {
+#[derive(Debug, PartialEq, Eq)]
+struct FindRequest {
     pattern: String,
-    #[serde(default)]
     path: Option<String>,
-    #[serde(default)]
-    limit: Option<usize>,
+    limit: usize,
 }
 
-#[derive(Debug, Deserialize)]
-struct GrepArgs {
+#[derive(Debug, PartialEq, Eq)]
+struct GrepRequest {
     pattern: String,
-    #[serde(default)]
     path: Option<String>,
-    #[serde(default)]
     include: Option<String>,
-    #[serde(default)]
-    limit: Option<usize>,
+    limit: usize,
 }
 
 pub fn read_tool(ctx: ToolContext) -> Arc<dyn Tool> {
@@ -152,12 +142,98 @@ pub fn resolve_path(path: &str, cwd: &Path) -> Option<PathBuf> {
     Some(path_buf)
 }
 
-async fn read_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json::Value, RociError> {
-    let parsed: ReadArgs = args.deserialize()?;
+fn parse_read_request(args: &ToolArguments) -> Result<ReadRequest, RociError> {
+    let parsed = ParsedToolArgs::new(args)?;
+    let path = clean_string(parsed.get_string_any(&["path", "file", "file_path", "filepath"])?)
+        .or_else(|| clean_literal(parsed.literal()))
+        .ok_or_else(|| RociError::InvalidArgument("path must not be empty".into()))?;
+    let offset = parsed
+        .get_usize_any(&["offset", "start", "line"])?
+        .unwrap_or(1)
+        .max(1);
+    let limit = parsed
+        .get_usize_any(&["limit", "max_lines", "maxLines"])?
+        .unwrap_or(DEFAULT_READ_LIMIT)
+        .max(1);
+    Ok(ReadRequest {
+        path,
+        offset,
+        limit,
+    })
+}
+
+fn parse_ls_request(args: &ToolArguments) -> Result<LsRequest, RociError> {
+    let parsed = ParsedToolArgs::new(args)?;
+    let path = clean_string(parsed.get_string_any(&["path", "dir", "directory"])?)
+        .or_else(|| clean_literal(parsed.literal()));
+    let depth = parsed
+        .get_usize_any(&["depth", "max_depth", "maxDepth"])?
+        .unwrap_or(DEFAULT_LS_DEPTH)
+        .max(1);
+    let limit = parsed
+        .get_usize_any(&["limit", "max_entries", "maxEntries"])?
+        .unwrap_or(DEFAULT_LS_LIMIT)
+        .max(1);
+    Ok(LsRequest { path, depth, limit })
+}
+
+fn parse_find_request(args: &ToolArguments) -> Result<FindRequest, RociError> {
+    let parsed = ParsedToolArgs::new(args)?;
+    let pattern = clean_string(parsed.get_string_any(&["pattern", "glob", "query"])?)
+        .or_else(|| clean_literal(parsed.literal()))
+        .ok_or_else(|| RociError::InvalidArgument("pattern must not be empty".into()))?;
+    let path = clean_string(parsed.get_string_any(&["path", "dir", "directory"])?);
+    let limit = parsed
+        .get_usize_any(&["limit", "max_results", "maxResults"])?
+        .unwrap_or(DEFAULT_FIND_LIMIT)
+        .max(1);
+    Ok(FindRequest {
+        pattern,
+        path,
+        limit,
+    })
+}
+
+fn parse_grep_request(args: &ToolArguments) -> Result<GrepRequest, RociError> {
+    let parsed = ParsedToolArgs::new(args)?;
+    let pattern = clean_string(parsed.get_string_any(&["pattern", "regex", "query"])?)
+        .or_else(|| clean_literal(parsed.literal()))
+        .ok_or_else(|| RociError::InvalidArgument("pattern must not be empty".into()))?;
+    let path = clean_string(parsed.get_string_any(&["path", "dir", "directory"])?);
+    let include = clean_string(parsed.get_string_any(&["include", "glob"])?);
+    let limit = parsed
+        .get_usize_any(&["limit", "max_results", "maxResults"])?
+        .unwrap_or(DEFAULT_GREP_LIMIT)
+        .clamp(1, MAX_GREP_LIMIT);
+    Ok(GrepRequest {
+        pattern,
+        path,
+        include,
+        limit,
+    })
+}
+
+fn clean_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
+}
+
+fn clean_literal(value: Option<&str>) -> Option<String> {
+    value
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
+}
+
+async fn read_impl(
+    ctx: &ToolContext,
+    args: &ToolArguments,
+) -> Result<serde_json::Value, RociError> {
+    let parsed = parse_read_request(args)?;
     let path = resolve_path(&parsed.path, &ctx.cwd)
-        .ok_or_else(|| RociError::InvalidArgument("path required".into()))?;
-    let offset = parsed.offset.unwrap_or(1).max(1);
-    let limit = parsed.limit.unwrap_or(DEFAULT_READ_LIMIT).max(1);
+        .ok_or_else(|| RociError::InvalidArgument("path must not be empty".into()))?;
+    let offset = parsed.offset;
+    let limit = parsed.limit;
 
     if super::debug_tools_enabled() {
         tracing::debug!(
@@ -180,10 +256,14 @@ async fn read_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json
     let mut output = Vec::new();
     let mut line_no = 0usize;
 
-    while let Some(line) = lines.next_line().await.map_err(|e| RociError::ToolExecution {
-        tool_name: "read".into(),
-        message: format!("failed to read file: {e}"),
-    })? {
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|e| RociError::ToolExecution {
+            tool_name: "read".into(),
+            message: format!("failed to read file: {e}"),
+        })?
+    {
         line_no += 1;
         if line_no < offset {
             continue;
@@ -210,14 +290,14 @@ async fn read_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json
 }
 
 async fn ls_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json::Value, RociError> {
-    let parsed: LsArgs = args.deserialize()?;
+    let parsed = parse_ls_request(args)?;
     let base = parsed
         .path
         .as_deref()
         .and_then(|p| resolve_path(p, &ctx.cwd))
         .unwrap_or_else(|| ctx.cwd.clone());
-    let depth = parsed.depth.unwrap_or(DEFAULT_LS_DEPTH).max(1);
-    let limit = parsed.limit.unwrap_or(DEFAULT_LS_LIMIT).max(1);
+    let depth = parsed.depth;
+    let limit = parsed.limit;
 
     if super::debug_tools_enabled() {
         tracing::debug!(
@@ -261,10 +341,15 @@ async fn list_dir(
                 continue;
             }
         };
-        while let Some(entry) = read_dir.next_entry().await.map_err(|e| RociError::ToolExecution {
-            tool_name: "ls".into(),
-            message: format!("failed to read directory: {e}"),
-        })? {
+        while let Some(entry) =
+            read_dir
+                .next_entry()
+                .await
+                .map_err(|e| RociError::ToolExecution {
+                    tool_name: "ls".into(),
+                    message: format!("failed to read directory: {e}"),
+                })?
+        {
             if results.len() >= limit {
                 break;
             }
@@ -295,13 +380,13 @@ async fn list_dir(
     Ok(results)
 }
 
-async fn find_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json::Value, RociError> {
-    let parsed: FindArgs = args.deserialize()?;
-    let pattern = parsed.pattern.trim();
-    if pattern.is_empty() {
-        return Err(RociError::InvalidArgument("pattern must not be empty".into()));
-    }
-    let limit = parsed.limit.unwrap_or(DEFAULT_FIND_LIMIT).max(1);
+async fn find_impl(
+    ctx: &ToolContext,
+    args: &ToolArguments,
+) -> Result<serde_json::Value, RociError> {
+    let parsed = parse_find_request(args)?;
+    let pattern = parsed.pattern.as_str();
+    let limit = parsed.limit;
     let base = parsed
         .path
         .as_deref()
@@ -318,7 +403,10 @@ async fn find_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json
     }
 
     let mut cmd = Command::new("rg");
-    cmd.arg("--files").arg("--no-messages").arg("--glob").arg(pattern);
+    cmd.arg("--files")
+        .arg("--no-messages")
+        .arg("--glob")
+        .arg(pattern);
     cmd.arg("--").arg(&base);
     let output = timeout(COMMAND_TIMEOUT, cmd.output())
         .await
@@ -354,13 +442,13 @@ async fn find_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json
     }))
 }
 
-async fn grep_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json::Value, RociError> {
-    let parsed: GrepArgs = args.deserialize()?;
-    let pattern = parsed.pattern.trim();
-    if pattern.is_empty() {
-        return Err(RociError::InvalidArgument("pattern must not be empty".into()));
-    }
-    let limit = parsed.limit.unwrap_or(DEFAULT_GREP_LIMIT).clamp(1, MAX_GREP_LIMIT);
+async fn grep_impl(
+    ctx: &ToolContext,
+    args: &ToolArguments,
+) -> Result<serde_json::Value, RociError> {
+    let parsed = parse_grep_request(args)?;
+    let pattern = parsed.pattern.as_str();
+    let limit = parsed.limit;
     let base = parsed
         .path
         .as_deref()
@@ -385,7 +473,7 @@ async fn grep_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json
         .arg("--no-messages")
         .arg("--regexp")
         .arg(pattern);
-    if let Some(include) = parsed.include.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(include) = parsed.include.as_deref() {
         cmd.arg("--glob").arg(include);
     }
     cmd.arg("--").arg(&base);
@@ -424,4 +512,121 @@ async fn grep_impl(ctx: &ToolContext, args: &ToolArguments) -> Result<serde_json
         "path": base.to_string_lossy(),
         "matches": matches,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use roci::tools::ToolArguments;
+    use serde_json::json;
+
+    use super::{
+        parse_find_request, parse_grep_request, parse_ls_request, parse_read_request,
+        DEFAULT_FIND_LIMIT, DEFAULT_LS_DEPTH, DEFAULT_LS_LIMIT, DEFAULT_READ_LIMIT,
+    };
+
+    #[test]
+    fn read_request_accepts_string_payload_and_numeric_strings() {
+        let args = ToolArguments::new(json!({
+            "path": "Cargo.toml",
+            "offset": "2",
+            "limit": "10"
+        }));
+        let parsed = parse_read_request(&args).expect("parse read request");
+        assert_eq!(parsed.path, "Cargo.toml");
+        assert_eq!(parsed.offset, 2);
+        assert_eq!(parsed.limit, 10);
+
+        let args = ToolArguments::new(json!("README.md"));
+        let parsed = parse_read_request(&args).expect("parse read request");
+        assert_eq!(parsed.path, "README.md");
+        assert_eq!(parsed.offset, 1);
+        assert_eq!(parsed.limit, DEFAULT_READ_LIMIT);
+    }
+
+    #[test]
+    fn read_request_accepts_path_aliases() {
+        let args = ToolArguments::new(json!({
+            "file_path": "Cargo.toml",
+            "maxLines": "12"
+        }));
+        let parsed = parse_read_request(&args).expect("parse read request");
+        assert_eq!(parsed.path, "Cargo.toml");
+        assert_eq!(parsed.limit, 12);
+    }
+
+    #[test]
+    fn read_request_rejects_missing_path_with_clear_error() {
+        let args = ToolArguments::new(json!({ "offset": 1 }));
+        let err = parse_read_request(&args).expect_err("missing path should fail");
+        assert_eq!(err.to_string(), "Invalid argument: path must not be empty");
+    }
+
+    #[test]
+    fn ls_request_defaults_to_cwd_and_supports_literal_path() {
+        let args = ToolArguments::new(json!({}));
+        let parsed = parse_ls_request(&args).expect("parse ls request");
+        assert_eq!(parsed.path, None);
+        assert_eq!(parsed.depth, DEFAULT_LS_DEPTH);
+        assert_eq!(parsed.limit, DEFAULT_LS_LIMIT);
+
+        let args = ToolArguments::new(json!("src"));
+        let parsed = parse_ls_request(&args).expect("parse ls request");
+        assert_eq!(parsed.path.as_deref(), Some("src"));
+    }
+
+    #[test]
+    fn find_request_supports_literal_pattern_and_default_limit() {
+        let args = ToolArguments::new(json!("*.rs"));
+        let parsed = parse_find_request(&args).expect("parse find request");
+        assert_eq!(parsed.pattern, "*.rs");
+        assert_eq!(parsed.limit, DEFAULT_FIND_LIMIT);
+    }
+
+    #[test]
+    fn find_request_accepts_query_aliases() {
+        let args = ToolArguments::new(json!({
+            "query": "*.md",
+            "directory": "docs",
+            "maxResults": "5"
+        }));
+        let parsed = parse_find_request(&args).expect("parse find request");
+        assert_eq!(parsed.pattern, "*.md");
+        assert_eq!(parsed.path.as_deref(), Some("docs"));
+        assert_eq!(parsed.limit, 5);
+    }
+
+    #[test]
+    fn grep_request_clamps_and_parses_limit_strings() {
+        let args = ToolArguments::new(json!({
+            "pattern": "foo",
+            "limit": "5000",
+            "include": "*.rs"
+        }));
+        let parsed = parse_grep_request(&args).expect("parse grep request");
+        assert_eq!(parsed.limit, 2000);
+        assert_eq!(parsed.include.as_deref(), Some("*.rs"));
+    }
+
+    #[test]
+    fn grep_request_accepts_regex_and_glob_aliases() {
+        let args = ToolArguments::new(json!({
+            "regex": "main",
+            "glob": "*.rs",
+            "maxResults": "20"
+        }));
+        let parsed = parse_grep_request(&args).expect("parse grep request");
+        assert_eq!(parsed.pattern, "main");
+        assert_eq!(parsed.include.as_deref(), Some("*.rs"));
+        assert_eq!(parsed.limit, 20);
+    }
+
+    #[test]
+    fn grep_request_rejects_empty_pattern() {
+        let args = ToolArguments::new(json!({ "pattern": "   " }));
+        let err = parse_grep_request(&args).expect_err("empty pattern should fail");
+        assert_eq!(
+            err.to_string(),
+            "Invalid argument: pattern must not be empty"
+        );
+    }
 }

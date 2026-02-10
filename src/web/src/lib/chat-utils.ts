@@ -17,6 +17,7 @@ export type ChatItemKind =
 export type ChatPermissionMode = "explore" | "ask" | "execute";
 export type ChatAgentMode = "code" | "plan";
 export type ChatEffort = "auto" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ChatWebToolName = "web_fetch" | "web_search";
 
 export interface ChatSettings {
   model?: string;
@@ -349,6 +350,98 @@ export function normalizeTokenUsage(raw: Record<string, unknown>): ThreadTokenUs
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : value ? String(value) : "";
+}
+
+function asBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    if (["true", "1", "enabled", "available", "active", "on", "ok"].includes(normalized)) return true;
+    if (["false", "0", "disabled", "unavailable", "inactive", "off"].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function normalizeWebToolName(value: unknown): ChatWebToolName | null {
+  const normalized = asString(value).trim().toLowerCase();
+  if (normalized === "web_fetch" || normalized === "web-fetch" || normalized === "webfetch") return "web_fetch";
+  if (normalized === "web_search" || normalized === "web-search" || normalized === "websearch") return "web_search";
+  return null;
+}
+
+export function normalizeEnabledWebTools(raw: unknown): ChatWebToolName[] {
+  if (!raw || typeof raw !== "object") return [];
+
+  const enabled = new Set<ChatWebToolName>();
+  const apply = (name: ChatWebToolName, state: boolean | null) => {
+    if (state === false) {
+      enabled.delete(name);
+      return;
+    }
+    enabled.add(name);
+  };
+
+  const ingestEntry = (entry: unknown) => {
+    if (typeof entry === "string") {
+      const name = normalizeWebToolName(entry);
+      if (name) enabled.add(name);
+      return;
+    }
+    if (!entry || typeof entry !== "object") return;
+    const record = entry as Record<string, unknown>;
+
+    const directFetch = asBoolean(record.web_fetch ?? record.webFetch);
+    if (directFetch !== null) apply("web_fetch", directFetch);
+    const directSearch = asBoolean(record.web_search ?? record.webSearch);
+    if (directSearch !== null) apply("web_search", directSearch);
+
+    const name = normalizeWebToolName(record.name ?? record.tool ?? record.id ?? record.slug);
+    if (name) {
+      const state =
+        asBoolean(
+          record.enabled ??
+            record.is_enabled ??
+            record.isEnabled ??
+            record.available ??
+            record.active ??
+            record.status ??
+            record.state,
+        ) ?? true;
+      apply(name, state);
+    }
+  };
+
+  const root = raw as Record<string, unknown>;
+  const result = (root.result as Record<string, unknown> | undefined) ?? {};
+  const data = root.data;
+  const dataRecord = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+  const candidateBuckets: unknown[] = [
+    root,
+    root.tools,
+    root.enabled_tools,
+    root.enabledTools,
+    data,
+    dataRecord.tools,
+    dataRecord.enabled_tools,
+    dataRecord.enabledTools,
+    result,
+    result.data,
+    result.tools,
+    result.enabled_tools,
+    result.enabledTools,
+  ];
+
+  for (const bucket of candidateBuckets) {
+    if (Array.isArray(bucket)) {
+      bucket.forEach(ingestEntry);
+    } else {
+      ingestEntry(bucket);
+    }
+  }
+
+  return ["web_fetch", "web_search"].filter((name) => enabled.has(name as ChatWebToolName)) as ChatWebToolName[];
 }
 
 export function normalizeModelOptions(raw: unknown): ModelOption[] {

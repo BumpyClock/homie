@@ -282,13 +282,7 @@ impl TerminalService {
     fn session_rename(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
         let p = match params {
             Some(v) => v,
-            None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing params",
-                )
-            }
+            None => return Response::error(req_id, error_codes::INVALID_PARAMS, "missing params"),
         };
         let session_id = match p.get("session_id").and_then(|v| v.as_str()) {
             Some(v) => v.parse::<Uuid>().ok(),
@@ -314,13 +308,7 @@ impl TerminalService {
                     "name must be a string or null",
                 )
             }
-            None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing name",
-                )
-            }
+            None => return Response::error(req_id, error_codes::INVALID_PARAMS, "missing name"),
         };
 
         let name_for_event = name.clone();
@@ -368,33 +356,21 @@ impl TerminalService {
             Err(TerminalError::Missing(msg)) => {
                 Response::error(req_id, error_codes::SESSION_NOT_FOUND, msg)
             }
-            Err(TerminalError::NotFound(_)) => Response::error(
-                req_id,
-                error_codes::SESSION_NOT_FOUND,
-                "session not found",
-            ),
+            Err(TerminalError::NotFound(_)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, "session not found")
+            }
         }
     }
 
     fn tmux_attach(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
         let p = match params {
             Some(v) => v,
-            None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing params",
-                )
-            }
+            None => return Response::error(req_id, error_codes::INVALID_PARAMS, "missing params"),
         };
         let session_name = match p.get("session_name").and_then(|v| v.as_str()) {
             Some(v) if !v.is_empty() => v.to_string(),
             _ => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing session_name",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "missing session_name")
             }
         };
         let cols = p.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
@@ -402,11 +378,7 @@ impl TerminalService {
 
         let result = {
             let mut registry = self.registry.lock().unwrap();
-            registry.attach_tmux_session(
-                session_name,
-                cols,
-                rows,
-            )
+            registry.attach_tmux_session(session_name, cols, rows)
         };
 
         match result {
@@ -430,33 +402,21 @@ impl TerminalService {
             Err(TerminalError::Internal(msg)) => {
                 Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
             }
-            Err(TerminalError::NotFound(_)) => Response::error(
-                req_id,
-                error_codes::SESSION_NOT_FOUND,
-                "session not found",
-            ),
+            Err(TerminalError::NotFound(_)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, "session not found")
+            }
         }
     }
 
     fn tmux_kill(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
         let p = match params {
             Some(v) => v,
-            None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing params",
-                )
-            }
+            None => return Response::error(req_id, error_codes::INVALID_PARAMS, "missing params"),
         };
         let session_name = match p.get("session_name").and_then(|v| v.as_str()) {
             Some(v) if !v.is_empty() => v.to_string(),
             _ => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing session_name",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "missing session_name")
             }
         };
 
@@ -473,11 +433,9 @@ impl TerminalService {
             Err(TerminalError::Internal(msg)) => {
                 Response::error(req_id, error_codes::INTERNAL_ERROR, msg)
             }
-            Err(TerminalError::NotFound(_)) => Response::error(
-                req_id,
-                error_codes::SESSION_NOT_FOUND,
-                "session not found",
-            ),
+            Err(TerminalError::NotFound(_)) => {
+                Response::error(req_id, error_codes::SESSION_NOT_FOUND, "session not found")
+            }
         }
     }
 
@@ -517,13 +475,7 @@ impl TerminalService {
     fn session_preview(&self, req_id: Uuid, params: Option<Value>) -> Response {
         let p = match params {
             Some(v) => v,
-            None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing params",
-                )
-            }
+            None => return Response::error(req_id, error_codes::INVALID_PARAMS, "missing params"),
         };
         let session_id = match p.get("session_id").and_then(|v| v.as_str()) {
             Some(v) => v.parse::<Uuid>().ok(),
@@ -830,7 +782,13 @@ fn probe_pwsh_version(pwsh_path: &str) -> Option<SemVer> {
     let script = "$v=$PSVersionTable.PSSemVer;if($null -ne $v){$v.ToString()}else{$PSVersionTable.PSVersion.ToString()}";
 
     let mut child = Command::new(pwsh_path)
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

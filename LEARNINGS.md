@@ -46,3 +46,6 @@
 - 2026-02-03: chat.account.list now auto-imports Codex/Claude CLI creds into Homie token store; Codex import respects CODEX_HOME.
 - 2026-02-03: Added roci agent_loop scaffolding (run/events/approvals) behind feature gate; added chat.account.login.start/poll device-code RPCs in gateway.
 - 2026-02-03: Added Roci tool set in homie-core (read/ls/find/grep/apply_patch/exec/process) with background process registry; exec/process approvals now categorized in roci runner and safe tools auto-accept; apply_patch emits diff updates and deletes move to ~/.homie/trash.
+- 2026-02-09: Chat bootstrap loop fix in web: gate initial `chat.account.read/chat.list/chat.model.list/chat.skills.list` refresh to once per connected session and reset on disconnect/namespace change to prevent repeated request storms.
+- 2026-02-09: Added `chat.tools.list` RPC + dynamic `openclaw_browser` tool provider scaffold (disabled by default), enabling config-driven discovery of tool availability in UI.
+- 2026-02-09: Added env-gated live integration tests `src/core/tests/live_tools.rs` covering `ls`, `web_search`, and `web_fetch` against configured providers when `HOMIE_LIVE_TESTS=1`.

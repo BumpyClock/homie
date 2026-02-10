@@ -18,7 +18,7 @@ use crate::agent::ChatService;
 use crate::auth::AuthOutcome;
 use crate::authz::{context_for_outcome, scope_for_method, AuthContext, Scope};
 use crate::config::ServerConfig;
-use crate::{ExecPolicy, HomieConfig};
+use crate::debug_bytes::{fmt_bytes, terminal_debug_enabled_for};
 use crate::jobs::JobsService;
 use crate::notifications::NotificationsService;
 use crate::outbound::OutboundMessage;
@@ -27,7 +27,7 @@ use crate::presence::{NodeRegistry, PresenceService};
 use crate::router::{MessageRouter, ServiceRegistry, SubscriptionManager};
 use crate::storage::Store;
 use crate::terminal::{TerminalRegistry, TerminalService};
-use crate::debug_bytes::{fmt_bytes, terminal_debug_enabled_for};
+use crate::{ExecPolicy, HomieConfig};
 
 /// Represents an authenticated WS connection after handshake.
 #[derive(Debug)]

@@ -10,8 +10,8 @@ use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
 use homie_protocol::{error_codes, BinaryFrame, Response};
-use roci::auth::providers::github_copilot::GitHubCopilotAuth;
 use roci::auth::providers::claude_code::ClaudeCodeAuth;
+use roci::auth::providers::github_copilot::GitHubCopilotAuth;
 use roci::auth::providers::openai_codex::OpenAiCodexAuth;
 use roci::auth::{DeviceCodePoll, DeviceCodeSession, FileTokenStore, TokenStore, TokenStoreConfig};
 use roci::config::RociConfig;
@@ -19,13 +19,14 @@ use roci::models::LanguageModel;
 
 use super::process::{CodexEvent, CodexProcess, CodexRequestId, CodexResponseSender};
 use super::roci_backend::{ChatBackend, RociBackend};
-use roci::agent_loop::ApprovalDecision;
+use super::tools::{list_tools, ToolContext, DEFAULT_TOOL_CHANNEL};
+use crate::homie_config::ProvidersConfig;
 use crate::outbound::OutboundMessage;
 use crate::paths::homie_skills_dir;
 use crate::router::{ReapEvent, ServiceHandler};
 use crate::storage::{ChatRecord, SessionStatus, Store};
 use crate::{ExecPolicy, HomieConfig};
-use crate::homie_config::ProvidersConfig;
+use roci::agent_loop::ApprovalDecision;
 
 /// Maps Codex notification methods to Homie event topics.
 fn codex_method_to_topics(method: &str) -> Option<(&'static str, &'static str)> {
@@ -35,14 +36,24 @@ fn codex_method_to_topics(method: &str) -> Option<(&'static str, &'static str)> 
         "item/completed" => Some(("chat.item.completed", "agent.chat.item.completed")),
         "turn/started" => Some(("chat.turn.started", "agent.chat.turn.started")),
         "turn/completed" => Some(("chat.turn.completed", "agent.chat.turn.completed")),
-        "item/commandExecution/outputDelta" => Some(("chat.command.output", "agent.chat.command.output")),
+        "item/commandExecution/outputDelta" => {
+            Some(("chat.command.output", "agent.chat.command.output"))
+        }
         "item/fileChange/outputDelta" => Some(("chat.file.output", "agent.chat.file.output")),
-        "item/reasoning/summaryTextDelta" => Some(("chat.reasoning.delta", "agent.chat.reasoning.delta")),
+        "item/reasoning/summaryTextDelta" => {
+            Some(("chat.reasoning.delta", "agent.chat.reasoning.delta"))
+        }
         "turn/diff/updated" => Some(("chat.diff.updated", "agent.chat.diff.updated")),
         "turn/plan/updated" => Some(("chat.plan.updated", "agent.chat.plan.updated")),
-        "thread/tokenUsage/updated" => Some(("chat.token.usage.updated", "agent.chat.token.usage.updated")),
-        "item/commandExecution/requestApproval" => Some(("chat.approval.required", "agent.chat.approval.required")),
-        "item/fileChange/requestApproval" => Some(("chat.approval.required", "agent.chat.approval.required")),
+        "thread/tokenUsage/updated" => {
+            Some(("chat.token.usage.updated", "agent.chat.token.usage.updated"))
+        }
+        "item/commandExecution/requestApproval" => {
+            Some(("chat.approval.required", "agent.chat.approval.required"))
+        }
+        "item/fileChange/requestApproval" => {
+            Some(("chat.approval.required", "agent.chat.approval.required"))
+        }
         _ => None,
     }
 }
@@ -86,7 +97,12 @@ impl CodexChatCore {
         exec_policy: Arc<ExecPolicy>,
     ) -> Self {
         let backend = ChatBackend::from_env();
-        let roci = RociBackend::new(outbound_tx.clone(), store.clone(), exec_policy.clone());
+        let roci = RociBackend::new(
+            outbound_tx.clone(),
+            store.clone(),
+            exec_policy.clone(),
+            homie_config.clone(),
+        );
         Self {
             backend,
             outbound_tx,
@@ -145,7 +161,10 @@ impl CodexChatCore {
             if let Err(e) = self.store.upsert_chat(&rec) {
                 tracing::warn!(%chat_id, "failed to persist chat create: {e}");
             }
-            return Response::success(req_id, json!({ "chat_id": chat_id, "thread_id": thread_id }));
+            return Response::success(
+                req_id,
+                json!({ "chat_id": chat_id, "thread_id": thread_id }),
+            );
         }
 
         if let Err(e) = self.ensure_process().await {
@@ -156,9 +175,12 @@ impl CodexChatCore {
         let params = json!({ "model": codex_model() });
         match process.send_request("thread/start", Some(params)).await {
             Ok(result) => {
-                let thread_id =
-                    extract_id_from_result(&result, &["threadId", "thread_id"], &[("thread", "id")])
-                        .unwrap_or_default();
+                let thread_id = extract_id_from_result(
+                    &result,
+                    &["threadId", "thread_id"],
+                    &[("thread", "id")],
+                )
+                .unwrap_or_default();
                 let thread_id_value = thread_id.clone();
                 let chat_id = if thread_id.is_empty() {
                     Uuid::new_v4().to_string()
@@ -196,23 +218,13 @@ impl CodexChatCore {
     async fn chat_resume(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
         let (chat_id, thread_id_param) = match parse_resume_params(&params) {
             Some(v) => v,
-            None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing chat_id",
-                )
-            }
+            None => return Response::error(req_id, error_codes::INVALID_PARAMS, "missing chat_id"),
         };
 
         let thread_id = match self.resolve_thread_id(&chat_id, thread_id_param.as_deref()) {
             Some(id) => id,
             None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing thread_id",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "missing thread_id")
             }
         };
 
@@ -236,7 +248,10 @@ impl CodexChatCore {
             if let Err(e) = self.store.upsert_chat(&rec) {
                 tracing::warn!(%chat_id, "failed to persist chat resume: {e}");
             }
-            return Response::success(req_id, json!({ "chat_id": chat_id, "thread_id": thread_id }));
+            return Response::success(
+                req_id,
+                json!({ "chat_id": chat_id, "thread_id": thread_id }),
+            );
         }
 
         if let Err(e) = self.ensure_process().await {
@@ -287,15 +302,15 @@ impl CodexChatCore {
     async fn chat_message_send(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
         let (chat_id, message, model, effort, approval_policy, collaboration_mode, inject) =
             match parse_message_params(&params) {
-            Some(v) => v,
-            None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing chat_id or message",
-                )
-            }
-        };
+                Some(v) => v,
+                None => {
+                    return Response::error(
+                        req_id,
+                        error_codes::INVALID_PARAMS,
+                        "missing chat_id or message",
+                    )
+                }
+            };
 
         if self.use_roci() {
             let thread_id = match self.resolve_thread_id(&chat_id, None) {
@@ -343,13 +358,7 @@ impl CodexChatCore {
 
             let roci_model = match RociBackend::parse_model(model.as_ref()) {
                 Ok(model) => model,
-                Err(err) => {
-                    return Response::error(
-                        req_id,
-                        error_codes::INVALID_PARAMS,
-                        err,
-                    )
-                }
+                Err(err) => return Response::error(req_id, error_codes::INVALID_PARAMS, err),
             };
             let roci_settings = RociBackend::parse_settings(
                 effort.as_ref(),
@@ -360,13 +369,7 @@ impl CodexChatCore {
                 RociBackend::parse_collaboration_mode(collaboration_mode.as_ref());
             let roci_config = match self.roci_config_for_model(&roci_model).await {
                 Ok(config) => config,
-                Err(err) => {
-                    return Response::error(
-                        req_id,
-                        error_codes::INTERNAL_ERROR,
-                        err,
-                    )
-                }
+                Err(err) => return Response::error(req_id, error_codes::INTERNAL_ERROR, err),
             };
             match self
                 .roci
@@ -406,11 +409,7 @@ impl CodexChatCore {
         let thread_id = match self.resolve_thread_id(&chat_id, None) {
             Some(id) => id,
             None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing thread_id",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "missing thread_id")
             }
         };
 
@@ -484,21 +483,13 @@ impl CodexChatCore {
             if canceled {
                 return Response::success(req_id, json!({ "ok": true }));
             }
-            return Response::error(
-                req_id,
-                error_codes::SESSION_NOT_FOUND,
-                "run not found",
-            );
+            return Response::error(req_id, error_codes::SESSION_NOT_FOUND, "run not found");
         }
 
         let thread_id = match self.resolve_thread_id(&chat_id, None) {
             Some(id) => id,
             None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing thread_id",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "missing thread_id")
             }
         };
 
@@ -545,7 +536,10 @@ impl CodexChatCore {
 
         let thread_id = match thread_id {
             Some(id) => id,
-            None => match chat_id.as_deref().and_then(|id| self.resolve_thread_id(id, None)) {
+            None => match chat_id
+                .as_deref()
+                .and_then(|id| self.resolve_thread_id(id, None))
+            {
                 Some(id) => id,
                 None => {
                     return Response::error(
@@ -560,7 +554,13 @@ impl CodexChatCore {
         let settings = chat_id
             .as_deref()
             .or_else(|| Some(thread_id.as_str()))
-            .and_then(|id| self.store.get_chat(id).ok().flatten().and_then(|rec| rec.settings));
+            .and_then(|id| {
+                self.store
+                    .get_chat(id)
+                    .ok()
+                    .flatten()
+                    .and_then(|rec| rec.settings)
+            });
 
         if self.use_roci() {
             if !include_turns {
@@ -718,11 +718,7 @@ impl CodexChatCore {
         let thread_id = match self.resolve_thread_id(&chat_id, thread_id_param.as_deref()) {
             Some(id) => id,
             None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing thread_id",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "missing thread_id")
             }
         };
 
@@ -772,11 +768,7 @@ impl CodexChatCore {
         let thread_id = match self.resolve_thread_id(&chat_id, thread_id_param.as_deref()) {
             Some(id) => id,
             None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing thread_id",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "missing thread_id")
             }
         };
 
@@ -822,7 +814,12 @@ impl CodexChatCore {
         }
 
         let mut providers = Vec::new();
-        match self.build_provider_status(&store, "openai-codex", "openai_codex", cfg.openai_codex.enabled) {
+        match self.build_provider_status(
+            &store,
+            "openai-codex",
+            "openai_codex",
+            cfg.openai_codex.enabled,
+        ) {
             Ok(status) => providers.push(status),
             Err(e) => {
                 return Response::error(
@@ -870,19 +867,11 @@ impl CodexChatCore {
         let (provider_id, profile, _param_map) = match parse_account_provider_params(&params) {
             Some(value) => value,
             None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing provider",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "missing provider")
             }
         };
         if !self.provider_enabled(&provider_id) {
-            return Response::error(
-                req_id,
-                error_codes::INVALID_PARAMS,
-                "provider disabled",
-            );
+            return Response::error(req_id, error_codes::INVALID_PARAMS, "provider disabled");
         }
 
         let store = match self.roci_token_store() {
@@ -930,11 +919,7 @@ impl CodexChatCore {
                 error_codes::INVALID_PARAMS,
                 "claude-code does not support device-code login",
             ),
-            _ => Response::error(
-                req_id,
-                error_codes::INVALID_PARAMS,
-                "unsupported provider",
-            ),
+            _ => Response::error(req_id, error_codes::INVALID_PARAMS, "unsupported provider"),
         }
     }
 
@@ -942,29 +927,15 @@ impl CodexChatCore {
         let (provider_id, profile, param_map) = match parse_account_provider_params(&params) {
             Some(value) => value,
             None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing provider",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "missing provider")
             }
         };
         if !self.provider_enabled(&provider_id) {
-            return Response::error(
-                req_id,
-                error_codes::INVALID_PARAMS,
-                "provider disabled",
-            );
+            return Response::error(req_id, error_codes::INVALID_PARAMS, "provider disabled");
         }
         let session = match parse_device_code_session(&param_map, &provider_id) {
             Some(session) => session,
-            None => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "missing session",
-                )
-            }
+            None => return Response::error(req_id, error_codes::INVALID_PARAMS, "missing session"),
         };
 
         let store = match self.roci_token_store() {
@@ -995,11 +966,7 @@ impl CodexChatCore {
                 )
             }
             _ => {
-                return Response::error(
-                    req_id,
-                    error_codes::INVALID_PARAMS,
-                    "unsupported provider",
-                )
+                return Response::error(req_id, error_codes::INVALID_PARAMS, "unsupported provider")
             }
         };
 
@@ -1205,8 +1172,7 @@ impl CodexChatCore {
                 }
             }
             "openai-compatible" => {
-                if cfg.github_copilot.enabled && config.get_api_key("openai-compatible").is_none()
-                {
+                if cfg.github_copilot.enabled && config.get_api_key("openai-compatible").is_none() {
                     let auth = self.github_copilot_auth(store.clone(), "default");
                     if let Ok(token) = auth.exchange_copilot_token().await {
                         config.set_api_key("openai-compatible", token.token.clone());
@@ -1362,6 +1328,51 @@ impl CodexChatCore {
         }
     }
 
+    async fn chat_tools_list(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+        if self.use_roci() {
+            let channel = parse_tool_channel(&params);
+            let ctx = ToolContext::new_with_channel(self.homie_config.clone(), &channel);
+            let tools = match list_tools(ctx, &self.homie_config) {
+                Ok(tools) => tools,
+                Err(err) => {
+                    return Response::error(
+                        req_id,
+                        error_codes::INTERNAL_ERROR,
+                        format!("tools list failed: {err}"),
+                    )
+                }
+            };
+            let data: Vec<Value> = tools
+                .into_iter()
+                .map(|tool| {
+                    json!({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "provider": tool.provider_id,
+                        "provider_dynamic": tool.provider_dynamic,
+                        "input_schema": tool.input_schema,
+                    })
+                })
+                .collect();
+            return Response::success(req_id, json!({ "data": data }));
+        }
+
+        if let Err(e) = self.ensure_process().await {
+            return Response::error(req_id, error_codes::INTERNAL_ERROR, e);
+        }
+
+        let process = self.process.as_ref().unwrap();
+        let params = params.or_else(|| Some(json!({})));
+        match process.send_request("tools/list", params).await {
+            Ok(result) => Response::success(req_id, result),
+            Err(e) => Response::error(
+                req_id,
+                error_codes::INTERNAL_ERROR,
+                format!("tools/list failed: {e}"),
+            ),
+        }
+    }
+
     async fn chat_collaboration_mode_list(
         &mut self,
         req_id: Uuid,
@@ -1399,11 +1410,7 @@ impl CodexChatCore {
         }
     }
 
-    async fn chat_skills_config_write(
-        &mut self,
-        req_id: Uuid,
-        params: Option<Value>,
-    ) -> Response {
+    async fn chat_skills_config_write(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
         if self.use_roci() {
             return Response::success(req_id, json!({ "ok": true }));
         }
@@ -1427,12 +1434,15 @@ impl CodexChatCore {
         let (codex_request_id, decision) = match parse_approval_params(&params) {
             Some(v) => v,
             None => {
-                tracing::warn!(?params, "approval respond missing codex_request_id or decision");
+                tracing::warn!(
+                    ?params,
+                    "approval respond missing codex_request_id or decision"
+                );
                 return Response::error(
                     req_id,
                     error_codes::INVALID_PARAMS,
                     "missing codex_request_id or decision",
-                )
+                );
             }
         };
 
@@ -1452,7 +1462,11 @@ impl CodexChatCore {
             return if ok {
                 Response::success(req_id, json!({ "ok": true }))
             } else {
-                Response::error(req_id, error_codes::INTERNAL_ERROR, "approval response failed")
+                Response::error(
+                    req_id,
+                    error_codes::INTERNAL_ERROR,
+                    "approval response failed",
+                )
             };
         }
 
@@ -1467,7 +1481,7 @@ impl CodexChatCore {
                     req_id,
                     error_codes::INTERNAL_ERROR,
                     "no codex process running",
-                )
+                );
             }
         };
 
@@ -1550,7 +1564,8 @@ impl CodexChatCore {
     fn resolve_thread_id(&mut self, chat_id: &str, explicit: Option<&str>) -> Option<String> {
         if let Some(thread_id) = explicit {
             let thread_id = thread_id.to_string();
-            self.thread_ids.insert(chat_id.to_string(), thread_id.clone());
+            self.thread_ids
+                .insert(chat_id.to_string(), thread_id.clone());
             return Some(thread_id);
         }
 
@@ -1607,12 +1622,7 @@ impl ChatService {
             homie_config,
             exec_policy,
         )));
-        (
-            Self {
-                core: core.clone(),
-            },
-            AgentService { core },
-        )
+        (Self { core: core.clone() }, AgentService { core })
     }
 
     fn shutdown_core(&mut self) {
@@ -1628,7 +1638,10 @@ impl ChatService {
     }
 
     fn reap_core(&mut self) -> Vec<ReapEvent> {
-        self.core.try_lock().map(|mut core| core.reap()).unwrap_or_default()
+        self.core
+            .try_lock()
+            .map(|mut core| core.reap())
+            .unwrap_or_default()
     }
 }
 
@@ -1663,13 +1676,21 @@ impl AgentService {
     }
 
     fn reap_core(&mut self) -> Vec<ReapEvent> {
-        self.core.try_lock().map(|mut core| core.reap()).unwrap_or_default()
+        self.core
+            .try_lock()
+            .map(|mut core| core.reap())
+            .unwrap_or_default()
     }
 }
 
 fn debug_enabled() -> bool {
-    matches!(std::env::var("HOMIE_DEBUG").as_deref(), Ok("1" | "true" | "TRUE"))
-        || matches!(std::env::var("HOME_DEBUG").as_deref(), Ok("1" | "true" | "TRUE"))
+    matches!(
+        std::env::var("HOMIE_DEBUG").as_deref(),
+        Ok("1" | "true" | "TRUE")
+    ) || matches!(
+        std::env::var("HOME_DEBUG").as_deref(),
+        Ok("1" | "true" | "TRUE")
+    )
 }
 
 impl ServiceHandler for ChatService {
@@ -1705,7 +1726,10 @@ impl ServiceHandler for ChatService {
                 "chat.account.login.poll" => core.chat_account_login_poll(id, params).await,
                 "chat.skills.list" => core.chat_skills_list(id, params).await,
                 "chat.model.list" => core.chat_model_list(id, params).await,
-                "chat.collaboration.mode.list" => core.chat_collaboration_mode_list(id, params).await,
+                "chat.tools.list" => core.chat_tools_list(id, params).await,
+                "chat.collaboration.mode.list" => {
+                    core.chat_collaboration_mode_list(id, params).await
+                }
                 "chat.skills.config.write" => core.chat_skills_config_write(id, params).await,
                 _ => Response::error(
                     id,
@@ -1809,10 +1833,9 @@ async fn event_forwarder_loop(
     while let Some(event) = event_rx.recv().await {
         let raw_params = event.params.unwrap_or(json!({}));
         if homie_config.raw_events_enabled() {
-            if let (Some(thread_id), Some(run_id)) = (
-                extract_thread_id(&raw_params),
-                extract_turn_id(&raw_params),
-            ) {
+            if let (Some(thread_id), Some(run_id)) =
+                (extract_thread_id(&raw_params), extract_turn_id(&raw_params))
+            {
                 if store
                     .insert_chat_raw_event(&run_id, &thread_id, &event.method, &raw_params)
                     .is_ok()
@@ -1969,8 +1992,14 @@ fn parse_message_params(
     let p = params.as_ref()?;
     let chat_id = p.get("chat_id")?.as_str()?.to_string();
     let message = p.get("message")?.as_str()?.to_string();
-    let model = p.get("model").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let effort = p.get("effort").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let model = p
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let effort = p
+        .get("effort")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let approval_policy = p
         .get("approval_policy")
         .or_else(|| p.get("approvalPolicy"))
@@ -2048,7 +2077,9 @@ fn parse_settings_update_params(params: &Option<Value>) -> Option<(String, Value
     Some((chat_id, settings))
 }
 
-fn parse_files_search_params(params: &Option<Value>) -> Option<(String, String, usize, Option<String>)> {
+fn parse_files_search_params(
+    params: &Option<Value>,
+) -> Option<(String, String, usize, Option<String>)> {
     let p = params.as_ref()?;
     let chat_id = p.get("chat_id")?.as_str()?.to_string();
     let query = p.get("query")?.as_str()?.to_string();
@@ -2065,6 +2096,16 @@ fn parse_files_search_params(params: &Option<Value>) -> Option<(String, String, 
     Some((chat_id, query, limit, base_path))
 }
 
+fn parse_tool_channel(params: &Option<Value>) -> String {
+    params
+        .as_ref()
+        .and_then(|value| value.get("channel"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_TOOL_CHANNEL.to_string())
+}
+
 fn parse_resume_params(params: &Option<Value>) -> Option<(String, Option<String>)> {
     let p = params.as_ref()?;
     let chat_id = p.get("chat_id")?.as_str()?.to_string();
@@ -2076,7 +2117,9 @@ fn parse_resume_params(params: &Option<Value>) -> Option<(String, Option<String>
     Some((chat_id, thread_id))
 }
 
-fn parse_thread_read_params(params: &Option<Value>) -> Option<(Option<String>, Option<String>, bool)> {
+fn parse_thread_read_params(
+    params: &Option<Value>,
+) -> Option<(Option<String>, Option<String>, bool)> {
     let p = params.as_ref()?;
     let chat_id = p
         .get("chat_id")
@@ -2349,10 +2392,7 @@ fn search_files_in_folder(base: &str, query: &str, limit: usize) -> Result<Vec<V
                 Ok(ft) => ft,
                 Err(_) => continue,
             };
-            let name = entry
-                .file_name()
-                .to_string_lossy()
-                .to_string();
+            let name = entry.file_name().to_string_lossy().to_string();
             if file_type.is_dir() {
                 if should_skip_dir(&name) {
                     continue;
@@ -2372,7 +2412,11 @@ fn search_files_in_folder(base: &str, query: &str, limit: usize) -> Result<Vec<V
                 continue;
             }
             visited += 1;
-            let kind = if file_type.is_dir() { "directory" } else { "file" };
+            let kind = if file_type.is_dir() {
+                "directory"
+            } else {
+                "file"
+            };
             results.push(json!({
                 "name": name,
                 "path": path.to_string_lossy(),
@@ -2413,7 +2457,10 @@ fn list_homie_skills() -> Result<Vec<Value>, String> {
 fn roci_model_catalog(providers: &ProvidersConfig) -> Vec<Value> {
     let mut models = Vec::new();
     let mut default_set = false;
-    let has_openai_key = std::env::var("OPENAI_API_KEY").ok().map(|v| !v.trim().is_empty()).unwrap_or(false);
+    let has_openai_key = std::env::var("OPENAI_API_KEY")
+        .ok()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
 
     if has_openai_key {
         let openai_models = [
@@ -2638,6 +2685,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_tool_channel_defaults_to_web() {
+        assert_eq!(parse_tool_channel(&None), "web");
+        assert_eq!(parse_tool_channel(&Some(json!({}))), "web");
+        assert_eq!(parse_tool_channel(&Some(json!({"channel": "   "}))), "web");
+    }
+
+    #[test]
+    fn parse_tool_channel_normalizes_value() {
+        assert_eq!(
+            parse_tool_channel(&Some(json!({"channel": "  DisCord "}))),
+            "discord"
+        );
+    }
+
+    #[test]
     fn parse_cancel_params_extracts_ids() {
         let params = Some(json!({
             "chat_id": "c1",
@@ -2732,6 +2794,82 @@ mod tests {
         let result = resp.result.unwrap();
         let chats = result["chats"].as_array().unwrap();
         assert!(chats.is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_tools_list_returns_expected_shape() {
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
+        let mut svc = ChatService::new(
+            tx,
+            make_store(),
+            Arc::new(HomieConfig::default()),
+            Arc::new(ExecPolicy::empty()),
+        );
+        let id = Uuid::new_v4();
+        let resp = svc.handle_request(id, "chat.tools.list", None).await;
+        assert!(resp.error.is_none());
+        let result = resp.result.expect("result");
+        let data = result["data"].as_array().expect("data array");
+        assert!(!data.is_empty());
+        let read = data
+            .iter()
+            .find(|tool| tool.get("name").and_then(|v| v.as_str()) == Some("read"))
+            .expect("read tool");
+        assert_eq!(read["provider"], "core");
+        assert_eq!(read["provider_dynamic"], false);
+        assert!(read["input_schema"].is_object());
+        assert!(!data
+            .iter()
+            .any(|tool| tool.get("provider").and_then(|v| v.as_str()) == Some("openclaw_browser")));
+    }
+
+    #[tokio::test]
+    async fn chat_tools_list_applies_channel_gating() {
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
+        let mut config = HomieConfig::default();
+        config.tools.providers.insert(
+            "openclaw_browser".to_string(),
+            crate::homie_config::ToolProviderConfig {
+                enabled: Some(true),
+                channels: vec!["discord".to_string()],
+                allow_tools: Vec::new(),
+                deny_tools: Vec::new(),
+            },
+        );
+        let mut svc = ChatService::new(
+            tx,
+            make_store(),
+            Arc::new(config),
+            Arc::new(ExecPolicy::empty()),
+        );
+
+        let web_resp = svc
+            .handle_request(Uuid::new_v4(), "chat.tools.list", None)
+            .await;
+        assert!(web_resp.error.is_none());
+        let web_tools = web_resp.result.expect("web result")["data"]
+            .as_array()
+            .expect("web data")
+            .clone();
+        assert!(!web_tools.iter().any(|tool| {
+            tool.get("provider").and_then(|v| v.as_str()) == Some("openclaw_browser")
+        }));
+
+        let discord_resp = svc
+            .handle_request(
+                Uuid::new_v4(),
+                "chat.tools.list",
+                Some(json!({ "channel": "discord" })),
+            )
+            .await;
+        assert!(discord_resp.error.is_none());
+        let discord_tools = discord_resp.result.expect("discord result")["data"]
+            .as_array()
+            .expect("discord data")
+            .clone();
+        assert!(discord_tools.iter().any(|tool| {
+            tool.get("provider").and_then(|v| v.as_str()) == Some("openclaw_browser")
+        }));
     }
 
     #[tokio::test]

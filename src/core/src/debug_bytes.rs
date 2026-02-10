@@ -71,4 +71,3 @@ pub fn contains_subseq(haystack: &[u8], needle: &[u8]) -> bool {
     }
     haystack.windows(needle.len()).any(|w| w == needle)
 }
-

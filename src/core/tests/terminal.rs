@@ -423,7 +423,9 @@ async fn session_remove_deletes_inactive_record() {
     let list = rpc(&mut ws, "terminal.session.list", None).await;
     let sessions = list["sessions"].as_array().cloned().unwrap_or_default();
     assert!(
-        sessions.iter().all(|s| s["session_id"].as_str() != Some(&sid)),
+        sessions
+            .iter()
+            .all(|s| s["session_id"].as_str() != Some(&sid)),
         "expected session to be removed"
     );
 }

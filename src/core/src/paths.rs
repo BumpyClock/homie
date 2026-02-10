@@ -45,8 +45,7 @@ pub fn homie_home_dir() -> Result<PathBuf, String> {
         "failed to resolve user home; set HOMIE_HOME or HOME/USERPROFILE".to_string()
     })?;
     let dir = home.join(".homie");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("failed to create ~/.homie: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create ~/.homie: {e}"))?;
     Ok(dir)
 }
 

@@ -127,9 +127,9 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         "pairing.request" | "pairing.approve" | "pairing.revoke" => Some(Scope::PairingWrite),
         "notifications.list" => Some(Scope::NotificationsRead),
         "notifications.register" | "notifications.send" => Some(Scope::NotificationsWrite),
-        "agent.chat.event.subscribe"
-        | "agent.codex.event.subscribe"
-        | "chat.event.subscribe" => Some(Scope::Events),
+        "agent.chat.event.subscribe" | "agent.codex.event.subscribe" | "chat.event.subscribe" => {
+            Some(Scope::Events)
+        }
         _ => None,
     }
 }

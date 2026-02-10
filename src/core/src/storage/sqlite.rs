@@ -340,8 +340,11 @@ impl Store for SqliteStore {
 
     fn delete_terminal(&self, session_id: Uuid) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
-        conn.execute("DELETE FROM terminals WHERE session_id = ?1", [session_id.to_string()])
-            .map_err(|e| format!("delete_terminal: {e}"))?;
+        conn.execute(
+            "DELETE FROM terminals WHERE session_id = ?1",
+            [session_id.to_string()],
+        )
+        .map_err(|e| format!("delete_terminal: {e}"))?;
         Ok(())
     }
 
@@ -746,9 +749,7 @@ impl Store for SqliteStore {
     }
 }
 
-fn parse_settings_json(
-    raw: Option<String>,
-) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+fn parse_settings_json(raw: Option<String>) -> Result<Option<serde_json::Value>, rusqlite::Error> {
     match raw {
         Some(text) => serde_json::from_str(&text)
             .map(Some)
@@ -757,9 +758,7 @@ fn parse_settings_json(
     }
 }
 
-fn serialize_settings(
-    settings: Option<&serde_json::Value>,
-) -> Result<Option<String>, String> {
+fn serialize_settings(settings: Option<&serde_json::Value>) -> Result<Option<String>, String> {
     match settings {
         Some(value) => serde_json::to_string(value)
             .map(Some)

@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Wrench,
   Globe,
+  ExternalLink,
   CheckCircle2,
   XCircle,
   Loader2,
@@ -232,6 +233,7 @@ function ActivityRow({
       ) : (
         <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
       );
+    const toolDetail = renderToolDetail(item);
     return (
       <div className="rounded-md border border-border bg-card/30 p-3 text-sm">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground mb-1">
@@ -246,6 +248,7 @@ function ActivityRow({
             </span>
           )}
         </div>
+        {toolDetail}
       </div>
     );
   }
@@ -287,6 +290,111 @@ function extractToolIntent(item: ChatItem) {
       return candidate.trim();
     }
   }
+  return null;
+}
+
+function renderToolDetail(item: ChatItem) {
+  if (item.kind !== "tool") return null;
+  const raw = item.raw as Record<string, unknown> | undefined;
+  if (!raw) return null;
+  const tool = typeof raw.tool === "string" ? raw.tool : item.text;
+  const result = raw.result as Record<string, unknown> | undefined;
+  const isError = Boolean(raw.error) || item.status?.toLowerCase() === "failed";
+  const errorMessage = result?.message || result?.error;
+  if (isError && typeof errorMessage === "string" && errorMessage.trim()) {
+    return (
+      <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+        {errorMessage}
+      </div>
+    );
+  }
+
+  if (tool === "web_search" && result && typeof result === "object") {
+    const query = typeof result.query === "string" ? result.query : "";
+    const provider = typeof result.provider === "string" ? result.provider : "";
+    const count = typeof result.count === "number" ? result.count : undefined;
+    const items = Array.isArray(result.results) ? result.results : [];
+    const rows = items.slice(0, 5).filter((entry) => entry && typeof entry === "object");
+    return (
+      <div className="mt-2 space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          {query && <span className="truncate">Query: {query}</span>}
+          {provider && (
+            <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 uppercase tracking-wide">
+              {provider}
+            </span>
+          )}
+          {typeof count === "number" && <span>{count} results</span>}
+        </div>
+        <div className="space-y-2">
+          {rows.map((entry, index) => {
+            const rec = entry as Record<string, unknown>;
+            const title = typeof rec.title === "string" ? rec.title : "Untitled";
+            const url = typeof rec.url === "string" ? rec.url : "";
+            const snippet = typeof rec.snippet === "string" ? rec.snippet : "";
+            const siteName = typeof rec.siteName === "string" ? rec.siteName : "";
+            return (
+              <div key={`${url}-${index}`} className="rounded-md border border-border bg-card/40 px-3 py-2 text-xs">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  {siteName && <span className="truncate">{siteName}</span>}
+                  {url && (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 truncate text-foreground/80 hover:text-foreground"
+                    >
+                      <span className="truncate">{url}</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </div>
+                <div className="mt-1 text-foreground">{title}</div>
+                {snippet && <div className="mt-1 text-muted-foreground">{snippet}</div>}
+              </div>
+            );
+          })}
+          {rows.length === 0 && (
+            <div className="rounded-md border border-border bg-card/40 px-3 py-2 text-xs text-muted-foreground">
+              No results.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (tool === "web_fetch" && result && typeof result === "object") {
+    const title = typeof result.title === "string" ? result.title : "";
+    const url = typeof result.finalUrl === "string" ? result.finalUrl : "";
+    const text = typeof result.text === "string" ? result.text : "";
+    const truncated = result.truncated === true;
+    const excerpt = text ? text.slice(0, 420) : "";
+    return (
+      <div className="mt-2 rounded-md border border-border bg-card/40 px-3 py-2 text-xs space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          {title && <span className="text-foreground/80 truncate">{title}</span>}
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 truncate text-foreground/80 hover:text-foreground"
+            >
+              <span className="truncate">{url}</span>
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+          {truncated && <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5">Truncated</span>}
+        </div>
+        {excerpt && <div className="text-muted-foreground whitespace-pre-wrap">{excerpt}</div>}
+        {!excerpt && (
+          <div className="text-muted-foreground">No extractable text returned.</div>
+        )}
+      </div>
+    );
+  }
+
   return null;
 }
 

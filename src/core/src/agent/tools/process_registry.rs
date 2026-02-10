@@ -46,12 +46,7 @@ impl ProcessRegistry {
         Self::default()
     }
 
-    pub fn insert(
-        &self,
-        command: String,
-        cwd: String,
-        child: tokio::process::Child,
-    ) -> String {
+    pub fn insert(&self, command: String, cwd: String, child: tokio::process::Child) -> String {
         let id = Uuid::new_v4().to_string();
         let pid = child.id();
         let entry = ProcessEntry {
@@ -70,12 +65,38 @@ impl ProcessRegistry {
         id
     }
 
+    pub fn insert_completed(
+        &self,
+        command: String,
+        cwd: String,
+        exit_code: Option<i32>,
+        output: Vec<u8>,
+    ) -> String {
+        let id = Uuid::new_v4().to_string();
+        let entry = ProcessEntry {
+            id: id.clone(),
+            command,
+            cwd,
+            started_at: Utc::now(),
+            pid: None,
+            status: ProcessStatus::Exited,
+            exit_code,
+            output: trim_output(output),
+            child: None,
+        };
+        let mut guard = self.inner.lock().unwrap();
+        guard.insert(id.clone(), entry);
+        id
+    }
+
     pub fn append_output(&self, id: &str, chunk: &[u8]) {
         if chunk.is_empty() {
             return;
         }
         let mut guard = self.inner.lock().unwrap();
-        let Some(entry) = guard.get_mut(id) else { return; };
+        let Some(entry) = guard.get_mut(id) else {
+            return;
+        };
         if entry.output.len() + chunk.len() > MAX_OUTPUT_BYTES {
             let overflow = entry.output.len() + chunk.len() - MAX_OUTPUT_BYTES;
             if overflow >= entry.output.len() {
@@ -87,9 +108,16 @@ impl ProcessRegistry {
         entry.output.extend_from_slice(chunk);
     }
 
+    pub fn remove(&self, id: &str) -> bool {
+        let mut guard = self.inner.lock().unwrap();
+        guard.remove(id).is_some()
+    }
+
     pub fn mark_exited(&self, id: &str, exit_code: Option<i32>) {
         let mut guard = self.inner.lock().unwrap();
-        let Some(entry) = guard.get_mut(id) else { return; };
+        let Some(entry) = guard.get_mut(id) else {
+            return;
+        };
         entry.status = ProcessStatus::Exited;
         entry.exit_code = exit_code;
         entry.child = None;
@@ -107,7 +135,10 @@ impl ProcessRegistry {
             child
         };
         let mut child = child;
-        child.kill().await.map_err(|e| format!("kill failed: {e}"))?;
+        child
+            .kill()
+            .await
+            .map_err(|e| format!("kill failed: {e}"))?;
         Ok(())
     }
 
@@ -170,4 +201,13 @@ fn tail_bytes_to_string(buf: &[u8], tail_bytes: usize) -> String {
         &buf[buf.len() - tail_bytes..]
     };
     String::from_utf8_lossy(slice).to_string()
+}
+
+fn trim_output(mut output: Vec<u8>) -> Vec<u8> {
+    if output.len() <= MAX_OUTPUT_BYTES {
+        return output;
+    }
+    let start = output.len() - MAX_OUTPUT_BYTES;
+    output.drain(0..start);
+    output
 }

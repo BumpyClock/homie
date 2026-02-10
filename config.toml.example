@@ -1,0 +1,103 @@
+version = 1
+
+[debug]
+homie_debug_env = "HOMIE_DEBUG"
+home_debug_env = "HOME_DEBUG"
+persist_raw_provider_events = false
+
+[models]
+catalog_ttl_secs = 300
+
+[chat]
+# If set, overrides default system prompt file location.
+# If missing or empty, Homie creates ~/.homie/system_prompt.md on first run.
+system_prompt_path = ""
+# Optional stream idle timeout (ms) for long-running responses.
+stream_idle_timeout_ms = 0
+
+[tools.web.fetch]
+# Disabled by default. Enable to allow web_fetch tool.
+enabled = false
+max_chars = 50000
+timeout_seconds = 30
+cache_ttl_minutes = 15
+max_redirects = 3
+user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+readability = true
+
+[tools.web.fetch.firecrawl]
+# Enable fallback via Firecrawl (optional).
+enabled = false
+api_key = ""
+base_url = "https://api.firecrawl.dev"
+only_main_content = true
+max_age_ms = 172800000
+timeout_seconds = 30
+
+[tools.web.search]
+# Disabled by default. Enable to allow web_search tool.
+enabled = false
+provider = "brave" # brave | searxng
+timeout_seconds = 30
+cache_ttl_minutes = 15
+max_results = 5
+
+[tools.web.search.brave]
+api_key = ""
+endpoint = "https://api.search.brave.com/res/v1/web/search"
+
+[tools.web.search.searxng]
+# Required when provider = "searxng".
+base_url = "https://searxng.example.com"
+api_key = ""
+api_key_header = "X-API-Key"
+# Optional extra headers.
+# headers = { "User-Agent" = "Homie" }
+
+[tools.openclaw_browser]
+# Optional endpoint for future OpenClaw browser automation provider.
+endpoint = ""
+# Optional bearer token / API key for endpoint auth.
+api_key = ""
+
+[tools.providers.core]
+# Core provider is enabled by default; explicit override optional.
+enabled = true
+# Optional channel allowlist.
+# Omit (or set to []) to make provider available in all channels.
+channels = ["web", "discord"]
+# Optional allow/deny lists by tool name.
+# allow_tools = ["read", "ls", "find", "grep", "apply_patch", "exec", "process", "web_fetch", "web_search"]
+# deny_tools = []
+
+[tools.providers.channel_discord]
+# Dynamic providers are disabled by default until explicitly enabled.
+enabled = false
+
+[tools.providers.openclaw_browser]
+# Dynamic provider scaffold (default disabled; enabled here as channel-gated example).
+enabled = true
+# Enable only on selected channels.
+# Omit (or set to []) for all channels.
+channels = ["web"]
+
+[providers.openai_codex]
+enabled = true
+issuer = "https://auth.openai.com"
+refresh_token_url_override = ""
+
+[providers.github_copilot]
+enabled = true
+github_host = "github.com"
+device_code_url = "https://github.com/login/device/code"
+token_url = "https://github.com/login/oauth/access_token"
+copilot_token_url = "https://api.github.com/copilot_internal/v2/token"
+
+[providers.claude_code]
+enabled = true
+import_from_cli = true
+
+[paths]
+# Relative paths resolve against ~/.homie
+credentials_dir = ""
+execpolicy_path = ""

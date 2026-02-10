@@ -130,8 +130,7 @@ impl CompiledRule {
 }
 
 fn parse_shorthand(raw: &str) -> Result<Vec<String>, String> {
-    let mut tokens =
-        shell_words::split(raw).map_err(|e| format!("parse argv_shorthand: {e}"))?;
+    let mut tokens = shell_words::split(raw).map_err(|e| format!("parse argv_shorthand: {e}"))?;
     if tokens.is_empty() {
         return Err("argv_shorthand is empty".to_string());
     }

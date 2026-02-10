@@ -14,12 +14,12 @@ use tower_http::trace::TraceLayer;
 
 use crate::auth::{authenticate, AuthOutcome, TailscaleWhois};
 use crate::config::ServerConfig;
-use crate::{ExecPolicy, HomieConfig};
 use crate::connection::{run_connection, ConnectionParams};
 use crate::presence::NodeRegistry;
 use crate::router::{ReapEvent, ServiceRegistry};
 use crate::storage::Store;
 use crate::terminal::TerminalRegistry;
+use crate::{ExecPolicy, HomieConfig};
 
 /// Shared state accessible by handlers.
 #[derive(Clone)]
