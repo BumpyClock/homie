@@ -49,3 +49,4 @@
 - 2026-02-09: Chat bootstrap loop fix in web: gate initial `chat.account.read/chat.list/chat.model.list/chat.skills.list` refresh to once per connected session and reset on disconnect/namespace change to prevent repeated request storms.
 - 2026-02-09: Added `chat.tools.list` RPC + dynamic `openclaw_browser` tool provider scaffold (disabled by default), enabling config-driven discovery of tool availability in UI.
 - 2026-02-09: Added env-gated live integration tests `src/core/tests/live_tools.rs` covering `ls`, `web_search`, and `web_fetch` against configured providers when `HOMIE_LIVE_TESTS=1`.
+- 2026-02-10: Added mobile Expo scaffold at `src/apps/mobile` (SDK 54 tabs template) with chat-first tab shell, semantic theme tokens, reduced-motion-aware screen entrance animation, and runtime gateway URL config via `EXPO_PUBLIC_HOMIE_GATEWAY_URL`.
