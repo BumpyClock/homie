@@ -5,6 +5,7 @@ import {
   deriveTitleFromThread,
   itemsFromThread,
   mapChatEvent,
+  type SessionInfo,
   subscribeToChatEvents,
   type ChatThreadSummary,
   type ConnectionStatus,
@@ -43,12 +44,46 @@ export interface UseGatewayChatResult {
   loadingMessages: boolean;
   creatingChat: boolean;
   sendingMessage: boolean;
+  loadingTerminals: boolean;
   pendingApproval: PendingApprovalMetadata | null;
+  terminalSessions: SessionInfo[];
   selectThread: (chatId: string) => void;
   refreshThreads: () => Promise<void>;
+  refreshTerminals: () => Promise<void>;
   createChat: () => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
+  renameThread: (chatId: string, title: string) => Promise<void>;
+  archiveThread: (chatId: string) => Promise<void>;
   respondApproval: (requestId: number | string, decision: ChatApprovalDecision) => Promise<void>;
+}
+
+function normalizeTerminalSessions(raw: unknown): SessionInfo[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const sessions = (raw as { sessions?: unknown }).sessions;
+  if (!Array.isArray(sessions)) return [];
+  return sessions
+    .map((entry): SessionInfo | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const record = entry as Record<string, unknown>;
+      const session_id = typeof record.session_id === 'string' ? record.session_id : '';
+      const shell = typeof record.shell === 'string' ? record.shell : '';
+      const cols = typeof record.cols === 'number' ? record.cols : 0;
+      const rows = typeof record.rows === 'number' ? record.rows : 0;
+      const started_at = typeof record.started_at === 'string' ? record.started_at : '';
+      const status = typeof record.status === 'string' ? record.status : 'inactive';
+      if (!session_id || !shell || !started_at) return null;
+      return {
+        session_id,
+        name: typeof record.name === 'string' ? record.name : null,
+        shell,
+        cols,
+        rows,
+        started_at,
+        status: status === 'active' || status === 'exited' || status === 'inactive' ? status : 'inactive',
+        exit_code: typeof record.exit_code === 'number' ? record.exit_code : undefined,
+      };
+    })
+    .filter((entry): entry is SessionInfo => entry !== null);
 }
 
 export function useGatewayChat(
@@ -64,6 +99,8 @@ export function useGatewayChat(
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [creatingChat, setCreatingChat] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [terminalSessions, setTerminalSessions] = useState<SessionInfo[]>([]);
+  const [loadingTerminals, setLoadingTerminals] = useState(false);
 
   const transportRef = useRef<GatewayTransport | null>(null);
   const chatClientRef = useRef<ReturnType<typeof createChatClient> | null>(null);
@@ -219,6 +256,25 @@ export function useGatewayChat(
     }
   }, [hydrateThread]);
 
+  const refreshTerminals = useCallback(async () => {
+    const transport = transportRef.current;
+    if (!transport || status !== 'connected') {
+      setTerminalSessions([]);
+      return;
+    }
+
+    setLoadingTerminals(true);
+    try {
+      const result = await transport.call<{ sessions?: unknown }>('terminal.session.list');
+      setTerminalSessions(normalizeTerminalSessions(result));
+      setError(null);
+    } catch (nextError) {
+      setError(formatError(nextError));
+    } finally {
+      setLoadingTerminals(false);
+    }
+  }, [status]);
+
   const handleGatewayEvent = useCallback((event: RpcEvent) => {
     const mapped = mapChatEvent(
       {
@@ -301,6 +357,7 @@ export function useGatewayChat(
   useEffect(() => {
     if (status !== 'connected') {
       bootstrappedRef.current = false;
+      setTerminalSessions([]);
       return;
     }
     if (bootstrappedRef.current) return;
@@ -312,7 +369,8 @@ export function useGatewayChat(
       setError(formatError(nextError));
     });
     void refreshThreads();
-  }, [refreshThreads, status]);
+    void refreshTerminals();
+  }, [refreshTerminals, refreshThreads, status]);
 
   useEffect(() => {
     if (threads.length === 0) {
@@ -410,6 +468,63 @@ export function useGatewayChat(
     }
   }, [setActiveThread, updateThreadSummaryFromActive]);
 
+  const renameThread = useCallback(async (chatId: string, title: string) => {
+    const chatClient = chatClientRef.current;
+    if (!chatClient) return;
+
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+
+    try {
+      await chatClient.renameThread({ chatId, title: nextTitle });
+      setThreads((current) =>
+        current.map((entry) => (entry.chatId === chatId ? { ...entry, title: nextTitle } : entry)),
+      );
+      const active = activeThreadRef.current;
+      if (active?.chatId === chatId) {
+        setActiveThread({
+          ...active,
+          title: nextTitle,
+        });
+      }
+      setError(null);
+    } catch (nextError) {
+      setError(formatError(nextError));
+      throw nextError;
+    }
+  }, [setActiveThread]);
+
+  const archiveThread = useCallback(async (chatId: string) => {
+    const chatClient = chatClientRef.current;
+    const summary = threadsRef.current.find((entry) => entry.chatId === chatId);
+    if (!chatClient || !summary) return;
+
+    try {
+      await chatClient.archiveThread({
+        chatId,
+        threadId: summary.threadId,
+      });
+
+      setThreads((current) => sortThreads(current.filter((entry) => entry.chatId !== chatId)));
+
+      const active = activeThreadRef.current;
+      if (active?.chatId === chatId) {
+        const nextThread = threadsRef.current.find((entry) => entry.chatId !== chatId) ?? null;
+        if (nextThread) {
+          setActiveChatId(nextThread.chatId);
+          await loadThread(nextThread.chatId, nextThread.threadId);
+        } else {
+          setActiveChatId(null);
+          setActiveThread(null);
+        }
+      }
+      setError(null);
+    } catch (nextError) {
+      setError(formatError(nextError));
+      throw nextError;
+    }
+  }, [loadThread, setActiveThread]);
+
   const respondApproval = useCallback(
     async (requestId: number | string, decision: ChatApprovalDecision) => {
       const chatClient = chatClientRef.current;
@@ -453,11 +568,16 @@ export function useGatewayChat(
     loadingMessages,
     creatingChat,
     sendingMessage,
+    loadingTerminals,
     pendingApproval,
+    terminalSessions,
     selectThread,
     refreshThreads,
+    refreshTerminals,
     createChat,
     sendMessage,
+    renameThread,
+    archiveThread,
     respondApproval,
   };
 }

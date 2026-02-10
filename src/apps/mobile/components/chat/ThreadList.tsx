@@ -9,6 +9,7 @@ interface ThreadListProps {
   activeChatId: string | null;
   loading: boolean;
   onSelect: (chatId: string) => void;
+  onLongPressThread?: (thread: ChatThreadSummary) => void;
 }
 
 export function ThreadList({
@@ -16,6 +17,7 @@ export function ThreadList({
   activeChatId,
   loading,
   onSelect,
+  onLongPressThread,
 }: ThreadListProps) {
   const { palette } = useAppTheme();
 
@@ -67,6 +69,10 @@ export function ThreadList({
             key={thread.chatId}
             accessibilityRole="button"
             accessibilityState={{ selected }}
+            delayLongPress={300}
+            onLongPress={() => {
+              onLongPressThread?.(thread);
+            }}
             onPress={() => onSelect(thread.chatId)}
             style={({ pressed }) => [
               styles.threadCard,

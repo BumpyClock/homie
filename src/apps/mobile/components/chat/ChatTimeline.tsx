@@ -1,6 +1,7 @@
 import { type ChatItem } from '@homie/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Markdown from 'react-native-marked';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
@@ -235,6 +236,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
               const body = bodyForItem(item);
               if (!body.trim()) return null;
               const user = item.kind === 'user';
+              const renderMarkdown = !user && (item.kind === 'assistant' || item.kind === 'reasoning' || item.kind === 'tool' || item.kind === 'plan' || item.kind === 'diff');
               return (
                 <View
                   key={item.id}
@@ -250,9 +252,73 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
                   <Text style={[styles.itemLabel, { color: user ? palette.surface : palette.textSecondary }]}>
                     {labelForItem(item)}
                   </Text>
-                  <Text style={[styles.itemBody, { color: user ? palette.surface : palette.text }]}>
-                    {body}
-                  </Text>
+                  {renderMarkdown ? (
+                    <Markdown
+                      value={body}
+                      styles={{
+                        text: {
+                          ...styles.itemBody,
+                          color: palette.text,
+                        },
+                        paragraph: {
+                          marginBottom: spacing.xs,
+                        },
+                        code: {
+                          backgroundColor: palette.surface,
+                          borderColor: palette.border,
+                          borderRadius: radius.sm,
+                          borderWidth: 1,
+                          padding: spacing.xs,
+                        },
+                        codespan: {
+                          ...styles.commandText,
+                          backgroundColor: palette.surface,
+                          color: palette.text,
+                        },
+                        link: {
+                          color: palette.accent,
+                          textDecorationLine: 'underline',
+                        },
+                        blockquote: {
+                          borderLeftColor: palette.border,
+                          borderLeftWidth: 3,
+                          paddingLeft: spacing.sm,
+                        },
+                        list: {
+                          marginBottom: spacing.xs,
+                        },
+                        li: {
+                          ...styles.itemBody,
+                          color: palette.text,
+                        },
+                        h1: {
+                          ...styles.itemBody,
+                          color: palette.text,
+                          fontSize: 18,
+                          fontWeight: '700',
+                        },
+                        h2: {
+                          ...styles.itemBody,
+                          color: palette.text,
+                          fontSize: 16,
+                          fontWeight: '700',
+                        },
+                        h3: {
+                          ...styles.itemBody,
+                          color: palette.text,
+                          fontSize: 15,
+                          fontWeight: '600',
+                        },
+                      }}
+                      flatListProps={{
+                        scrollEnabled: false,
+                      }}
+                    />
+                  ) : (
+                    <Text style={[styles.itemBody, { color: user ? palette.surface : palette.text }]}>
+                      {body}
+                    </Text>
+                  )}
                 </View>
               );
             })

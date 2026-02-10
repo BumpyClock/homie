@@ -1,200 +1,228 @@
-# Homie Mobile UX Doc (Expo/RN, Chat-First)
+# Homie Mobile Left-Edge Navigation UX Design Doc
 
-## 1) Overview
-- Goal: mobile chat primary surface; remote terminal secondary entry.
-- Users: on-the-go operators; fast ask/approve/fix loops from phone/tablet.
-- Principle: parity with current web chat semantics (`chat.*`, approvals, tool events), mobile-native ergonomics.
-- Success bar: create/open thread <2 taps; send message <1.5s perceived feedback; approvals impossible to miss.
+## Overview
+- Goals
+  - Replace bottom tab bar with left-edge menu shell.
+  - Keep chat as primary workflow; terminals/settings secondary.
+  - Keep approvals visible and actionable inside chat detail.
+- Primary users
+  - On-the-go operators managing remote tasks from phone/tablet.
+- Success criteria
+  - Open any thread in <=2 taps.
+  - Approvals visible in-thread and from menu list.
+  - No bottom tab UI remains.
 
-## 2) Constraints
-- Stack: Expo + React Native; iOS/Android first; tablet support required.
-- Backend contract fixed: no protocol changes for UX phase.
-- Network volatility: frequent bg/fg, spotty mobile data, captive networks.
-- Safe-area variance: notches, home indicator, dynamic island.
-- Input complexity: long prompts, mentions, file tags, keyboard overlap.
-- Performance target: 60fps scroll on mid-tier devices; first usable paint <1.2s warm start.
+## Inputs and Constraints
+- Platform targets
+  - React Native via latest Expo, iOS + Android first, tablet-aware.
+- Breakpoints
+  - Phone compact: <=599dp
+  - Tablet: >=600dp
+- Design system or component library
+  - Existing `src/apps/mobile/theme/tokens.ts` and `src/apps/mobile/theme/motion.ts`.
+- Content requirements
+  - Primary sections: Chat, Terminals, Settings.
+  - Conversation list nested under primary sections in left menu.
+- Technical constraints
+  - Preserve current gateway protocol and chat hooks.
+  - Respect reduced motion setting.
 
-## 3) IA (Information Architecture)
-- Top-level tabs (3): `Chat`, `Terminal`, `Settings`.
-- Default route: `Chat`.
-- Chat IA:
-  - Thread List
-  - Thread Detail
-  - Thread Info (settings/tools/account)
-  - Approval Queue (sheet + badge entry)
-- Terminal IA:
-  - Placeholder card + session jump entry (phase defer explicit)
-- Settings IA:
-  - Gateway target, account status, appearance, diagnostics.
+## Information Architecture
+- App shell (new)
+  - Left-edge menu (drawer on phone, persistent panel on tablet).
+  - Content region (active section).
+- Left menu hierarchy
+  - Primary section group
+    - Chat
+    - Terminals
+    - Settings
+  - Divider
+  - Section detail group (below divider)
+    - Chat: conversations list (search/filter + thread rows with status/unread/approval count)
+    - Terminals: running terminal sessions list
+    - Settings: no sublist, opens settings content page directly
+- Chat flows
+  - Menu -> Chat -> Thread select -> Detail + composer
+  - Incoming approval -> thread badge + inline approval card -> approve/deny
+  - Thread create -> list prepend -> open detail
 
-Primary nav flows:
-1. Open app -> Thread List -> Thread Detail -> Composer send.
-2. Approval event -> global badge -> Approval sheet -> approve/deny -> return same scroll position.
-3. Disconnect -> inline reconnect CTA -> retry/backoff -> restored thread context.
+## Design System Strategy
+- Reuse
+  - Existing palette, spacing, radius, typography, motion tokens.
+  - Existing components: `ThreadList`, `ChatTimeline`, `ChatComposer`, `StatusPill`.
+- New components needed
+  - `AppShell` (left edge frame)
+  - `PrimaryNavSectionList`
+  - `ConversationsPane`
+  - `SectionHeaderBar`
+- Token usage rules
+  - No raw hex in components.
+  - 44dp minimum tap targets.
+  - Keep menu widths fixed to avoid layout shift.
 
-## 4) Design System Strategy
-- Token source: shared semantic tokens with web; mobile-specific scale layer.
-- Use semantic names, not raw values (`surface/base`, `text/muted`, `status/warn`).
-- 4dp spacing grid; touch targets min 44x44dp.
-- Radius system: 8 / 12 / 16 / 20dp (chips/cards/sheets/hero).
-- Elevation tiers: 0 (flat), 1 (cards), 2 (floating composer), 3 (modal/sheet).
-- Typography scale (system font for platform fidelity):
-  - Display 28/34 semibold
-  - Title 22/28 semibold
-  - Body 16/22 regular
-  - Body-sm 14/20 regular
-  - Mono 13/18 medium (tool logs, inline code)
-- Component ownership:
-  - Shared logic/state hooks from protocol client.
-  - RN presentation components isolated in `mobile/ui/chat/*`.
+## Layout and Responsive Behavior
+- Phone
+  - Menu hidden by default.
+  - Open via top-left menu button or edge swipe.
+  - Drawer width: 320dp max (or 86% viewport if smaller).
+  - Content always full-screen behind drawer.
+- Tablet
+  - Menu persistent on left.
+  - Primary section list + conversations in one scrollable column.
+  - Fixed width: 340dp for v1.
+  - TODO tracked for future user-resizable width.
+- Chat detail
+  - Header stays in content pane.
+  - Timeline + composer remains current architecture.
+- No bottom tab bar
+  - Remove `Tabs` usage for runtime navigation.
 
-## 5) Layout + Responsive Behavior
-
-Breakpoints:
-- Phone compact: <=599dp width.
-- Tablet/large: >=600dp width.
-
-Phone layout:
-- Thread list and detail as stacked routes.
-- Header: 56dp height.
-- Composer docked above keyboard; min 52dp, max 160dp before internal scroll.
-- Message gutter: 12dp horizontal; 8dp vertical rhythm.
-- Floating reconnect banner under header: 40dp height.
-
-Tablet layout:
-- Split view default in landscape and >=700dp portrait width.
-- Left rail (thread list): 320dp fixed.
-- Right pane (thread detail): fluid, max readable width 840dp; center when extra space.
-- Composer width capped to 760dp, centered in detail pane.
-- Approval queue opens as side sheet (420dp) instead of bottom sheet.
-
-Orientation rules:
-- Preserve scroll anchor + draft text on rotate.
-- No full rerender; only layout recalc and terminal placeholder resize.
-
-## 6) ASCII Layout
-
-Phone - Thread List
-
+## ASCII Layout
+```text
+Phone (Drawer Closed)
 +--------------------------------+
-| Safe area                      |
-| Chat                 [Search]  |
+| [menu]  Chat            [status]|
 +--------------------------------+
-| [Conn: Online]                 |
-| Thread row                     |
-| Thread row (badge 2)           |
-| Thread row                     |
+| Thread detail timeline         |
 | ...                            |
+| [approval card inline]         |
 +--------------------------------+
-| Tabs: Chat | Terminal | Settings|
-+--------------------------------+
-
-Phone - Thread Detail
-
-+--------------------------------+
-| <- Threads   Thread name   ... |
-+--------------------------------+
-| day divider                     |
-| user bubble                     |
-| assistant card + tool chips     |
-| approval card (sticky when new) |
-| ...                             |
-+--------------------------------+
-| [ + ] composer text... [Send]   |
-| keyline + safe-area inset       |
+| composer                       |
 +--------------------------------+
 
-Tablet - Split View
+Phone (Drawer Open)
++------------------+-------------+
+| Chat             | dimmed      |
+| Terminals        | content     |
+| Settings         |             |
+|------------------|             |
+| Conversations    |             |
+| - Thread A       |             |
+| - Thread B (2)   |             |
+| - Thread C (!)   |             |
++------------------+-------------+
 
-+----------------+-------------------------------------------+
-| Chat           | Thread name                    status ... |
-| search         +-------------------------------------------+
-| thread list    | messages timeline                           |
-| thread list    | messages timeline                           |
-| ...            | ...                                        |
-+----------------+-------------------------------------------+
-| tabs (bottom)  | composer centered                           |
-+----------------+-------------------------------------------+
+Tablet (Persistent Left Menu)
++----------------------+-----------------------------+
+| Chat                 | Thread detail               |
+| Terminals            | timeline                    |
+| Settings             | ...                         |
+|----------------------|                             |
+| Conversations        |                             |
+| - Thread A           |                             |
+| - Thread B           |                             |
++----------------------+-----------------------------+
+```
 
-## 7) Component Inventory
-- App shell: safe-area scaffold, tab bar, global toasts, global connection badge.
-- Thread list: search field, filter chips (`All`, `Running`, `Needs approval`), thread rows, unread badge.
-- Thread row: title, last message preview, relative time, status dot, approval count.
-- Thread detail header: back/title, model pill, connection state, overflow actions.
-- Message primitives: user bubble, assistant card, tool-step row, reasoning collapse row, error row.
-- Approval card: risk icon, action summary, affected paths/command, `Approve` + `Deny` + `View details`.
-- Composer: multiline input, mention/file token chips, attachment entry, send/stop button, keyboard accessory.
-- Inline banners: reconnecting, offline queued, sync complete.
-- Sheets/modals: thread info, approval queue, destructive confirm, model/settings picker.
-- Terminal placeholder: explainer card + CTA to tracked roadmap issue.
+## Component Inventory
+- `AppShell`
+  - Purpose: one source of truth for section + drawer state.
+  - States: drawer open/closed, reduced-motion, tablet persistent.
+- `PrimaryNavSectionList`
+  - Purpose: switch Chat/Terminals/Settings.
+  - States: active/inactive, badge count (optional).
+- `ConversationsPane`
+  - Purpose: list/search/select chat threads.
+  - States: loading, empty, error, active row.
+- `TerminalSessionsPane`
+  - Purpose: show running terminals list in left menu when Terminals is active.
+  - States: loading, empty, active session.
+- `ChatDetailPane`
+  - Purpose: timeline + approval cards + composer.
+  - States: disconnected, streaming, pending approval.
 
-## 8) Interaction + State Matrix
+## Interaction and State Matrix
+- Section switch
+  - Tap section -> content swap; keep last-open chat for Chat section.
+- Thread select
+  - Tap thread -> set active chat; close drawer on phone.
+- Thread row long-press
+  - Open quick actions: rename, archive/delete confirm.
+- Approval
+  - Show inline card in timeline and badge in thread row.
+  - Decision immediately updates row badge and card state.
+- Reconnect
+  - Keep drawer/section state, keep selected thread, show connection badge.
+- Draft persistence
+  - Preserve composer draft per thread across section switches.
 
-| Area | Idle | Loading | Streaming | Needs approval | Error | Offline |
-|---|---|---|---|---|---|---|
-| Thread list | rows visible | skeleton rows (6) | n/a | badge increment live | inline retry row | cached rows + stale badge |
-| Thread detail | timeline static | shimmer blocks, keep header | token/tool append at 1 frame batches | sticky approval card + haptic light | error card + resend | queued message chips |
-| Composer | send enabled | disabled until thread ready | morph send->stop | input disabled only when approval modal forced | keep draft + error text | send becomes queue action |
-| Approval sheet | hidden | n/a | can open during stream | top priority focus trap | deny fallback always available | local decision disabled until online |
-| Connection banner | hidden | connecting pulse | hidden | hidden | visible warning | persistent offline state |
+## Motion Spec
+- Open/close drawer
+  - 180-220ms `ease-out`; translateX + backdrop opacity.
+- Section/content swap
+  - 140ms fade only (no large slide).
+- New thread row insert
+  - 120ms opacity + slight translateY.
+- Approval badge pulse
+  - 120ms single pulse, no loop.
+- Reduced motion
+  - Disable translate/scale; keep <=100ms opacity transitions.
 
-State rules:
-- Never lose draft on route change, bg/fg, rotate, reconnect.
-- Only one blocking modal at once; approval sheet preempts non-critical sheets.
-- Streaming autoscroll only if user within 120dp of bottom.
+## Visual System
+- Direction
+  - Precision + utility; low-noise surfaces, clear status accents.
+- Surfaces
+  - Menu: `surface`
+  - Content: `background`
+  - Active row: `surfaceAlt`
+- Status colors
+  - Approval badge: warning tone.
+  - Connection: success/warning/danger via `StatusPill`.
+- Typography
+  - Keep current tokenized type scale; no font-family expansion in this phase.
 
-## 9) Visual System
-- Tone: utilitarian + calm; dark-first for terminal-adjacent context, full light theme parity.
-- Color roles:
-  - Primary action: blue 600 (light) / blue 400 (dark).
-  - Success: green 600/400.
-  - Warning/approval: amber 600/400.
-  - Danger: red 600/400.
-  - Neutral surfaces: 1/2/3 layered contrast (min 1.2 delta each layer).
-- Message contrast:
-  - User bubble stronger fill; assistant card elevated neutral.
-  - Tool steps low-emphasis mono text with icon channel color.
-- Icon size: 18dp default, 22dp for primary actions.
-- Motion guidance:
-  - Screen push/pop: 240ms, standard decel.
-  - List item enter stagger: 20ms step, max 6 visible items.
-  - Stream token fade/slide: 120ms ease-out, batched.
-  - Approval card appear: 180ms scale+fade; subtle haptic on arrival.
-  - Reduce motion: disable slide/scale; keep opacity only <=100ms.
+## Markdown Rendering Strategy
+- Goal
+  - Render assistant and reasoning messages as markdown in `ChatTimeline` (headings, lists, inline code, links, code blocks).
+- Recommended library
+  - `react-native-marked`
+- Why this path
+  - Actively maintained for 2025/2026.
+  - RN-native rendering path with good Expo compatibility.
+  - Better fit for streaming chat content than markdown->HTML conversion stacks.
+- Integration notes
+  - Replace plain `<Text>` message body rendering with markdown component for assistant/reasoning/tool text bodies.
+  - Keep user bubbles plain text for now.
+  - Add link handling policy (open external links via platform linking).
+  - Style code blocks with existing semantic tokens and monospaced typography token.
+  - Add `react-native-svg` dependency required by the renderer.
 
-## 10) Accessibility
-- WCAG 2.2 AA contrast targets for text + controls.
-- Dynamic type support up to 200%; composer and cards reflow, no truncation on actions.
-- Screen reader:
-  - Clear labels for thread rows, status, unread count, approval urgency.
-  - Streaming updates announced in throttled chunks (not every token).
-  - Approval actions exposed with consequence hint.
-- Focus order deterministic: header -> timeline -> composer -> tabs.
-- Touch:
-  - Min hit area 44x44dp.
-  - 8dp minimum spacing between adjacent destructive/confirm buttons.
-- Haptics: light for send success; warning for approval; error for failed action.
+## Accessibility
+- Navigation controls
+  - All menu toggles and icon buttons need explicit accessibility labels.
+- Focus/order
+  - Phone: menu button -> section list -> conversations -> content.
+- Touch targets
+  - 44dp minimum for section rows and thread rows.
+- Announcements
+  - Approval arrival: concise screen-reader announcement.
+- Motion safety
+  - Honor reduced motion hook globally in shell animations.
 
-## 11) Content Notes
-- Voice: concise operator language; no marketing phrasing.
-- Thread titles: generated from first user intent, editable.
-- Status copy examples:
-  - Online
-  - Reconnecting...
-  - Offline - messages queue locally
-  - Approval required
-  - Action failed - retry
-- Approval copy:
-  - Lead with action + scope (`Run command in /repo`, `Edit 3 files`).
-  - Show risk hints plain language.
-- Empty states:
-  - Threads: `No chats yet. Start a thread to run tasks remotely.`
-  - Terminal tab: `Terminal renderer planned. Use chat tools for now.`
-- Time format: relative in lists; absolute timestamp in detail on long-press.
+## Content Notes
+- Section labels
+  - Chat, Terminals, Settings.
+- Empty threads copy
+  - "No conversations yet. Start a chat to run tasks remotely."
+- Approval copy
+  - Lead with action + scope, keep to one line summary in row.
 
-## 12) Handoff Checklist (Design -> Build)
-- Final token map (light/dark + semantic roles).
-- Component spec sheets with min/max sizes and state variants.
-- Motion spec table with durations/easing and reduce-motion fallbacks.
-- Accessibility annotation pass (labels, traits, announce behavior).
-- Device QA matrix: iPhone SE, iPhone Pro Max, Pixel A-series, iPad 11in, Android tablet 10in.
+## Implementation Plan
+1. Shell architecture
+   - Replace `Tabs` layout (`src/apps/mobile/app/(tabs)/_layout.tsx`) with custom left-edge app shell.
+   - Keep current screen modules, route through shell state first.
+2. Navigation + list composition
+   - Add `PrimaryNavSectionList` + `ConversationsPane`.
+   - Wire section switching + thread selection + drawer behavior.
+3. Chat UX integration
+   - Keep existing chat detail components; connect badge and approval count into thread rows.
+   - Preserve per-thread draft and selected thread state.
+4. Motion + a11y pass
+   - Apply tokenized motion durations/easing.
+   - Add reduced-motion fallbacks and accessibility labels.
+5. QA pass
+   - Phone portrait/landscape + tablet split checks.
+   - Verify no bottom tab remains.
+6. Markdown rendering pass
+   - Integrate markdown library in `ChatTimeline`.
+   - Validate rendering parity for assistant/reasoning/tool messages.
