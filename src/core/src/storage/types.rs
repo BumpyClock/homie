@@ -43,6 +43,16 @@ pub struct ChatRecord {
     pub settings: Option<Value>,
 }
 
+/// Persisted raw provider event row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatRawEventRecord {
+    pub run_id: String,
+    pub thread_id: String,
+    pub method: String,
+    pub params: Value,
+    pub created_at: u64,
+}
+
 /// Persisted terminal session metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalRecord {

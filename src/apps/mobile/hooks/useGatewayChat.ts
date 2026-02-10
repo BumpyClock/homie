@@ -12,6 +12,7 @@ import {
   type GatewayTransport,
   type RpcEvent,
 } from '@homie/shared';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { runtimeConfig } from '@/config/runtime';
@@ -86,6 +87,20 @@ function normalizeTerminalSessions(raw: unknown): SessionInfo[] {
     .filter((entry): entry is SessionInfo => entry !== null);
 }
 
+const LAST_ACTIVE_CHAT_KEY_PREFIX = 'homie.mobile.last_active_chat';
+
+function storageKeyForGatewayTarget(gatewayUrl: string): string | null {
+  const normalized = gatewayUrl.trim();
+  if (!normalized) return null;
+  return `${LAST_ACTIVE_CHAT_KEY_PREFIX}:${encodeURIComponent(normalized)}`;
+}
+
+function normalizeStoredChatId(raw: string | null): string | null {
+  if (!raw) return null;
+  const normalized = raw.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 export function useGatewayChat(
   gatewayUrl = runtimeConfig.gatewayUrl,
 ): UseGatewayChatResult {
@@ -108,7 +123,10 @@ export function useGatewayChat(
   const threadsRef = useRef<ChatThreadSummary[]>([]);
   const threadIdLookupRef = useRef<Map<string, string>>(new Map());
   const messageBufferRef = useRef<Map<string, string>>(new Map());
+  const loadingThreadKeyRef = useRef<string | null>(null);
+  const restoredChatIdRef = useRef<string | null>(null);
   const bootstrappedRef = useRef(false);
+  const [restoringSelection, setRestoringSelection] = useState(false);
 
   useEffect(() => {
     threadsRef.current = threads;
@@ -125,12 +143,49 @@ export function useGatewayChat(
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     setThreads([]);
     setActiveChatId(null);
     setActiveThread(null);
     setError(null);
     messageBufferRef.current.clear();
+    loadingThreadKeyRef.current = null;
+    restoredChatIdRef.current = null;
+
+    const storageKey = storageKeyForGatewayTarget(gatewayUrl);
+    if (!storageKey) {
+      setRestoringSelection(false);
+      return;
+    }
+
+    setRestoringSelection(true);
+    void AsyncStorage.getItem(storageKey)
+      .then((stored) => {
+        if (cancelled) return;
+        restoredChatIdRef.current = normalizeStoredChatId(stored);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        restoredChatIdRef.current = null;
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setRestoringSelection(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [gatewayUrl, setActiveThread]);
+
+  useEffect(() => {
+    const storageKey = storageKeyForGatewayTarget(gatewayUrl);
+    if (!storageKey || !activeChatId) return;
+    restoredChatIdRef.current = activeChatId;
+    void AsyncStorage.setItem(storageKey, activeChatId).catch(() => {
+      return;
+    });
+  }, [activeChatId, gatewayUrl]);
 
   const updateThreadSummaryFromActive = useCallback(
     (thread: ActiveMobileThread, activityAt?: number) => {
@@ -158,6 +213,9 @@ export function useGatewayChat(
     async (chatId: string, threadId: string) => {
       const chatClient = chatClientRef.current;
       if (!chatClient) return;
+      const loadKey = `${chatId}:${threadId}`;
+      if (loadingThreadKeyRef.current === loadKey) return;
+      loadingThreadKeyRef.current = loadKey;
 
       setLoadingMessages(true);
       try {
@@ -184,6 +242,9 @@ export function useGatewayChat(
       } catch (nextError) {
         setError(formatError(nextError));
       } finally {
+        if (loadingThreadKeyRef.current === loadKey) {
+          loadingThreadKeyRef.current = null;
+        }
         setLoadingMessages(false);
       }
     },
@@ -223,7 +284,7 @@ export function useGatewayChat(
       );
 
       const currentActive = activeThreadRef.current;
-      if (currentActive && currentActive.chatId === chatId && currentActive.items.length === 0) {
+      if (currentActive && currentActive.chatId === chatId) {
         setActiveThread({
           ...currentActive,
           threadId,
@@ -373,21 +434,36 @@ export function useGatewayChat(
   }, [refreshTerminals, refreshThreads, status]);
 
   useEffect(() => {
+    if (restoringSelection) return;
+
     if (threads.length === 0) {
       if (activeChatId !== null) setActiveChatId(null);
       if (activeThreadRef.current) setActiveThread(null);
       return;
     }
 
-    const activeExists = activeChatId
-      ? threads.some((entry) => entry.chatId === activeChatId)
-      : false;
-    if (activeExists) return;
+    const activeThreadSummary = activeChatId
+      ? threads.find((entry) => entry.chatId === activeChatId)
+      : undefined;
+    if (activeThreadSummary) {
+      const activeLoaded =
+        activeThreadRef.current?.chatId === activeThreadSummary.chatId &&
+        activeThreadRef.current?.threadId === activeThreadSummary.threadId;
+      if (!activeLoaded) {
+        void loadThread(activeThreadSummary.chatId, activeThreadSummary.threadId);
+      }
+      return;
+    }
 
-    const firstThread = threads[0];
-    setActiveChatId(firstThread.chatId);
-    void loadThread(firstThread.chatId, firstThread.threadId);
-  }, [activeChatId, loadThread, setActiveThread, threads]);
+    const restoredChatId = restoredChatIdRef.current;
+    const restoredThread = restoredChatId
+      ? threads.find((entry) => entry.chatId === restoredChatId)
+      : undefined;
+    const nextThread = restoredThread ?? threads[0];
+    if (!nextThread) return;
+    setActiveChatId(nextThread.chatId);
+    void loadThread(nextThread.chatId, nextThread.threadId);
+  }, [activeChatId, loadThread, restoringSelection, setActiveThread, threads]);
 
   const selectThread = useCallback((chatId: string) => {
     const thread = threadsRef.current.find((entry) => entry.chatId === chatId);

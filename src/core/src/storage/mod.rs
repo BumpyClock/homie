@@ -3,8 +3,8 @@ mod types;
 
 pub use sqlite::SqliteStore;
 pub use types::{
-    ChatRecord, JobRecord, JobStatus, NotificationEvent, NotificationSubscription, PairingRecord,
-    PairingStatus, SessionStatus, TerminalRecord,
+    ChatRawEventRecord, ChatRecord, JobRecord, JobStatus, NotificationEvent,
+    NotificationSubscription, PairingRecord, PairingStatus, SessionStatus, TerminalRecord,
 };
 
 use uuid::Uuid;
@@ -36,6 +36,19 @@ pub trait Store: Send + Sync + 'static {
         chat_id: &str,
         settings: Option<&serde_json::Value>,
     ) -> Result<(), String>;
+
+    /// Persist or update provider thread state for restart recovery.
+    fn upsert_chat_thread_state(
+        &self,
+        thread_id: &str,
+        state: &serde_json::Value,
+    ) -> Result<(), String>;
+
+    /// Get persisted provider thread state by thread ID.
+    fn get_chat_thread_state(&self, thread_id: &str) -> Result<Option<serde_json::Value>, String>;
+
+    /// Delete persisted provider thread state by thread ID.
+    fn delete_chat_thread_state(&self, thread_id: &str) -> Result<(), String>;
 
     /// Persist or update a terminal session record.
     fn upsert_terminal(&self, rec: &TerminalRecord) -> Result<(), String>;
@@ -102,6 +115,13 @@ pub trait Store: Send + Sync + 'static {
         method: &str,
         params: &serde_json::Value,
     ) -> Result<(), String>;
+
+    /// List raw provider events for a thread ordered by creation time ascending.
+    fn list_chat_raw_events(
+        &self,
+        thread_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ChatRawEventRecord>, String>;
 
     /// Prune raw provider events to keep only the latest runs.
     fn prune_chat_raw_events(&self, max_runs: usize) -> Result<(), String>;

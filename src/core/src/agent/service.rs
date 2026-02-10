@@ -563,34 +563,37 @@ impl CodexChatCore {
             });
 
         if self.use_roci() {
-            if !include_turns {
-                let thread = json!({ "id": thread_id });
+            let with_settings = |thread: Value| {
                 let mut result = json!({ "thread": thread });
-                if let Some(settings) = settings {
+                if let Some(settings) = settings.clone() {
                     if let Some(obj) = result.as_object_mut() {
                         obj.insert("settings".into(), settings);
                     }
                 }
-                return Response::success(req_id, result);
+                result
+            };
+
+            if !include_turns {
+                let thread = json!({ "id": thread_id });
+                return Response::success(req_id, with_settings(thread));
             }
-            match self.roci.thread_read(&thread_id).await {
-                Some(thread) => {
-                    let mut result = json!({ "thread": thread });
-                    if let Some(settings) = settings {
-                        if let Some(obj) = result.as_object_mut() {
-                            obj.insert("settings".into(), settings);
-                        }
-                    }
-                    return Response::success(req_id, result);
-                }
-                None => {
-                    return Response::error(
-                        req_id,
-                        error_codes::SESSION_NOT_FOUND,
-                        "thread not found",
-                    )
-                }
+
+            if let Some(thread) = self.roci.thread_read(&thread_id).await {
+                return Response::success(req_id, with_settings(thread));
             }
+
+            tracing::debug!(
+                %thread_id,
+                chat_id = ?chat_id,
+                "roci thread missing in memory; creating empty thread shell"
+            );
+            self.roci.ensure_thread(&thread_id).await;
+
+            if let Some(thread) = self.roci.thread_read(&thread_id).await {
+                return Response::success(req_id, with_settings(thread));
+            }
+
+            return Response::error(req_id, error_codes::SESSION_NOT_FOUND, "thread not found");
         }
 
         if let Err(e) = self.ensure_process().await {

@@ -18,7 +18,7 @@ use roci::types::{ModelMessage, Role};
 
 use crate::agent::tools::{build_tools, ToolContext};
 use crate::outbound::OutboundMessage;
-use crate::storage::Store;
+use crate::storage::{ChatRawEventRecord, Store};
 use crate::ExecPolicy;
 
 const DEFAULT_ROCI_MODEL: &str = "openai-codex:gpt-5.1-codex";
@@ -91,11 +91,31 @@ impl RociBackend {
     }
 
     pub async fn ensure_thread(&self, thread_id: &str) {
+        {
+            let state = self.state.lock().await;
+            if state.threads.contains_key(thread_id) {
+                return;
+            }
+        }
+
+        let restored = match self.store.get_chat_thread_state(thread_id) {
+            Ok(Some(value)) => decode_persisted_thread_state(thread_id, value),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(%thread_id, "failed to load persisted roci thread state: {error}");
+                None
+            }
+        }
+        .or_else(|| backfill_thread_state_from_raw_events(&self.store, thread_id));
+
         let mut state = self.state.lock().await;
-        state
-            .threads
-            .entry(thread_id.to_string())
-            .or_insert_with(|| RociThreadState::new(thread_id.to_string()));
+        if state.threads.contains_key(thread_id) {
+            return;
+        }
+        state.threads.insert(
+            thread_id.to_string(),
+            restored.unwrap_or_else(|| RociThreadState::new(thread_id.to_string())),
+        );
     }
 
     pub async fn thread_read(&self, thread_id: &str) -> Option<Value> {
@@ -129,6 +149,9 @@ impl RociBackend {
                     self.processes.remove(&process_id);
                 }
             }
+        }
+        if let Err(error) = self.store.delete_chat_thread_state(thread_id) {
+            tracing::warn!(%thread_id, "failed to delete persisted roci thread state: {error}");
         }
     }
 
@@ -190,6 +213,17 @@ impl RociBackend {
         }
     }
 
+    async fn persist_thread_state(&self, thread_id: &str) {
+        let snapshot = {
+            let state = self.state.lock().await;
+            state
+                .threads
+                .get(thread_id)
+                .map(PersistedThreadSnapshot::from_thread_state)
+        };
+        persist_thread_snapshot(&self.store, thread_id, snapshot);
+    }
+
     pub async fn start_run(
         &self,
         chat_id: &str,
@@ -234,6 +268,7 @@ impl RociBackend {
             thread.last_assistant_item_id = Some(assistant_item_id.clone());
             (turn_id, user_item_id, assistant_item_id)
         };
+        self.persist_thread_state(thread_id).await;
 
         self.register_tool_turn(thread_id, &turn_id).await;
 
@@ -374,6 +409,7 @@ impl RociBackend {
                 .push(ModelMessage::user(message.to_string()));
             (turn_id, item_id, queued)
         };
+        self.persist_thread_state(thread_id).await;
 
         if queued {
             emit_user_item(
@@ -700,7 +736,7 @@ impl RociBackend {
                         }
                         match lifecycle {
                             RunLifecycle::Completed => {
-                                {
+                                let snapshot = {
                                     let mut guard = state.lock().await;
                                     if let Some(thread) = guard.threads.get_mut(&thread_id) {
                                         thread.update_assistant_text(
@@ -712,12 +748,19 @@ impl RociBackend {
                                             .push(ModelMessage::assistant(assistant_text.clone()));
                                         thread.thread.updated_at = now_unix();
                                     }
+                                    let snapshot = guard
+                                        .threads
+                                        .get(&thread_id)
+                                        .map(PersistedThreadSnapshot::from_thread_state);
                                     guard.runs.remove(&turn_id_clone);
                                     if guard.active_threads.get(&thread_id) == Some(&turn_id_clone)
                                     {
                                         guard.active_threads.remove(&thread_id);
                                     }
-                                }
+                                    snapshot
+                                };
+                                persist_thread_snapshot(&store, &thread_id, snapshot);
+
                                 emit_item_completed(
                                     &outbound,
                                     &store,
@@ -766,14 +809,20 @@ impl RociBackend {
                                     &turn_id_clone,
                                     error,
                                 );
-                                {
+                                let snapshot = {
                                     let mut guard = state.lock().await;
+                                    let snapshot = guard
+                                        .threads
+                                        .get(&thread_id)
+                                        .map(PersistedThreadSnapshot::from_thread_state);
                                     guard.runs.remove(&turn_id_clone);
                                     if guard.active_threads.get(&thread_id) == Some(&turn_id_clone)
                                     {
                                         guard.active_threads.remove(&thread_id);
                                     }
-                                }
+                                    snapshot
+                                };
+                                persist_thread_snapshot(&store, &thread_id, snapshot);
                                 if let Some(next) = backend.dequeue_next_run(&thread_id).await {
                                     spawn_next_run(
                                         backend.clone(),
@@ -793,14 +842,20 @@ impl RociBackend {
                                     &turn_id_clone,
                                     "canceled",
                                 );
-                                {
+                                let snapshot = {
                                     let mut guard = state.lock().await;
+                                    let snapshot = guard
+                                        .threads
+                                        .get(&thread_id)
+                                        .map(PersistedThreadSnapshot::from_thread_state);
                                     guard.runs.remove(&turn_id_clone);
                                     if guard.active_threads.get(&thread_id) == Some(&turn_id_clone)
                                     {
                                         guard.active_threads.remove(&thread_id);
                                     }
-                                }
+                                    snapshot
+                                };
+                                persist_thread_snapshot(&store, &thread_id, snapshot);
                                 if let Some(next) = backend.dequeue_next_run(&thread_id).await {
                                     spawn_next_run(
                                         backend.clone(),
@@ -937,6 +992,318 @@ impl RociBackend {
         }
         false
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedThreadSnapshot {
+    thread: RociThread,
+    #[serde(default)]
+    messages: Vec<ModelMessage>,
+    #[serde(default)]
+    last_assistant_item_id: Option<String>,
+}
+
+impl PersistedThreadSnapshot {
+    fn from_thread_state(state: &RociThreadState) -> Self {
+        Self {
+            thread: state.thread.clone(),
+            messages: state.messages.clone(),
+            last_assistant_item_id: state.last_assistant_item_id.clone(),
+        }
+    }
+
+    fn into_thread_state(self, thread_id: &str) -> RociThreadState {
+        let mut thread = self.thread;
+        if thread.id != thread_id {
+            thread.id = thread_id.to_string();
+        }
+        let messages = if self.messages.is_empty() && !thread.turns.is_empty() {
+            model_messages_from_turns(&thread.turns)
+        } else {
+            self.messages
+        };
+        let last_assistant_item_id = self
+            .last_assistant_item_id
+            .or_else(|| last_assistant_item_id_from_turns(&thread.turns));
+        RociThreadState {
+            thread,
+            messages,
+            last_assistant_item_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum PersistedThreadSnapshotPayload {
+    Snapshot(PersistedThreadSnapshot),
+    LegacyThread(RociThread),
+}
+
+fn decode_persisted_thread_state(thread_id: &str, value: Value) -> Option<RociThreadState> {
+    let payload = match serde_json::from_value::<PersistedThreadSnapshotPayload>(value) {
+        Ok(payload) => payload,
+        Err(error) => {
+            tracing::warn!(%thread_id, "failed to decode persisted roci thread state: {error}");
+            return None;
+        }
+    };
+    let state = match payload {
+        PersistedThreadSnapshotPayload::Snapshot(snapshot) => snapshot.into_thread_state(thread_id),
+        PersistedThreadSnapshotPayload::LegacyThread(thread) => PersistedThreadSnapshot {
+            messages: model_messages_from_turns(&thread.turns),
+            last_assistant_item_id: last_assistant_item_id_from_turns(&thread.turns),
+            thread,
+        }
+        .into_thread_state(thread_id),
+    };
+    Some(state)
+}
+
+fn persist_thread_snapshot(
+    store: &Arc<dyn Store>,
+    thread_id: &str,
+    snapshot: Option<PersistedThreadSnapshot>,
+) {
+    let Some(snapshot) = snapshot else {
+        return;
+    };
+    let value = match serde_json::to_value(snapshot) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(%thread_id, "failed to serialize roci thread state: {error}");
+            return;
+        }
+    };
+    if let Err(error) = store.upsert_chat_thread_state(thread_id, &value) {
+        tracing::warn!(%thread_id, "failed to persist roci thread state: {error}");
+    }
+}
+
+fn model_messages_from_turns(turns: &[RociTurn]) -> Vec<ModelMessage> {
+    let mut messages = Vec::new();
+    for turn in turns {
+        for item in &turn.items {
+            match item {
+                RociItem::UserMessage { content, .. } => {
+                    let text = content
+                        .iter()
+                        .map(|part| match part {
+                            RociContent::Text { text } => text.as_str(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                    messages.push(ModelMessage::user(text));
+                }
+                RociItem::AgentMessage { text, .. } => {
+                    messages.push(ModelMessage::assistant(text.clone()));
+                }
+            }
+        }
+    }
+    messages
+}
+
+fn backfill_thread_state_from_raw_events(
+    store: &Arc<dyn Store>,
+    thread_id: &str,
+) -> Option<RociThreadState> {
+    let events = match store.list_chat_raw_events(thread_id, 8_000) {
+        Ok(events) => events,
+        Err(error) => {
+            tracing::warn!(%thread_id, "failed to read raw events for backfill: {error}");
+            return None;
+        }
+    };
+    if events.is_empty() {
+        return None;
+    }
+
+    let mut thread = RociThread {
+        id: thread_id.to_string(),
+        created_at: events.first().map(|e| e.created_at).unwrap_or_else(now_unix),
+        updated_at: events.last().map(|e| e.created_at).unwrap_or_else(now_unix),
+        turns: Vec::new(),
+    };
+    let mut turn_indices: HashMap<String, usize> = HashMap::new();
+
+    for event in &events {
+        apply_raw_event_to_thread(&mut thread, &mut turn_indices, event);
+    }
+
+    if thread.turns.is_empty() {
+        return None;
+    }
+
+    let messages = model_messages_from_turns(&thread.turns);
+    let last_assistant_item_id = last_assistant_item_id_from_turns(&thread.turns);
+    let state = RociThreadState {
+        thread,
+        messages,
+        last_assistant_item_id,
+    };
+    persist_thread_snapshot(
+        store,
+        thread_id,
+        Some(PersistedThreadSnapshot::from_thread_state(&state)),
+    );
+    Some(state)
+}
+
+fn apply_raw_event_to_thread(
+    thread: &mut RociThread,
+    turn_indices: &mut HashMap<String, usize>,
+    event: &ChatRawEventRecord,
+) {
+    let params = &event.params;
+    let turn_id = raw_event_turn_id(params);
+
+    match event.method.as_str() {
+        "turn/started" => {
+            if let Some(turn_id) = turn_id {
+                ensure_turn(thread, turn_indices, &turn_id);
+            }
+        }
+        "item/started" | "item/completed" => {
+            let Some(turn_id) = turn_id else { return };
+            let Some(item) = params.get("item").and_then(|v| v.as_object()) else {
+                return;
+            };
+            let Some(item_id) = item.get("id").and_then(|v| v.as_str()) else {
+                return;
+            };
+            let Some(item_type) = item.get("type").and_then(|v| v.as_str()) else {
+                return;
+            };
+            let turn = ensure_turn(thread, turn_indices, &turn_id);
+            match item_type {
+                "userMessage" => {
+                    let text = extract_user_item_text(item);
+                    upsert_user_item(turn, item_id, text);
+                }
+                "agentMessage" => {
+                    let text = item
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    upsert_assistant_item(turn, item_id, text, false);
+                }
+                _ => {}
+            }
+        }
+        "item/agentMessage/delta" | "chat.message.delta" => {
+            let Some(turn_id) = turn_id else { return };
+            let Some(item_id) = raw_event_item_id(params) else {
+                return;
+            };
+            let delta = params
+                .get("delta")
+                .or_else(|| params.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if delta.is_empty() {
+                return;
+            }
+            let turn = ensure_turn(thread, turn_indices, &turn_id);
+            upsert_assistant_item(turn, &item_id, delta.to_string(), true);
+        }
+        _ => {}
+    }
+}
+
+fn ensure_turn<'a>(
+    thread: &'a mut RociThread,
+    turn_indices: &mut HashMap<String, usize>,
+    turn_id: &str,
+) -> &'a mut RociTurn {
+    if let Some(index) = turn_indices.get(turn_id).copied() {
+        return &mut thread.turns[index];
+    }
+    let index = thread.turns.len();
+    thread
+        .turns
+        .push(RociTurn::new(turn_id.to_string(), Vec::new()));
+    turn_indices.insert(turn_id.to_string(), index);
+    &mut thread.turns[index]
+}
+
+fn upsert_user_item(turn: &mut RociTurn, item_id: &str, text: String) {
+    if let Some(existing) = turn.items.iter_mut().find_map(|item| match item {
+        RociItem::UserMessage { id, content } if id == item_id => Some(content),
+        _ => None,
+    }) {
+        existing.clear();
+        existing.push(RociContent::Text { text });
+        return;
+    }
+    turn.items
+        .push(RociItem::user(item_id.to_string(), text));
+}
+
+fn upsert_assistant_item(turn: &mut RociTurn, item_id: &str, text: String, append: bool) {
+    if let Some(existing) = turn.items.iter_mut().find_map(|item| match item {
+        RociItem::AgentMessage { id, text } if id == item_id => Some(text),
+        _ => None,
+    }) {
+        if append {
+            existing.push_str(&text);
+        } else {
+            *existing = text;
+        }
+        return;
+    }
+    turn.items
+        .push(RociItem::assistant(item_id.to_string(), text));
+}
+
+fn raw_event_turn_id(params: &Value) -> Option<String> {
+    params
+        .get("turnId")
+        .or_else(|| params.get("turn_id"))
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string())
+}
+
+fn raw_event_item_id(params: &Value) -> Option<String> {
+    params
+        .get("itemId")
+        .or_else(|| params.get("item_id"))
+        .or_else(|| params.get("item").and_then(|i| i.get("id")))
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string())
+}
+
+fn extract_user_item_text(item: &serde_json::Map<String, Value>) -> String {
+    if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+        return text.to_string();
+    }
+    let Some(parts) = item.get("content").and_then(|v| v.as_array()) else {
+        return String::new();
+    };
+    parts
+        .iter()
+        .filter_map(|part| {
+            if part
+                .get("type")
+                .and_then(|v| v.as_str())
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("text"))
+            {
+                return part.get("text").and_then(|v| v.as_str());
+            }
+            None
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn last_assistant_item_id_from_turns(turns: &[RociTurn]) -> Option<String> {
+    turns.iter().rev().find_map(|turn| {
+        turn.items.iter().rev().find_map(|item| match item {
+            RociItem::AgentMessage { id, .. } => Some(id.clone()),
+            _ => None,
+        })
+    })
 }
 
 #[derive(Default)]
@@ -1269,7 +1636,7 @@ mod tests {
         let store = Arc::new(SqliteStore::open_memory().expect("store"));
         let backend = RociBackend::new(
             outbound_tx,
-            store,
+            store.clone(),
             Arc::new(ExecPolicy::empty()),
             Arc::new(crate::HomieConfig::default()),
         );
@@ -1323,6 +1690,180 @@ mod tests {
             .find(|turn| turn.id == turn_id)
             .expect("turn");
         assert_eq!(turn.items.len(), 2);
+
+        let persisted = store
+            .get_chat_thread_state(thread_id)
+            .expect("persisted state read")
+            .expect("persisted state");
+        let snapshot: PersistedThreadSnapshot =
+            serde_json::from_value(persisted).expect("snapshot decode");
+        assert_eq!(snapshot.thread.turns.len(), 1);
+        assert_eq!(snapshot.messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn ensure_thread_rehydrates_persisted_snapshot() {
+        let thread_id = "persisted-thread";
+        let store = Arc::new(SqliteStore::open_memory().expect("store"));
+        let turn_id = Uuid::new_v4().to_string();
+        let user_item_id = Uuid::new_v4().to_string();
+        let assistant_item_id = Uuid::new_v4().to_string();
+        let snapshot = PersistedThreadSnapshot {
+            thread: RociThread {
+                id: thread_id.to_string(),
+                created_at: 10,
+                updated_at: 20,
+                turns: vec![RociTurn::new(
+                    turn_id.clone(),
+                    vec![
+                        RociItem::user(user_item_id, "hello".to_string()),
+                        RociItem::assistant(assistant_item_id.clone(), "world".to_string()),
+                    ],
+                )],
+            },
+            messages: vec![
+                ModelMessage::system("system prompt"),
+                ModelMessage::user("hello"),
+                ModelMessage::assistant("world"),
+            ],
+            last_assistant_item_id: Some(assistant_item_id.clone()),
+        };
+        store
+            .upsert_chat_thread_state(
+                thread_id,
+                &serde_json::to_value(snapshot.clone()).expect("snapshot encode"),
+            )
+            .expect("snapshot write");
+
+        let (outbound_tx, _outbound_rx) = mpsc::channel(4);
+        let backend = RociBackend::new(
+            outbound_tx,
+            store,
+            Arc::new(ExecPolicy::empty()),
+            Arc::new(crate::HomieConfig::default()),
+        );
+
+        backend.ensure_thread(thread_id).await;
+
+        let loaded = backend.thread_read(thread_id).await.expect("thread");
+        assert_eq!(loaded["id"], thread_id);
+        assert_eq!(loaded["turns"].as_array().map(|v| v.len()), Some(1));
+
+        let state = backend.state.lock().await;
+        let thread = state.threads.get(thread_id).expect("state thread");
+        assert_eq!(thread.messages, snapshot.messages);
+        assert_eq!(
+            thread.last_assistant_item_id.as_deref(),
+            Some(assistant_item_id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_thread_backfills_from_raw_events() {
+        let thread_id = "raw-thread";
+        let turn_id = "raw-turn";
+        let store = Arc::new(SqliteStore::open_memory().expect("store"));
+        store
+            .insert_chat_raw_event(
+                "run-raw",
+                thread_id,
+                "turn/started",
+                &serde_json::json!({"threadId": thread_id, "turnId": turn_id}),
+            )
+            .expect("turn started");
+        store
+            .insert_chat_raw_event(
+                "run-raw",
+                thread_id,
+                "item/completed",
+                &serde_json::json!({
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "item": {
+                        "id": "u1",
+                        "type": "userMessage",
+                        "content": [{"type": "text", "text": "hello"}]
+                    }
+                }),
+            )
+            .expect("user item");
+        store
+            .insert_chat_raw_event(
+                "run-raw",
+                thread_id,
+                "item/completed",
+                &serde_json::json!({
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "item": {
+                        "id": "a1",
+                        "type": "agentMessage",
+                        "text": "world"
+                    }
+                }),
+            )
+            .expect("assistant item");
+
+        let (outbound_tx, _outbound_rx) = mpsc::channel(4);
+        let backend = RociBackend::new(
+            outbound_tx,
+            store.clone(),
+            Arc::new(ExecPolicy::empty()),
+            Arc::new(crate::HomieConfig::default()),
+        );
+
+        backend.ensure_thread(thread_id).await;
+        let loaded = backend.thread_read(thread_id).await.expect("thread");
+        assert_eq!(loaded["id"], thread_id);
+        assert_eq!(loaded["turns"].as_array().map(|v| v.len()), Some(1));
+
+        let state = backend.state.lock().await;
+        let thread = state.threads.get(thread_id).expect("state thread");
+        assert_eq!(thread.messages.len(), 2);
+        assert_eq!(thread.last_assistant_item_id.as_deref(), Some("a1"));
+
+        let persisted = store
+            .get_chat_thread_state(thread_id)
+            .expect("persisted state query");
+        assert!(persisted.is_some());
+    }
+
+    #[tokio::test]
+    async fn thread_archive_deletes_persisted_state() {
+        let thread_id = "archive-thread";
+        let store = Arc::new(SqliteStore::open_memory().expect("store"));
+        let snapshot = PersistedThreadSnapshot {
+            thread: RociThread {
+                id: thread_id.to_string(),
+                created_at: 1,
+                updated_at: 1,
+                turns: Vec::new(),
+            },
+            messages: Vec::new(),
+            last_assistant_item_id: None,
+        };
+        store
+            .upsert_chat_thread_state(
+                thread_id,
+                &serde_json::to_value(snapshot).expect("snapshot encode"),
+            )
+            .expect("snapshot write");
+
+        let (outbound_tx, _outbound_rx) = mpsc::channel(4);
+        let backend = RociBackend::new(
+            outbound_tx,
+            store.clone(),
+            Arc::new(ExecPolicy::empty()),
+            Arc::new(crate::HomieConfig::default()),
+        );
+        backend.ensure_thread(thread_id).await;
+
+        backend.thread_archive(thread_id).await;
+
+        let persisted = store
+            .get_chat_thread_state(thread_id)
+            .expect("persisted state read");
+        assert!(persisted.is_none());
     }
 
     fn live_enabled() -> bool {

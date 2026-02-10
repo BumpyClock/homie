@@ -5,8 +5,8 @@ use rusqlite::{params, types::Type, Connection};
 use uuid::Uuid;
 
 use super::types::{
-    ChatRecord, JobRecord, JobStatus, NotificationEvent, NotificationSubscription, PairingRecord,
-    PairingStatus, SessionStatus, TerminalRecord,
+    ChatRawEventRecord, ChatRecord, JobRecord, JobStatus, NotificationEvent,
+    NotificationSubscription, PairingRecord, PairingStatus, SessionStatus, TerminalRecord,
 };
 use super::Store;
 
@@ -53,6 +53,12 @@ impl SqliteStore {
                 status        TEXT NOT NULL DEFAULT 'active',
                 event_pointer INTEGER NOT NULL DEFAULT 0,
                 settings_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_thread_states (
+                thread_id  TEXT PRIMARY KEY,
+                state_json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS terminals (
@@ -248,6 +254,55 @@ impl Store for SqliteStore {
             params![settings_json, chat_id],
         )
         .map_err(|e| format!("update_chat_settings: {e}"))?;
+        Ok(())
+    }
+
+    fn upsert_chat_thread_state(
+        &self,
+        thread_id: &str,
+        state: &serde_json::Value,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let state_json = serialize_chat_thread_state(state)?;
+        conn.execute(
+            "INSERT INTO chat_thread_states (thread_id, state_json, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(thread_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                updated_at = excluded.updated_at",
+            params![thread_id, state_json, now_unix() as i64],
+        )
+        .map_err(|e| format!("upsert_chat_thread_state: {e}"))?;
+        Ok(())
+    }
+
+    fn get_chat_thread_state(&self, thread_id: &str) -> Result<Option<serde_json::Value>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let mut stmt = conn
+            .prepare("SELECT state_json FROM chat_thread_states WHERE thread_id = ?1")
+            .map_err(|e| format!("get_chat_thread_state prepare: {e}"))?;
+
+        let mut rows = stmt
+            .query_map(params![thread_id], |row| {
+                let raw: String = row.get(0)?;
+                parse_chat_thread_state_json(raw)
+            })
+            .map_err(|e| format!("get_chat_thread_state query: {e}"))?;
+
+        match rows.next() {
+            Some(Ok(state)) => Ok(Some(state)),
+            Some(Err(e)) => Err(format!("get_chat_thread_state row: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    fn delete_chat_thread_state(&self, thread_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        conn.execute(
+            "DELETE FROM chat_thread_states WHERE thread_id = ?1",
+            params![thread_id],
+        )
+        .map_err(|e| format!("delete_chat_thread_state: {e}"))?;
         Ok(())
     }
 
@@ -727,6 +782,40 @@ impl Store for SqliteStore {
         Ok(())
     }
 
+    fn list_chat_raw_events(
+        &self,
+        thread_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ChatRawEventRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let max_rows = limit.max(1).min(10_000) as i64;
+        let mut stmt = conn
+            .prepare(
+                "SELECT run_id, thread_id, method, params_json, created_at
+                 FROM chat_raw_events
+                 WHERE thread_id = ?1
+                 ORDER BY created_at ASC, rowid ASC
+                 LIMIT ?2",
+            )
+            .map_err(|e| format!("list_chat_raw_events prepare: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![thread_id, max_rows], |row| {
+                let raw: String = row.get(3)?;
+                Ok(ChatRawEventRecord {
+                    run_id: row.get(0)?,
+                    thread_id: row.get(1)?,
+                    method: row.get(2)?,
+                    params: parse_chat_thread_state_json(raw)?,
+                    created_at: row.get::<_, i64>(4)? as u64,
+                })
+            })
+            .map_err(|e| format!("list_chat_raw_events query: {e}"))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("list_chat_raw_events collect: {e}"))
+    }
+
     fn prune_chat_raw_events(&self, max_runs: usize) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         conn.execute(
@@ -765,6 +854,15 @@ fn serialize_settings(settings: Option<&serde_json::Value>) -> Result<Option<Str
             .map_err(|e| format!("serialize chat settings: {e}")),
         None => Ok(None),
     }
+}
+
+fn serialize_chat_thread_state(state: &serde_json::Value) -> Result<String, String> {
+    serde_json::to_string(state).map_err(|e| format!("serialize chat thread state: {e}"))
+}
+
+fn parse_chat_thread_state_json(raw: String) -> Result<serde_json::Value, rusqlite::Error> {
+    serde_json::from_str(&raw)
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(e)))
 }
 
 fn now_unix() -> u64 {
@@ -873,6 +971,48 @@ mod tests {
         store.update_event_pointer("c1", 99).unwrap();
         let loaded = store.get_chat("c1").unwrap().unwrap();
         assert_eq!(loaded.event_pointer, 99);
+    }
+
+    #[test]
+    fn chat_thread_state_roundtrip_save_load_delete() {
+        let store = make_store();
+        let thread_id = "thread-1";
+        let first = serde_json::json!({
+            "cursor": 12,
+            "provider": "roci",
+            "pending": ["tool-a", "tool-b"]
+        });
+
+        store
+            .upsert_chat_thread_state(thread_id, &first)
+            .expect("save first state");
+        let loaded_first = store
+            .get_chat_thread_state(thread_id)
+            .expect("load first state")
+            .expect("missing first state");
+        assert_eq!(loaded_first, first);
+
+        let second = serde_json::json!({
+            "cursor": 33,
+            "provider": "roci",
+            "pending": []
+        });
+        store
+            .upsert_chat_thread_state(thread_id, &second)
+            .expect("save second state");
+        let loaded_second = store
+            .get_chat_thread_state(thread_id)
+            .expect("load second state")
+            .expect("missing second state");
+        assert_eq!(loaded_second, second);
+
+        store
+            .delete_chat_thread_state(thread_id)
+            .expect("delete state");
+        let deleted = store
+            .get_chat_thread_state(thread_id)
+            .expect("load deleted state");
+        assert!(deleted.is_none());
     }
 
     #[test]
@@ -1194,5 +1334,46 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event_count, 0);
+    }
+
+    #[test]
+    fn list_chat_raw_events_returns_thread_events_in_order() {
+        let store = make_store();
+        let thread_id = "thread-list";
+        store
+            .insert_chat_raw_event(
+                "run-list",
+                thread_id,
+                "turn/started",
+                &serde_json::json!({"threadId": thread_id, "turnId": "t1"}),
+            )
+            .unwrap();
+        store
+            .insert_chat_raw_event(
+                "run-list",
+                thread_id,
+                "item/started",
+                &serde_json::json!({
+                    "threadId": thread_id,
+                    "turnId": "t1",
+                    "item": {"id":"u1","type":"userMessage","content":[{"type":"text","text":"hello"}]}
+                }),
+            )
+            .unwrap();
+        store
+            .insert_chat_raw_event(
+                "run-other",
+                "thread-other",
+                "turn/started",
+                &serde_json::json!({"threadId": "thread-other", "turnId": "tx"}),
+            )
+            .unwrap();
+
+        let events = store.list_chat_raw_events(thread_id, 10).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].method, "turn/started");
+        assert_eq!(events[1].method, "item/started");
+        assert_eq!(events[0].thread_id, thread_id);
+        assert_eq!(events[1].thread_id, thread_id);
     }
 }
