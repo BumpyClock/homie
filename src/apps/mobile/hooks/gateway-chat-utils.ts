@@ -102,6 +102,50 @@ function upsertItem(items: ChatItem[], item: ChatItem): ChatItem[] {
   return next;
 }
 
+function findAssistantIndexForTurn(items: ChatItem[], turnId: string): number {
+  return items.findIndex((entry) => entry.turnId === turnId && entry.kind === 'assistant');
+}
+
+function insertBeforeTurnAssistant(items: ChatItem[], item: ChatItem): ChatItem[] {
+  if (!item.turnId || item.kind === 'assistant') {
+    return [...items, item];
+  }
+  const assistantIndex = findAssistantIndexForTurn(items, item.turnId);
+  if (assistantIndex < 0) {
+    return [...items, item];
+  }
+  return [...items.slice(0, assistantIndex), item, ...items.slice(assistantIndex)];
+}
+
+function upsertItemWithTurnOrder(items: ChatItem[], item: ChatItem): ChatItem[] {
+  const index = items.findIndex((entry) => entry.id === item.id);
+  if (index === -1) {
+    return insertBeforeTurnAssistant(items, item);
+  }
+
+  const next = [...items];
+  const merged = { ...next[index], ...item };
+  next[index] = merged;
+
+  if (!merged.turnId || merged.kind === 'assistant') {
+    return next;
+  }
+
+  const assistantIndex = findAssistantIndexForTurn(next, merged.turnId);
+  if (assistantIndex < 0 || index < assistantIndex) {
+    return next;
+  }
+
+  const [moved] = next.splice(index, 1);
+  const targetIndex = findAssistantIndexForTurn(next, merged.turnId);
+  if (targetIndex < 0) {
+    next.push(moved);
+    return next;
+  }
+  next.splice(targetIndex, 0, moved);
+  return next;
+}
+
 function mapOutputToItems(
   items: ChatItem[],
   itemId: string | undefined,
@@ -110,15 +154,12 @@ function mapOutputToItems(
 ): ChatItem[] {
   if (!itemId) {
     if (!delta) return items;
-    return [
-      ...items,
-      {
-        id: fallbackOutputId(turnId, items.length),
-        kind: 'system',
-        turnId,
-        text: delta,
-      },
-    ];
+    return insertBeforeTurnAssistant(items, {
+      id: fallbackOutputId(turnId, items.length),
+      kind: 'system',
+      turnId,
+      text: delta,
+    });
   }
 
   let updated = false;
@@ -140,15 +181,12 @@ function mapOutputToItems(
   if (updated) return next;
   if (!delta) return items;
 
-  return [
-    ...items,
-    {
-      id: itemId,
-      kind: 'system',
-      turnId,
-      text: delta,
-    },
-  ];
+  return insertBeforeTurnAssistant(items, {
+    id: itemId,
+    kind: 'system',
+    turnId,
+    text: delta,
+  });
 }
 
 export function applyMappedEventToThread(
@@ -170,12 +208,12 @@ export function applyMappedEventToThread(
   }
 
   if (mapped.type === 'item.started' || mapped.type === 'item.completed') {
-    nextItems = upsertItem(nextItems, mapped.item);
+    nextItems = upsertItemWithTurnOrder(nextItems, mapped.item);
   }
 
   if (mapped.type === 'message.delta') {
     const id = mapped.itemId ?? `assistant-${mapped.turnId ?? mapped.threadId}`;
-    nextItems = upsertItem(nextItems, {
+    nextItems = upsertItemWithTurnOrder(nextItems, {
       id,
       kind: 'assistant',
       role: 'assistant',
@@ -190,7 +228,7 @@ export function applyMappedEventToThread(
 
   if (mapped.type === 'diff.updated') {
     const id = `diff-${mapped.turnId ?? mapped.threadId}`;
-    nextItems = upsertItem(nextItems, {
+    nextItems = upsertItemWithTurnOrder(nextItems, {
       id,
       kind: 'diff',
       turnId: mapped.turnId,
@@ -200,7 +238,7 @@ export function applyMappedEventToThread(
 
   if (mapped.type === 'plan.updated') {
     const id = `plan-${mapped.turnId ?? mapped.threadId}`;
-    nextItems = upsertItem(nextItems, {
+    nextItems = upsertItemWithTurnOrder(nextItems, {
       id,
       kind: 'plan',
       turnId: mapped.turnId,
@@ -209,7 +247,7 @@ export function applyMappedEventToThread(
   }
 
   if (mapped.type === 'approval.required') {
-    nextItems = upsertItem(nextItems, {
+    nextItems = upsertItemWithTurnOrder(nextItems, {
       id: mapped.itemId,
       kind: 'approval',
       turnId: mapped.turnId,
