@@ -1,10 +1,12 @@
 import { type ChatItem } from '@homie/shared';
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Markdown from 'react-native-marked';
+import { Feather } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
+import { ChatMarkdown } from './ChatMarkdown';
 
 interface TimelineThread {
   chatId: string;
@@ -70,11 +72,27 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
   const { palette } = useAppTheme();
   const [respondingItemId, setRespondingItemId] = useState<string | null>(null);
   const [localApprovalStatus, setLocalApprovalStatus] = useState<Record<string, string>>({});
+  const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
+  const [activeActionItemId, setActiveActionItemId] = useState<string | null>(null);
+  const copyResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setRespondingItemId(null);
     setLocalApprovalStatus({});
+    setCopiedItemId(null);
+    setActiveActionItemId(null);
+    if (copyResetTimeoutRef.current) {
+      clearTimeout(copyResetTimeoutRef.current);
+      copyResetTimeoutRef.current = null;
+    }
   }, [thread?.chatId, thread?.threadId]);
+
+  useEffect(
+    () => () => {
+      if (copyResetTimeoutRef.current) clearTimeout(copyResetTimeoutRef.current);
+    },
+    [],
+  );
 
   const handleDecision = useCallback(
     async (item: ChatItem, decision: 'accept' | 'decline' | 'accept_for_session') => {
@@ -91,6 +109,36 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
       }
     },
     [onApprovalDecision],
+  );
+
+  const handleCopy = useCallback(async (itemId: string, value: string) => {
+    if (!value.trim()) return;
+    try {
+      await Clipboard.setStringAsync(value);
+      setCopiedItemId(itemId);
+      if (copyResetTimeoutRef.current) clearTimeout(copyResetTimeoutRef.current);
+      copyResetTimeoutRef.current = setTimeout(() => {
+        setCopiedItemId((current) => (current === itemId ? null : current));
+        copyResetTimeoutRef.current = null;
+      }, 1800);
+    } catch {
+      // Ignore copy errors; UI remains responsive.
+    }
+  }, []);
+
+  const openMessageMenu = useCallback(
+    (itemId: string, value: string) => {
+      Alert.alert('Message actions', undefined, [
+        {
+          text: copiedItemId === itemId ? 'Copied' : 'Copy',
+          onPress: () => {
+            void handleCopy(itemId, value);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    },
+    [copiedItemId, handleCopy],
   );
 
   if (!thread) {
@@ -236,7 +284,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
               const body = bodyForItem(item);
               if (!body.trim()) return null;
               const user = item.kind === 'user';
-              const renderMarkdown = !user && (item.kind === 'assistant' || item.kind === 'reasoning' || item.kind === 'tool' || item.kind === 'plan' || item.kind === 'diff');
+              const showActions = activeActionItemId === item.id;
               return (
                 <View
                   key={item.id}
@@ -249,76 +297,88 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
                       borderColor: user ? palette.accent : palette.border,
                     },
                   ]}>
-                  <Text style={[styles.itemLabel, { color: user ? palette.surface : palette.textSecondary }]}>
-                    {labelForItem(item)}
-                  </Text>
-                  {renderMarkdown ? (
-                    <Markdown
-                      value={body}
-                      styles={{
-                        text: {
-                          ...styles.itemBody,
-                          color: palette.text,
-                        },
-                        paragraph: {
-                          marginBottom: spacing.xs,
-                        },
-                        code: {
-                          backgroundColor: palette.surface,
-                          borderColor: palette.border,
-                          borderRadius: radius.sm,
-                          borderWidth: 1,
-                          padding: spacing.xs,
-                        },
-                        codespan: {
-                          ...styles.commandText,
-                          backgroundColor: palette.surface,
-                          color: palette.text,
-                        },
-                        link: {
-                          color: palette.accent,
-                          textDecorationLine: 'underline',
-                        },
-                        blockquote: {
-                          borderLeftColor: palette.border,
-                          borderLeftWidth: 3,
-                          paddingLeft: spacing.sm,
-                        },
-                        list: {
-                          marginBottom: spacing.xs,
-                        },
-                        li: {
-                          ...styles.itemBody,
-                          color: palette.text,
-                        },
-                        h1: {
-                          ...styles.itemBody,
-                          color: palette.text,
-                          fontSize: 18,
-                          fontWeight: '700',
-                        },
-                        h2: {
-                          ...styles.itemBody,
-                          color: palette.text,
-                          fontSize: 16,
-                          fontWeight: '700',
-                        },
-                        h3: {
-                          ...styles.itemBody,
-                          color: palette.text,
-                          fontSize: 15,
-                          fontWeight: '600',
-                        },
-                      }}
-                      flatListProps={{
-                        scrollEnabled: false,
-                      }}
-                    />
-                  ) : (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityHint="Tap for actions, long press for menu"
+                    delayLongPress={280}
+                    onPress={() => {
+                      setActiveActionItemId((current) => (current === item.id ? null : item.id));
+                    }}
+                    onLongPress={() => {
+                      setActiveActionItemId(item.id);
+                      openMessageMenu(item.id, body);
+                    }}
+                    style={({ pressed }) => [
+                      styles.messagePressArea,
+                      {
+                        opacity: pressed ? 0.96 : 1,
+                      },
+                    ]}>
+                  <View style={styles.itemMeta}>
+                    <Text style={[styles.itemLabel, { color: user ? palette.surface : palette.textSecondary }]}>
+                      {labelForItem(item)}
+                    </Text>
+                  </View>
+                  {user ? (
                     <Text style={[styles.itemBody, { color: user ? palette.surface : palette.text }]}>
                       {body}
                     </Text>
+                  ) : (
+                    <ChatMarkdown content={body} itemKind={item.kind} palette={palette} />
                   )}
+                  </Pressable>
+                  {showActions ? (
+                    <View
+                      style={[
+                        styles.messageActions,
+                        {
+                          borderTopColor: user ? 'rgba(255, 255, 255, 0.24)' : palette.border,
+                        },
+                      ]}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={copiedItemId === item.id ? 'Copied' : 'Copy message'}
+                        hitSlop={8}
+                        onPress={() => {
+                          void handleCopy(item.id, body);
+                        }}
+                        style={({ pressed }) => [
+                          styles.iconButton,
+                          {
+                            backgroundColor: user ? 'rgba(255, 255, 255, 0.12)' : palette.surface,
+                            borderColor: user ? 'rgba(255, 255, 255, 0.24)' : palette.border,
+                            opacity: pressed ? 0.82 : 1,
+                          },
+                        ]}>
+                        <Feather
+                          name={copiedItemId === item.id ? 'check' : 'copy'}
+                          size={14}
+                          color={user ? palette.surface : palette.textSecondary}
+                        />
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Open message menu"
+                        hitSlop={8}
+                        onPress={() => {
+                          openMessageMenu(item.id, body);
+                        }}
+                        style={({ pressed }) => [
+                          styles.iconButton,
+                          {
+                            backgroundColor: user ? 'rgba(255, 255, 255, 0.12)' : palette.surface,
+                            borderColor: user ? 'rgba(255, 255, 255, 0.24)' : palette.border,
+                            opacity: pressed ? 0.82 : 1,
+                          },
+                        ]}>
+                        <Feather
+                          name="more-horizontal"
+                          size={14}
+                          color={user ? palette.surface : palette.textSecondary}
+                        />
+                      </Pressable>
+                    </View>
+                  ) : null}
                 </View>
               );
             })
@@ -362,9 +422,11 @@ const styles = StyleSheet.create({
   item: {
     borderRadius: radius.md,
     borderWidth: 1,
-    gap: spacing.xs,
     maxWidth: '90%',
     padding: spacing.sm,
+  },
+  messagePressArea: {
+    gap: spacing.xs,
   },
   userItem: {
     marginLeft: spacing.xl,
@@ -377,10 +439,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textTransform: 'uppercase',
   },
+  itemMeta: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  },
   itemBody: {
     ...typography.body,
     fontSize: 14,
     fontWeight: '400',
+  },
+  messageActions: {
+    alignItems: 'center',
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+  },
+  iconButton: {
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
   },
   approvalCard: {
     borderRadius: radius.md,

@@ -1,0 +1,247 @@
+import { type ChatItem } from '@homie/shared';
+import { useMemo, useState } from 'react';
+import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import Markdown, { Renderer, type RendererInterface } from 'react-native-marked';
+
+import type { AppPalette } from '@/theme/tokens';
+import { radius, spacing, typography } from '@/theme/tokens';
+
+interface ChatMarkdownProps {
+  content: string;
+  itemKind: ChatItem['kind'];
+  palette: AppPalette;
+}
+
+class ChatMarkdownRenderer extends Renderer implements RendererInterface {
+  constructor(private readonly palette: AppPalette) {
+    super();
+  }
+
+  private createImageNode(uri: string, alt?: string, title?: string) {
+    return (
+      <MarkdownImage
+        key={this.getKey()}
+        uri={uri}
+        alt={alt || title || 'Image'}
+        palette={this.palette}
+      />
+    );
+  }
+
+  image(uri: string, alt?: string, _style?: unknown, title?: string) {
+    return this.createImageNode(uri, alt, title);
+  }
+
+  linkImage(href: string, imageUrl: string, alt?: string, _style?: unknown, title?: string | null) {
+    const imageNode = this.createImageNode(imageUrl, alt, title || undefined);
+    return (
+      <Pressable
+        accessibilityRole="link"
+        accessibilityHint="Opens in browser"
+        key={this.getKey()}
+        onPress={() => {
+          void Linking.openURL(href);
+        }}
+        style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}>
+        {imageNode}
+      </Pressable>
+    );
+  }
+}
+
+function MarkdownImage({ uri, alt, palette }: { uri: string; alt: string; palette: AppPalette }) {
+  const [aspectRatio, setAspectRatio] = useState<number>(16 / 10);
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <View style={[styles.imageFallback, { borderColor: palette.border, backgroundColor: palette.surface }]}> 
+        <Text style={[styles.imageFallbackLabel, { color: palette.textSecondary }]}>Image unavailable</Text>
+        <Text numberOfLines={2} style={[styles.imageFallbackAlt, { color: palette.text }]}>
+          {alt}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.imageWrap, { borderColor: palette.border, backgroundColor: palette.surface }]}> 
+      <View
+        accessibilityRole="image"
+        accessibilityLabel={alt}
+        style={[styles.imageInner, { aspectRatio }]}
+      >
+        <View style={[styles.imageFill, { backgroundColor: palette.surface }]}>
+          <MarkdownImageNative
+            uri={uri}
+            alt={alt}
+            onRatio={(nextRatio) => {
+              if (nextRatio > 0 && Number.isFinite(nextRatio)) setAspectRatio(nextRatio);
+            }}
+            onError={() => setFailed(true)}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function MarkdownImageNative({
+  uri,
+  alt,
+  onRatio,
+  onError,
+}: {
+  uri: string;
+  alt: string;
+  onRatio: (ratio: number) => void;
+  onError: () => void;
+}) {
+  return (
+    <Image
+      accessibilityLabel={alt}
+      resizeMode="contain"
+      source={{ uri }}
+      style={styles.nativeImage}
+      onError={onError}
+      onLoad={(event) => {
+        const source = event.nativeEvent?.source;
+        if (!source || source.width <= 0 || source.height <= 0) return;
+        onRatio(source.width / source.height);
+      }}
+    />
+  );
+}
+
+export function ChatMarkdown({ content, itemKind, palette }: ChatMarkdownProps) {
+  const renderer = useMemo(() => new ChatMarkdownRenderer(palette), [palette]);
+  const isAgentContent =
+    itemKind === 'assistant' ||
+    itemKind === 'reasoning' ||
+    itemKind === 'tool' ||
+    itemKind === 'plan' ||
+    itemKind === 'diff';
+
+  if (!isAgentContent) {
+    return <Text style={[styles.itemBody, { color: palette.text }]}>{content}</Text>;
+  }
+
+  return (
+    <Markdown
+      value={content}
+      renderer={renderer}
+      styles={{
+        text: {
+          ...styles.itemBody,
+          color: palette.text,
+        },
+        paragraph: {
+          marginBottom: spacing.xs,
+        },
+        code: {
+          backgroundColor: palette.surface,
+          borderColor: palette.border,
+          borderRadius: radius.sm,
+          borderWidth: 1,
+          padding: spacing.xs,
+        },
+        codespan: {
+          ...styles.commandText,
+          backgroundColor: palette.surface,
+          color: palette.text,
+        },
+        link: {
+          color: palette.accent,
+          textDecorationLine: 'underline',
+        },
+        blockquote: {
+          borderLeftColor: palette.border,
+          borderLeftWidth: 3,
+          paddingLeft: spacing.sm,
+        },
+        list: {
+          marginBottom: spacing.xs,
+        },
+        li: {
+          ...styles.itemBody,
+          color: palette.text,
+        },
+        h1: {
+          ...styles.itemBody,
+          color: palette.text,
+          fontSize: 18,
+          fontWeight: '700',
+        },
+        h2: {
+          ...styles.itemBody,
+          color: palette.text,
+          fontSize: 16,
+          fontWeight: '700',
+        },
+        h3: {
+          ...styles.itemBody,
+          color: palette.text,
+          fontSize: 15,
+          fontWeight: '600',
+        },
+      }}
+      flatListProps={{
+        scrollEnabled: false,
+      }}
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  itemBody: {
+    ...typography.body,
+    fontSize: 14,
+    fontWeight: '400',
+  },
+  commandText: {
+    ...typography.data,
+    fontSize: 12,
+  },
+  imageWrap: {
+    borderRadius: 7,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    marginTop: spacing.xs,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  imageInner: {
+    maxHeight: 350,
+    minHeight: 120,
+    width: '100%',
+  },
+  imageFill: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  nativeImage: {
+    height: '100%',
+    width: '100%',
+  },
+  imageFallback: {
+    borderRadius: 7,
+    borderWidth: 1,
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+    marginTop: spacing.xs,
+    minHeight: 96,
+    padding: spacing.sm,
+    width: '100%',
+  },
+  imageFallbackLabel: {
+    ...typography.label,
+    fontSize: 12,
+    textTransform: 'uppercase',
+  },
+  imageFallbackAlt: {
+    ...typography.body,
+    fontSize: 14,
+    fontWeight: '400',
+  },
+});
