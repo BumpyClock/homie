@@ -5,6 +5,8 @@ import { handleChatEvent } from "@/hooks/chat-event-handler";
 import { hydrateThread as hydrateThreadImpl, loadChats as loadChatsImpl } from "@/hooks/chat-loaders";
 import { selectChat as selectChatImpl } from "@/hooks/chat-selection";
 import {
+  approvalPolicyForPermission,
+  buildCollaborationPayload as buildCollaborationPayloadShared,
   type ActiveChatThread,
   type ChatSettings,
   type ChatThreadSummary,
@@ -23,7 +25,7 @@ import {
   normalizeSkillOptions,
   shortId,
   truncateText,
-} from "@/lib/chat-utils";
+} from "@homie/shared";
 
 interface UseChatOptions {
   status: ConnectionStatus;
@@ -90,12 +92,6 @@ function saveSettings(namespace: string, settings: Record<string, ChatSettings>)
   } catch {
     return;
   }
-}
-
-function approvalPolicyForPermission(permission: ChatSettings["permission"]) {
-  if (permission === "execute") return "never";
-  if (permission === "explore") return "on-request";
-  return "untrusted";
 }
 
 export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOptions) {
@@ -222,27 +218,17 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   const supportsCollaboration = collaborationModes.length > 0;
   const buildCollaborationPayload = useCallback(
     (settings: ChatSettings) => {
-      if (!supportsCollaboration) return null;
-      const selected = collaborationModes.find((mode) => {
-        const value = (mode.mode ?? mode.id)?.toLowerCase();
-        return value === settings.agentMode;
+      return buildCollaborationPayloadShared({
+        settings: {
+          agentMode: settings.agentMode,
+          model: settings.model,
+          effort: settings.effort,
+        },
+        collaborationModes,
+        defaultModel,
       });
-      const modeValue = (selected?.mode ?? selected?.id ?? settings.agentMode).toLowerCase();
-      if (!modeValue) return null;
-      const payloadSettings: Record<string, unknown> = {
-        developer_instructions: selected?.developerInstructions ?? null,
-      };
-      const resolvedModel = settings.model ?? defaultModel;
-      if (resolvedModel) payloadSettings.model = resolvedModel;
-      if (settings.effort !== "auto") {
-        payloadSettings.reasoning_effort = settings.effort;
-      }
-      return {
-        mode: modeValue,
-        settings: payloadSettings,
-      };
     },
-    [collaborationModes, defaultModel, supportsCollaboration],
+    [collaborationModes, defaultModel],
   );
 
   const applyOverrides = useCallback((list: ChatThreadSummary[]) => {
