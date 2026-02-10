@@ -1,5 +1,6 @@
 import {
   buildChatThreadSummaries,
+  type ChatApprovalDecision,
   createChatClient,
   deriveTitleFromThread,
   itemsFromThread,
@@ -14,14 +15,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { runtimeConfig } from '@/config/runtime';
 import {
+  applyApprovalDecisionToThread,
+  applyApprovalStatusToThread,
   applyMappedEventToThread,
   fallbackThreadTitle,
   formatError,
+  pendingApprovalFromThread,
   previewFromItems,
   sortThreads,
   statusBadgeFor,
   threadLastActivityAt,
   type ActiveMobileThread,
+  type PendingApprovalMetadata,
   type StatusBadgeState,
 } from '@/hooks/gateway-chat-utils';
 import { createMobileGatewayClient } from '@/lib/gateway-client';
@@ -38,10 +43,12 @@ export interface UseGatewayChatResult {
   loadingMessages: boolean;
   creatingChat: boolean;
   sendingMessage: boolean;
+  pendingApproval: PendingApprovalMetadata | null;
   selectThread: (chatId: string) => void;
   refreshThreads: () => Promise<void>;
   createChat: () => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
+  respondApproval: (requestId: number | string, decision: ChatApprovalDecision) => Promise<void>;
 }
 
 export function useGatewayChat(
@@ -403,6 +410,37 @@ export function useGatewayChat(
     }
   }, [setActiveThread, updateThreadSummaryFromActive]);
 
+  const respondApproval = useCallback(
+    async (requestId: number | string, decision: ChatApprovalDecision) => {
+      const chatClient = chatClientRef.current;
+      const active = activeThreadRef.current;
+      if (!chatClient || !active) return;
+
+      const optimistic = applyApprovalDecisionToThread(active, requestId, decision);
+      if (optimistic !== active) {
+        setActiveThread(optimistic);
+        updateThreadSummaryFromActive(optimistic, Date.now());
+      }
+
+      try {
+        await chatClient.respondApproval({ requestId, decision });
+        setError(null);
+      } catch (nextError) {
+        const current = activeThreadRef.current;
+        if (current && current.chatId === active.chatId) {
+          const rollback = applyApprovalStatusToThread(current, requestId, 'pending');
+          setActiveThread(rollback);
+          updateThreadSummaryFromActive(rollback, Date.now());
+        }
+        setError(formatError(nextError));
+        throw nextError;
+      }
+    },
+    [setActiveThread, updateThreadSummaryFromActive],
+  );
+
+  const pendingApproval = pendingApprovalFromThread(activeThreadState);
+
   return {
     status,
     statusBadge: statusBadgeFor(status),
@@ -415,9 +453,11 @@ export function useGatewayChat(
     loadingMessages,
     creatingChat,
     sendingMessage,
+    pendingApproval,
     selectThread,
     refreshThreads,
     createChat,
     sendMessage,
+    respondApproval,
   };
 }

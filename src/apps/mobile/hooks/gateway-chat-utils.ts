@@ -2,6 +2,7 @@ import {
   extractLastMessage,
   shortId,
   truncateText,
+  type ChatApprovalDecision,
   type ChatItem,
   type ChatMappedEvent,
   type ChatThreadSummary,
@@ -24,6 +25,15 @@ export interface ActiveMobileThread {
   items: ChatItem[];
   running: boolean;
   activeTurnId?: string;
+}
+
+export interface PendingApprovalMetadata {
+  itemId: string;
+  requestId: number | string;
+  reason?: string;
+  command?: string;
+  cwd?: string;
+  status: string;
 }
 
 function fallbackOutputId(turnId: string | undefined, count: number): string {
@@ -218,4 +228,60 @@ export function applyMappedEventToThread(
     running,
     activeTurnId,
   };
+}
+
+function requestIdMatches(left: number | string, right: number | string): boolean {
+  return String(left) === String(right);
+}
+
+export function applyApprovalStatusToThread(
+  thread: ActiveMobileThread,
+  requestId: number | string,
+  status: string,
+): ActiveMobileThread {
+  let changed = false;
+  const nextItems = thread.items.map((item) => {
+    if (item.kind !== 'approval' || item.requestId === undefined) return item;
+    if (!requestIdMatches(item.requestId, requestId)) return item;
+    if (item.status === status) return item;
+    changed = true;
+    return {
+      ...item,
+      status,
+    };
+  });
+  if (!changed) return thread;
+  return {
+    ...thread,
+    items: nextItems,
+  };
+}
+
+export function applyApprovalDecisionToThread(
+  thread: ActiveMobileThread,
+  requestId: number | string,
+  decision: ChatApprovalDecision,
+): ActiveMobileThread {
+  return applyApprovalStatusToThread(thread, requestId, decision);
+}
+
+export function pendingApprovalFromThread(
+  thread: ActiveMobileThread | null,
+): PendingApprovalMetadata | null {
+  if (!thread) return null;
+  for (let index = thread.items.length - 1; index >= 0; index -= 1) {
+    const item = thread.items[index];
+    if (item.kind !== 'approval' || item.requestId === undefined) continue;
+    const status = item.status ?? 'pending';
+    if (status !== 'pending') continue;
+    return {
+      itemId: item.id,
+      requestId: item.requestId,
+      reason: item.reason,
+      command: item.command,
+      cwd: item.cwd,
+      status,
+    };
+  }
+  return null;
 }

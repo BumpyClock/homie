@@ -37,10 +37,27 @@ export function ThreadList({
     );
   }
 
+  if (loading && threads.length === 0) {
+    return (
+      <View
+        style={[
+          styles.emptyCard,
+          {
+            backgroundColor: palette.surface,
+            borderColor: palette.border,
+          },
+        ]}>
+        <Text style={[styles.emptyTitle, { color: palette.text }]}>Loading chats</Text>
+        <Text style={[styles.emptyBody, { color: palette.textSecondary }]}>
+          Syncing conversation history from the gateway.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.list}>
       {threads.map((thread) => {
         const selected = thread.chatId === activeChatId;
@@ -49,6 +66,7 @@ export function ThreadList({
           <Pressable
             key={thread.chatId}
             accessibilityRole="button"
+            accessibilityState={{ selected }}
             onPress={() => onSelect(thread.chatId)}
             style={({ pressed }) => [
               styles.threadCard,
@@ -85,15 +103,15 @@ export function ThreadList({
 const styles = StyleSheet.create({
   list: {
     gap: spacing.md,
-    paddingVertical: spacing.xs,
-    paddingRight: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
   },
   threadCard: {
-    width: 250,
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.md,
     gap: spacing.xs,
+    minHeight: 88,
   },
   headerRow: {
     alignItems: 'center',

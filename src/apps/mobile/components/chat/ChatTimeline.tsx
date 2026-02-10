@@ -1,10 +1,13 @@
 import { type ChatItem } from '@homie/shared';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
 
 interface TimelineThread {
+  chatId: string;
+  threadId: string;
   title: string;
   items: ChatItem[];
   running: boolean;
@@ -13,6 +16,10 @@ interface TimelineThread {
 interface ChatTimelineProps {
   thread: TimelineThread | null;
   loading: boolean;
+  onApprovalDecision?: (
+    requestId: number | string,
+    decision: 'accept' | 'decline' | 'accept_for_session',
+  ) => Promise<void> | void;
 }
 
 function bodyForItem(item: ChatItem): string {
@@ -52,15 +59,45 @@ function labelForItem(item: ChatItem): string {
   return 'System';
 }
 
-export function ChatTimeline({ thread, loading }: ChatTimelineProps) {
+function approvalStatusLabel(status: string): string {
+  if (status === 'accept' || status === 'accept_for_session') return 'Accepted';
+  if (status === 'decline' || status === 'cancel') return 'Declined';
+  return 'Pending';
+}
+
+export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimelineProps) {
   const { palette } = useAppTheme();
+  const [respondingItemId, setRespondingItemId] = useState<string | null>(null);
+  const [localApprovalStatus, setLocalApprovalStatus] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setRespondingItemId(null);
+    setLocalApprovalStatus({});
+  }, [thread?.chatId, thread?.threadId]);
+
+  const handleDecision = useCallback(
+    async (item: ChatItem, decision: 'accept' | 'decline' | 'accept_for_session') => {
+      if (!onApprovalDecision || item.requestId === undefined) return;
+      setRespondingItemId(item.id);
+      try {
+        await onApprovalDecision(item.requestId, decision);
+        setLocalApprovalStatus((current) => ({
+          ...current,
+          [item.id]: decision,
+        }));
+      } finally {
+        setRespondingItemId((current) => (current === item.id ? null : current));
+      }
+    },
+    [onApprovalDecision],
+  );
 
   if (!thread) {
     return (
       <View style={[styles.emptyWrap, { backgroundColor: palette.surface, borderColor: palette.border }]}>
         <Text style={[styles.emptyTitle, { color: palette.text }]}>Pick a chat</Text>
         <Text style={[styles.emptyBody, { color: palette.textSecondary }]}>
-          Select a thread above to load messages.
+          Open chats to load a conversation.
         </Text>
       </View>
     );
@@ -86,6 +123,115 @@ export function ChatTimeline({ thread, loading }: ChatTimelineProps) {
             <Text style={[styles.emptyBody, { color: palette.textSecondary }]}>No messages yet.</Text>
           ) : (
             thread.items.map((item) => {
+              if (item.kind === 'approval') {
+                const status = localApprovalStatus[item.id] ?? item.status ?? 'pending';
+                const resolved = status !== 'pending';
+                const responding = respondingItemId === item.id;
+                const canRespond =
+                  !resolved &&
+                  !responding &&
+                  item.requestId !== undefined &&
+                  onApprovalDecision !== undefined;
+                return (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.approvalCard,
+                      {
+                        backgroundColor: palette.surfaceAlt,
+                        borderColor: palette.warning,
+                      },
+                    ]}>
+                    <View style={styles.approvalHeader}>
+                      <Text style={[styles.approvalTitle, { color: palette.warning }]}>
+                        Approval Required
+                      </Text>
+                      <Text style={[styles.approvalStatus, { color: palette.textSecondary }]}>
+                        {approvalStatusLabel(status)}
+                      </Text>
+                    </View>
+                    {item.reason ? (
+                      <Text style={[styles.itemBody, { color: palette.text }]}>{item.reason}</Text>
+                    ) : null}
+                    {item.command ? (
+                      <View
+                        style={[
+                          styles.commandCard,
+                          {
+                            backgroundColor: palette.surface,
+                            borderColor: palette.border,
+                          },
+                        ]}>
+                        <Text style={[styles.commandText, { color: palette.text }]}>
+                          {`$ ${item.command}`}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {!resolved ? (
+                      <View style={styles.approvalActions}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Accept approval request"
+                          disabled={!canRespond}
+                          onPress={() => {
+                            void handleDecision(item, 'accept');
+                          }}
+                          style={({ pressed }) => [
+                            styles.approvalButton,
+                            {
+                              backgroundColor: palette.success,
+                              borderColor: palette.success,
+                              opacity: pressed ? 0.86 : canRespond ? 1 : 0.58,
+                            },
+                          ]}>
+                          <Text style={[styles.approvalLabel, { color: palette.surface }]}>
+                            {responding ? 'Sending...' : 'Accept'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Accept approval request for this chat session"
+                          disabled={!canRespond}
+                          onPress={() => {
+                            void handleDecision(item, 'accept_for_session');
+                          }}
+                          style={({ pressed }) => [
+                            styles.approvalButton,
+                            {
+                              backgroundColor: palette.accent,
+                              borderColor: palette.accent,
+                              opacity: pressed ? 0.86 : canRespond ? 1 : 0.58,
+                            },
+                          ]}>
+                          <Text style={[styles.approvalLabel, { color: palette.surface }]}>
+                            Always
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Decline approval request"
+                          disabled={!canRespond}
+                          onPress={() => {
+                            void handleDecision(item, 'decline');
+                          }}
+                          style={({ pressed }) => [
+                            styles.approvalButton,
+                            {
+                              backgroundColor: palette.surface,
+                              borderColor: palette.danger,
+                              opacity: pressed ? 0.86 : canRespond ? 1 : 0.58,
+                            },
+                          ]}>
+                          <Text style={[styles.approvalLabel, { color: palette.danger }]}>
+                            Decline
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              }
+
               const body = bodyForItem(item);
               if (!body.trim()) return null;
               const user = item.kind === 'user';
@@ -169,6 +315,55 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontSize: 14,
     fontWeight: '400',
+  },
+  approvalCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+    marginRight: spacing.xl,
+    maxWidth: '94%',
+    padding: spacing.md,
+  },
+  approvalHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  approvalTitle: {
+    ...typography.label,
+    textTransform: 'uppercase',
+    fontSize: 11,
+  },
+  approvalStatus: {
+    ...typography.data,
+    fontSize: 12,
+  },
+  commandCard: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    padding: spacing.sm,
+  },
+  commandText: {
+    ...typography.data,
+    fontSize: 12,
+  },
+  approvalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  approvalButton: {
+    alignItems: 'center',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: spacing.sm,
+  },
+  approvalLabel: {
+    ...typography.label,
+    fontSize: 13,
   },
   loadingWrap: {
     flex: 1,
