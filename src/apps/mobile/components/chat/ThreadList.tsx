@@ -3,7 +3,7 @@
 
 import { formatRelativeTime, type ChatThreadSummary } from '@homie/shared';
 import * as Haptics from 'expo-haptics';
-import { memo, useCallback } from 'react';
+import { memo } from 'react';
 import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
@@ -62,24 +62,19 @@ export function ThreadList({
     );
   }
 
-  const renderItem = useCallback(
-    ({ item: thread }: { item: ChatThreadSummary }) => (
-      <ThreadRow
-        thread={thread}
-        selected={thread.chatId === activeChatId}
-        palette={palette}
-        onLongPressThread={onLongPressThread}
-        onSelect={onSelect}
-      />
-    ),
-    [activeChatId, onLongPressThread, onSelect, palette],
-  );
-
   return (
     <FlatList
       data={threads}
       keyExtractor={(thread) => thread.chatId}
-      renderItem={renderItem}
+      renderItem={({ item: thread }) => (
+        <ThreadRow
+          thread={thread}
+          selected={thread.chatId === activeChatId}
+          palette={palette}
+          onLongPressThread={onLongPressThread}
+          onSelect={onSelect}
+        />
+      )}
       contentContainerStyle={styles.list}
       showsVerticalScrollIndicator={false}
       initialNumToRender={10}

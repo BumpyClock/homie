@@ -1,4 +1,11 @@
-import { StyleSheet, Text, View } from 'react-native';
+import {
+  CircleHelp,
+  Link2,
+  Server,
+  SlidersHorizontal,
+  Wifi,
+} from 'lucide-react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell } from '@/components/shell/AppShell';
 import { useMobileShellData } from '@/components/shell/MobileShellDataContext';
@@ -7,25 +14,69 @@ import { runtimeConfig } from '@/config/runtime';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
 
-type SettingRowProps = {
+type InfoRowProps = {
   label: string;
   value: string;
+  mono?: boolean;
+  last?: boolean;
 };
 
-function SettingRow({ label, value }: SettingRowProps) {
+function InfoRow({ label, value, mono = false, last = false }: InfoRowProps) {
   const { palette } = useAppTheme();
 
   return (
-    <View style={[styles.settingRow, { borderColor: palette.border }]}> 
-      <Text style={[styles.settingLabel, { color: palette.textSecondary }]}>{label}</Text>
-      <Text style={[styles.settingValue, { color: palette.text }]}>{value}</Text>
+    <View
+      style={[
+        styles.infoRow,
+        {
+          borderBottomColor: palette.border,
+          borderBottomWidth: last ? 0 : 1,
+        },
+      ]}>
+      <Text style={[styles.infoLabel, { color: palette.textSecondary }]}>{label}</Text>
+      <Text style={[mono ? styles.infoValueMono : styles.infoValue, { color: palette.text }]}>{value}</Text>
     </View>
   );
+}
+
+type StatusTone = 'accent' | 'success' | 'warning';
+
+function statusToneStyles(tone: StatusTone, palette: ReturnType<typeof useAppTheme>['palette']) {
+  if (tone === 'success') {
+    return {
+      backgroundColor: palette.successDim,
+      borderColor: palette.success,
+      textColor: palette.success,
+    };
+  }
+  if (tone === 'accent') {
+    return {
+      backgroundColor: palette.accentDim,
+      borderColor: palette.accent,
+      textColor: palette.accent,
+    };
+  }
+  return {
+    backgroundColor: palette.warningDim,
+    borderColor: palette.warning,
+    textColor: palette.warning,
+  };
+}
+
+function statusDetails(status: string, hasTarget: boolean, loadingTarget: boolean): string {
+  if (loadingTarget) return 'Loading saved gateway target from device storage.';
+  if (!hasTarget) return 'No gateway target set yet. Add one below to start syncing.';
+  if (status === 'connected') return 'Live connection is healthy. Chat and terminals are ready.';
+  if (status === 'connecting' || status === 'handshaking') return 'Connecting to gateway now. This should settle in a moment.';
+  if (status === 'rejected') return 'Gateway rejected the session. Confirm auth and URL path.';
+  if (status === 'error') return 'Connection error from gateway. Check URL, network, and certificates.';
+  return 'Disconnected from gateway. Reconnect by confirming target URL.';
 }
 
 export default function SettingsTabScreen() {
   const { palette, mode } = useAppTheme();
   const {
+    status,
     loadingTarget,
     targetUrl,
     targetHint,
@@ -37,6 +88,8 @@ export default function SettingsTabScreen() {
     statusBadge,
     error,
   } = useMobileShellData();
+  const tone = statusToneStyles(statusBadge.tone, palette);
+  const activeTarget = targetUrl ?? targetHint ?? 'Not set';
 
   return (
     <AppShell
@@ -46,75 +99,221 @@ export default function SettingsTabScreen() {
       error={error}
       statusBadge={statusBadge}
       renderDrawerContent={() => (
-        <View style={[styles.emptySection, { borderColor: palette.border, backgroundColor: palette.surface1 }]}> 
-          <Text style={[styles.emptySectionText, { color: palette.textSecondary }]}>No nested items for Settings.</Text>
+        <View style={[styles.drawerCard, { borderColor: palette.border, backgroundColor: palette.surface1 }]}>
+          <Text style={[styles.drawerEyebrow, { color: palette.textSecondary }]}>Quick Links</Text>
+          <View style={styles.drawerItem}>
+            <Wifi size={13} color={palette.accent} />
+            <Text style={[styles.drawerItemLabel, { color: palette.text }]}>Connection Status</Text>
+          </View>
+          <View style={styles.drawerItem}>
+            <Link2 size={13} color={palette.accent} />
+            <Text style={[styles.drawerItemLabel, { color: palette.text }]}>Gateway Target</Text>
+          </View>
+          <View style={styles.drawerItem}>
+            <CircleHelp size={13} color={palette.accent} />
+            <Text style={[styles.drawerItemLabel, { color: palette.text }]}>Defaults & Help</Text>
+          </View>
+          <Text style={[styles.drawerNote, { color: palette.textSecondary }]}>
+            Configure once, then switch targets anytime from this screen.
+          </Text>
         </View>
       )}>
-      <View style={[styles.card, { backgroundColor: palette.surface0, borderColor: palette.border }]}> 
-        <Text style={[styles.cardTitle, { color: palette.text }]}>Gateway Settings</Text>
-        <SettingRow label="Target" value={targetUrl ?? 'Not set'} />
-        <SettingRow label="Theme" value={mode} />
-        <SettingRow label="Provider" value="OpenAI Codex" />
-        <SettingRow label="Model" value="gpt-5.2-codex" />
-        <GatewayTargetForm
-          initialValue={targetUrl ?? targetHint}
-          hintValue={targetHint}
-          saving={savingTarget || loadingTarget}
-          saveLabel={hasTarget ? 'Update Target' : 'Save Target'}
-          onSave={saveGatewayTarget}
-          onClear={hasTarget ? clearGatewayTarget : undefined}
-        />
-        {targetError ? <Text style={[styles.meta, { color: palette.textSecondary }]}>{targetError}</Text> : null}
-        {!targetHint ? (
-          <Text style={[styles.meta, { color: palette.textSecondary }]}>No env fallback. Set target manually.</Text>
-        ) : (
-          <Text style={[styles.meta, { color: palette.textSecondary }]}>Env fallback available: {runtimeConfig.gatewayUrl}</Text>
-        )}
-      </View>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}>
+        <View style={[styles.heroCard, { backgroundColor: palette.surface1, borderColor: palette.border }]}>
+          <View style={styles.heroHeader}>
+            <Text style={[styles.heroEyebrow, { color: palette.textSecondary }]}>Connection</Text>
+            <View style={[styles.statusChip, { backgroundColor: tone.backgroundColor, borderColor: tone.borderColor }]}>
+              <Text style={[styles.statusChipLabel, { color: tone.textColor }]}>{statusBadge.label}</Text>
+            </View>
+          </View>
+          <Text style={[styles.heroTitle, { color: palette.text }]}>Gateway Status</Text>
+          <Text style={[styles.heroBody, { color: palette.textSecondary }]}>
+            {statusDetails(status, hasTarget, loadingTarget)}
+          </Text>
+          <InfoRow label="Current target" value={activeTarget} mono />
+          <InfoRow label="Transport state" value={status} mono last />
+          {targetError ? (
+            <View style={[styles.inlineAlert, { backgroundColor: palette.dangerDim, borderColor: palette.danger }]}>
+              <Text style={[styles.inlineAlertText, { color: palette.danger }]}>{targetError}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={[styles.card, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
+          <View style={styles.cardHeader}>
+            <Server size={14} color={palette.accent} />
+            <Text style={[styles.cardTitle, { color: palette.text }]}>Gateway Target</Text>
+          </View>
+          <Text style={[styles.cardBody, { color: palette.textSecondary }]}>
+            Set the URL used by mobile chat + terminal sessions.
+          </Text>
+          <GatewayTargetForm
+            initialValue={targetUrl ?? targetHint}
+            hintValue={targetHint}
+            saving={savingTarget || loadingTarget}
+            saveLabel={hasTarget ? 'Update Target' : 'Save Target'}
+            onSave={saveGatewayTarget}
+            onClear={hasTarget ? clearGatewayTarget : undefined}
+          />
+          {!targetHint ? (
+            <Text style={[styles.meta, { color: palette.textSecondary }]}>No env fallback. Set target manually.</Text>
+          ) : (
+            <Text style={[styles.meta, { color: palette.textSecondary }]}>Env fallback available: {runtimeConfig.gatewayUrl}</Text>
+          )}
+        </View>
+
+        <View style={[styles.card, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
+          <View style={styles.cardHeader}>
+            <SlidersHorizontal size={14} color={palette.accent} />
+            <Text style={[styles.cardTitle, { color: palette.text }]}>App Defaults & Help</Text>
+          </View>
+          <InfoRow label="Theme" value={mode} />
+          <InfoRow label="Provider" value="OpenAI Codex" />
+          <InfoRow label="Model" value="gpt-5.2-codex" />
+          <InfoRow label="Gateway path" value="/ws" mono last />
+          <View style={[styles.helpCard, { backgroundColor: palette.surface1, borderColor: palette.border }]}>
+            <Text style={[styles.helpTitle, { color: palette.text }]}>Tips</Text>
+            <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Prefer `wss://` for remote access.</Text>
+            <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Include `/ws` at the end of your gateway URL.</Text>
+            <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Update target here any time to switch machines.</Text>
+          </View>
+        </View>
+      </ScrollView>
     </AppShell>
   );
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    gap: spacing.md,
+    paddingBottom: spacing.xxxl,
+  },
+  heroCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  heroHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  heroEyebrow: {
+    ...typography.overline,
+    textTransform: 'uppercase',
+  },
+  statusChip: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  statusChipLabel: {
+    ...typography.label,
+  },
+  heroTitle: {
+    ...typography.heading,
+    fontSize: 20,
+  },
+  heroBody: {
+    ...typography.body,
+    fontSize: 14,
+  },
   card: {
     borderRadius: radius.lg,
     borderWidth: 1,
-    padding: spacing.xl,
+    padding: spacing.lg,
     gap: spacing.md,
+  },
+  cardHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   cardTitle: {
     ...typography.title,
+    fontSize: 18,
   },
-  settingRow: {
-    borderBottomWidth: 1,
+  cardBody: {
+    ...typography.body,
+    fontSize: 14,
+  },
+  infoRow: {
     paddingVertical: spacing.sm,
     gap: spacing.xs,
   },
-  settingLabel: {
+  infoLabel: {
     ...typography.label,
     textTransform: 'uppercase',
   },
-  settingValue: {
-    ...typography.data,
+  infoValue: {
+    ...typography.bodyMedium,
+    fontSize: 14,
   },
-  meta: {
-    ...typography.data,
+  infoValueMono: {
+    ...typography.mono,
     fontSize: 12,
   },
-  emptySection: {
+  inlineAlert: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  inlineAlertText: {
+    ...typography.caption,
+    fontWeight: '600',
+  },
+  meta: {
+    ...typography.monoSmall,
+    fontSize: 12,
+  },
+  helpCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  helpTitle: {
+    ...typography.caption,
+    textTransform: 'uppercase',
+  },
+  helpItem: {
+    ...typography.caption,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  drawerCard: {
     borderRadius: radius.md,
     borderWidth: 1,
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
-    minHeight: 88,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    padding: spacing.md,
+    gap: spacing.sm,
   },
-  emptySectionText: {
-    ...typography.body,
-    fontSize: 13,
-    fontWeight: '400',
-    textAlign: 'center',
+  drawerEyebrow: {
+    ...typography.label,
+    textTransform: 'uppercase',
+  },
+  drawerItem: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  drawerItemLabel: {
+    ...typography.bodyMedium,
+    fontSize: 14,
+  },
+  drawerNote: {
+    ...typography.caption,
+    fontSize: 12,
   },
 });

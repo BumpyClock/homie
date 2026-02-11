@@ -1,7 +1,7 @@
 // ABOUTME: Bottom-sheet modal for selecting the reasoning effort level.
 // ABOUTME: Shows effort options derived from the selected model's supported efforts, with a fallback set.
 
-import { Feather } from '@expo/vector-icons';
+import { Check, X } from 'lucide-react-native';
 import type { ChatEffort, ReasoningEffortOption } from '@homie/shared';
 import {
   FlatList,
@@ -100,7 +100,7 @@ export function EffortPickerSheet({
           ) : null}
         </View>
         {isActive ? (
-          <Feather name="check" size={18} color={palette.accent} />
+          <Check size={18} color={palette.accent} />
         ) : null}
       </Pressable>
     );
@@ -133,7 +133,7 @@ export function EffortPickerSheet({
             accessibilityLabel="Close effort picker"
             onPress={onClose}
             hitSlop={12}>
-            <Feather name="x" size={20} color={palette.textSecondary} />
+            <X size={20} color={palette.textSecondary} />
           </Pressable>
         </View>
         <FlatList

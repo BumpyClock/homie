@@ -1,7 +1,7 @@
 // ABOUTME: Chat message composer with embedded send button and animated focus states.
 // ABOUTME: Unified floating card design with model/effort pills above a multiline input, anchored above keyboard via KeyboardStickyView in parent.
 
-import { Feather } from '@expo/vector-icons';
+import { Activity, ArrowUp, ChevronDown, Cpu } from 'lucide-react-native';
 import type { ChatEffort, ModelOption, ReasoningEffortOption } from '@homie/shared';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -158,13 +158,13 @@ export function ChatComposer({
                   opacity: pressed ? 0.7 : disabled ? 0.45 : 1,
                 },
               ]}>
-              <Feather name="cpu" size={11} color={palette.textSecondary} />
+              <Cpu size={11} color={palette.textSecondary} />
               <Text
                 style={[styles.pillLabel, { color: palette.textSecondary }]}
                 numberOfLines={1}>
                 {modelLabel ?? 'Default'}
               </Text>
-              <Feather name="chevron-down" size={10} color={palette.textSecondary} style={{ opacity: 0.6 }} />
+              <ChevronDown size={10} color={palette.textSecondary} style={{ opacity: 0.6 }} />
             </Pressable>
             {showEffortPill ? (
               <Pressable
@@ -179,13 +179,13 @@ export function ChatComposer({
                     opacity: pressed ? 0.7 : disabled ? 0.45 : 1,
                   },
                 ]}>
-                <Feather name="activity" size={11} color={palette.textSecondary} />
+                <Activity size={11} color={palette.textSecondary} />
                 <Text
                   style={[styles.pillLabel, { color: palette.textSecondary }]}
                   numberOfLines={1}>
                   {effortLabel}
                 </Text>
-                <Feather name="chevron-down" size={10} color={palette.textSecondary} style={{ opacity: 0.6 }} />
+                <ChevronDown size={10} color={palette.textSecondary} style={{ opacity: 0.6 }} />
               </Pressable>
             ) : null}
           </View>
@@ -220,8 +220,7 @@ export function ChatComposer({
                 backgroundColor: canSend ? palette.accent : disabledSendBackground,
               },
             ]}>
-            <Feather
-              name="arrow-up"
+            <ArrowUp
               size={16}
               color={canSend ? palettes.light.surface0 : palette.textSecondary}
               style={canSend ? undefined : { opacity: 0.5 }}

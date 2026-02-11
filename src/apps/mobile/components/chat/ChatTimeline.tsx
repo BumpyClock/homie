@@ -8,7 +8,15 @@ import {
   type ChatTurnGroup,
   type ConnectionStatus,
 } from '@homie/shared';
-import { Feather } from '@expo/vector-icons';
+import {
+  AlertCircle,
+  ArrowDown,
+  Clock3,
+  Link2,
+  LoaderCircle,
+  MessageCircle,
+  WifiOff,
+} from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -308,7 +316,7 @@ export function ChatTimeline({
         <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}> 
           <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}>
             <ChatTimelineStateCard
-              icon="link-2"
+              icon={Link2}
               title="Gateway target needed"
               body="Open Settings and add your gateway URL to start chatting remotely."
               palette={palette}
@@ -324,7 +332,7 @@ export function ChatTimeline({
         <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}> 
           <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}>
             <ChatTimelineStateCard
-              icon="loader"
+              icon={LoaderCircle}
               title="Connecting"
               body="Re-establishing your gateway session..."
               palette={palette}
@@ -342,7 +350,7 @@ export function ChatTimeline({
         <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}> 
           <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}>
             <ChatTimelineStateCard
-              icon="wifi-off"
+              icon={WifiOff}
               title="Gateway unavailable"
               body={body}
               palette={palette}
@@ -359,7 +367,7 @@ export function ChatTimeline({
       <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}> 
         <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}>
           <ChatTimelineStateCard
-            icon="message-circle"
+            icon={MessageCircle}
             title="Start a conversation"
             body="Create a chat from the menu, then send a message to begin."
             palette={palette}
@@ -428,7 +436,7 @@ export function ChatTimeline({
               borderBottomColor: palette.border,
             },
           ]}>
-          <Feather name="alert-circle" size={14} color={palette.danger} />
+          <AlertCircle size={14} color={palette.danger} />
           <Text numberOfLines={2} style={[styles.errorText, { color: palette.danger }]}>{error}</Text>
         </Animated.View>
       ) : null}
@@ -436,7 +444,7 @@ export function ChatTimeline({
       {loading && thread.items.length === 0 ? (
         <View style={styles.loadingWrap}>
           <ChatTimelineStateCard
-            icon="clock"
+            icon={Clock3}
             title="Loading messages"
             body="Syncing thread history from the gateway..."
             palette={palette}
@@ -486,7 +494,7 @@ export function ChatTimeline({
                     opacity: pressed ? 0.86 : 1,
                   },
                 ]}>
-                <Feather name="arrow-down" size={16} color={palette.textSecondary} />
+                <ArrowDown size={16} color={palette.textSecondary} />
               </Pressable>
             </Animated.View>
           ) : null}

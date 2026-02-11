@@ -1,15 +1,13 @@
 // ABOUTME: Collapsible card showing grouped tool calls per turn in the chat timeline.
 // ABOUTME: Expandable rows with tool names, status, and JSON payload detail views.
 
-import { Feather } from '@expo/vector-icons';
+import { ChevronDown, ChevronUp } from 'lucide-react-native';
 import { memo, useCallback, useMemo, useState } from 'react';
 import {
   LayoutAnimation,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
-  UIManager,
   View,
 } from 'react-native';
 
@@ -17,10 +15,6 @@ import { friendlyToolLabelFromItem, type ChatItem } from '@homie/shared';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { motion, triggerMobileHaptic } from '@/theme/motion';
 import { radius, spacing, type AppPalette, typography } from '@/theme/tokens';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 interface ChatTurnActivityProps {
   toolItems: ChatItem[];
@@ -132,11 +126,11 @@ function ChatTurnActivityCard({
         style={({ pressed }) => [styles.headerPressable, { opacity: pressed ? 0.9 : 1 }]}>
         <View style={styles.headerRow}>
           <Text style={[styles.title, { color: palette.text }]}>Agent activity</Text>
-          <Feather
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={14}
-            color={palette.textSecondary}
-          />
+          {expanded ? (
+            <ChevronUp size={14} color={palette.textSecondary} />
+          ) : (
+            <ChevronDown size={14} color={palette.textSecondary} />
+          )}
         </View>
         <Text style={[styles.summary, { color: palette.textSecondary }]}>{summary}</Text>
         <View style={styles.metaRow}>
@@ -178,11 +172,11 @@ function ChatTurnActivityCard({
                     <Text style={[styles.toolLabel, { color: palette.text }]}>
                       {`${index + 1}. ${label}`}
                     </Text>
-                    <Feather
-                      name={open ? 'chevron-up' : 'chevron-down'}
-                      size={13}
-                      color={palette.textSecondary}
-                    />
+                    {open ? (
+                      <ChevronUp size={13} color={palette.textSecondary} />
+                    ) : (
+                      <ChevronDown size={13} color={palette.textSecondary} />
+                    )}
                   </View>
                   {status ? <Text style={[styles.toolStatus, { color: palette.textSecondary }]}>{status}</Text> : null}
                 </Pressable>

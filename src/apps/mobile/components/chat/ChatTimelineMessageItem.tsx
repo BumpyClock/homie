@@ -1,5 +1,11 @@
-import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import {
+  Check,
+  Copy,
+  Cpu,
+  Ellipsis,
+  TriangleAlert,
+} from 'lucide-react-native';
 import { memo } from 'react';
 import {
   Platform,
@@ -96,7 +102,7 @@ function ChatTimelineMessageItemBase({
         {isUser ? (
           <Text style={styles.avatarText}>{avatarInitial(item)}</Text>
         ) : (
-          <Feather name="cpu" size={14} color={palette.textSecondary} />
+          <Cpu size={14} color={palette.textSecondary} />
         )}
       </View>
 
@@ -125,11 +131,11 @@ function ChatTimelineMessageItemBase({
                   opacity: pressed ? 0.82 : 1,
                 },
               ]}>
-              <Feather
-                name={copiedItemId === item.id ? 'check' : 'copy'}
-                size={13}
-                color={palette.textSecondary}
-              />
+              {copiedItemId === item.id ? (
+                <Check size={13} color={palette.textSecondary} />
+              ) : (
+                <Copy size={13} color={palette.textSecondary} />
+              )}
               <Text style={[styles.messageActionLabel, { color: palette.textSecondary }]}>Copy</Text>
             </Pressable>
 
@@ -148,7 +154,7 @@ function ChatTimelineMessageItemBase({
                   opacity: pressed ? 0.82 : 1,
                 },
               ]}>
-              <Feather name="more-horizontal" size={13} color={palette.textSecondary} />
+              <Ellipsis size={13} color={palette.textSecondary} />
               <Text style={[styles.messageActionLabel, { color: palette.textSecondary }]}>More</Text>
             </Pressable>
           </View>
@@ -194,7 +200,7 @@ function ApprovalItem({
       ]}>
       <View style={styles.approvalHeader}>
         <View style={styles.approvalTitleRow}>
-          <Feather name="alert-triangle" size={13} color={palette.warning} />
+          <TriangleAlert size={13} color={palette.warning} />
           <Text style={[styles.approvalTitle, { color: palette.warning }]}>Approval Required</Text>
         </View>
         <Text style={[styles.approvalStatus, { color: palette.textSecondary }]}>

@@ -1,5 +1,10 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useRouter } from 'expo-router';
+import {
+  PanelLeft,
+  X,
+  ChevronUp,
+  Circle,
+} from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState, type PropsWithChildren, type ReactNode } from 'react';
 import {
   PanResponder,
@@ -10,25 +15,28 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Animated, {
+  Easing,
   interpolate,
+  type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { ScreenSurface } from '@/components/ui/ScreenSurface';
-import { StatusPill } from '@/components/ui/StatusPill';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { motion, triggerMobileHaptic } from '@/theme/motion';
 import { elevation, radius, spacing, typography } from '@/theme/tokens';
 import {
-  type MobileSection,
+  MOBILE_SECTION_ITEMS,
   MOBILE_SECTION_ROUTES,
   MOBILE_SECTION_TITLES,
-  PrimarySectionMenu,
+  type MobileSection,
 } from './PrimarySectionMenu';
+
 interface DrawerRenderHelpers {
   closeDrawer: () => void;
 }
@@ -45,6 +53,77 @@ interface AppShellProps extends PropsWithChildren {
   renderDrawerContent: (helpers: DrawerRenderHelpers) => ReactNode;
   renderDrawerActions?: (helpers: DrawerRenderHelpers) => ReactNode;
 }
+
+const DRAWER_DETAIL_LABELS: Record<MobileSection, string> = {
+  chat: 'Conversations',
+  terminals: 'Terminal Sessions',
+  settings: 'Configuration',
+};
+
+const DRAWER_DETAIL_HINTS: Record<MobileSection, string> = {
+  chat: 'Pick a thread or create a chat.',
+  terminals: 'Switch active terminal session.',
+  settings: 'Gateway target and app defaults.',
+};
+
+interface SectionOptionProps {
+  expandedProgress: SharedValue<number>;
+  index: number;
+  selected: boolean;
+  label: string;
+  subtitle: string;
+  Icon: (props: { size?: number; color?: string }) => ReactNode;
+  palette: ReturnType<typeof useAppTheme>['palette'];
+  onPress: () => void;
+}
+
+function SectionOption({
+  expandedProgress,
+  index,
+  selected,
+  label,
+  subtitle,
+  Icon,
+  palette,
+  onPress,
+}: SectionOptionProps) {
+  const optionStyle = useAnimatedStyle(() => ({
+    opacity: expandedProgress.value,
+    transform: [
+      {
+        translateY: interpolate(expandedProgress.value, [0, 1], [12 + index * 6, 0]),
+      },
+      {
+        scale: interpolate(expandedProgress.value, [0, 1], [0.95, 1]),
+      },
+    ],
+  }));
+
+  return (
+    <Animated.View style={optionStyle}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        accessibilityLabel={`${label} section`}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.sectionOption,
+          {
+            backgroundColor: selected ? palette.surface1 : palette.surface0,
+            borderColor: selected ? palette.accent : palette.border,
+            opacity: pressed ? 0.86 : 1,
+          },
+        ]}>
+        <Icon size={16} color={selected ? palette.accent : palette.textSecondary} />
+        <View style={styles.sectionOptionText}>
+          <Text style={[styles.sectionOptionLabel, { color: palette.text }]}>{label}</Text>
+          <Text style={[styles.sectionOptionSubtitle, { color: palette.textSecondary }]}>{subtitle}</Text>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 export function AppShell({
   section,
   hasTarget,
@@ -58,6 +137,7 @@ export function AppShell({
   const { palette } = useAppTheme();
   const reducedMotion = useReducedMotion();
   const drawerProgress = useSharedValue(0);
+  const fabProgress = useSharedValue(0);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -66,6 +146,7 @@ export function AppShell({
   const edgeGestureWidth = 24;
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [fabOpen, setFabOpen] = useState(false);
   const dragProgressRef = useRef(0);
   const drawerVelocityRef = useRef(0);
 
@@ -75,22 +156,43 @@ export function AppShell({
     return value;
   }, []);
 
-  const setDrawerProgress = useCallback((value: number) => {
-    const next = clampProgress(value);
-    dragProgressRef.current = next;
-    drawerProgress.value = next;
-  }, [clampProgress, drawerProgress]);
+  const setDrawerProgress = useCallback(
+    (value: number) => {
+      const next = clampProgress(value);
+      dragProgressRef.current = next;
+      drawerProgress.value = next;
+    },
+    [clampProgress, drawerProgress],
+  );
 
-  const animateDrawer = useCallback((target: 0 | 1, velocity = 0) => {
-    if (reducedMotion) {
-      drawerProgress.value = withTiming(target, { duration: 0 });
-      return;
-    }
-    drawerProgress.value = withSpring(target, {
-      ...motion.spring.drawer,
-      velocity,
-    });
-  }, [drawerProgress, reducedMotion]);
+  const animateDrawer = useCallback(
+    (target: 0 | 1, velocity = 0) => {
+      if (reducedMotion) {
+        drawerProgress.value = withTiming(target, { duration: 0 });
+        return;
+      }
+      drawerProgress.value = withSpring(target, {
+        ...motion.spring.drawer,
+        velocity,
+      });
+    },
+    [drawerProgress, reducedMotion],
+  );
+
+  const animateFab = useCallback(
+    (expanded: boolean) => {
+      const target = expanded ? 1 : 0;
+      if (reducedMotion) {
+        fabProgress.value = withTiming(target, { duration: 0 });
+        return;
+      }
+      fabProgress.value = withTiming(target, {
+        duration: expanded ? 220 : 180,
+        easing: expanded ? Easing.out(Easing.cubic) : Easing.inOut(Easing.quad),
+      });
+    },
+    [fabProgress, reducedMotion],
+  );
 
   const commitDrawer = useCallback((open: boolean, velocity = 0) => {
     drawerVelocityRef.current = velocity;
@@ -125,6 +227,14 @@ export function AppShell({
     drawerVelocityRef.current = 0;
     animateDrawer(target ? 1 : 0, velocity);
   }, [animateDrawer, drawerOpen, isTablet]);
+
+  useEffect(() => {
+    animateFab(fabOpen);
+  }, [animateFab, fabOpen]);
+
+  useEffect(() => {
+    setFabOpen(false);
+  }, [section]);
 
   const edgeSwipeResponder = useMemo(
     () =>
@@ -201,68 +311,74 @@ export function AppShell({
     ],
   }));
 
+  const fabOptionsStyle = useAnimatedStyle(() => ({
+    opacity: fabProgress.value,
+    transform: [
+      {
+        translateY: interpolate(fabProgress.value, [0, 1], [18, 0]),
+      },
+    ],
+  }));
+
   const drawerHelpers = useMemo(() => ({ closeDrawer }), [closeDrawer]);
   const sectionTitle = MOBILE_SECTION_TITLES[section];
+  const activeSectionItem = useMemo(
+    () => MOBILE_SECTION_ITEMS.find((item) => item.id === section) ?? MOBILE_SECTION_ITEMS[0],
+    [section],
+  );
   const drawerActions = renderDrawerActions?.(drawerHelpers);
   const statusLabel = hasTarget ? statusBadge.label : 'Setup';
   const statusTone = hasTarget ? statusBadge.tone : 'warning';
 
+  const statusColor =
+    statusTone === 'success' ? palette.success : statusTone === 'warning' ? palette.warning : palette.accent;
+
+  const statusDim =
+    statusTone === 'success'
+      ? palette.successDim
+      : statusTone === 'warning'
+        ? palette.warningDim
+        : palette.accentDim;
+
+  const handleSectionSelect = useCallback(
+    (nextSection: MobileSection) => {
+      const route = MOBILE_SECTION_ROUTES[nextSection];
+      triggerMobileHaptic(motion.haptics.navSelect);
+      setFabOpen(false);
+      router.replace(route);
+    },
+    [router],
+  );
+
   return (
     <ScreenSurface>
-      <View style={[styles.container, { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm }]}>
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={[styles.eyebrow, { color: palette.textSecondary }]}>Gateway</Text>
-            <Text style={[styles.title, { color: palette.text }]}>{sectionTitle}</Text>
-          </View>
-          <View style={styles.headerActions}>
-            {!isTablet ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Toggle app menu"
-                onPress={() => {
-                  triggerMobileHaptic(motion.haptics.drawerToggle);
-                  setDrawerOpen((current) => {
-                    const next = !current;
-                    drawerVelocityRef.current = 0;
-                    return next;
-                  });
-                }}
-                style={({ pressed }) => [
-                  styles.drawerToggle,
-                  {
-                    backgroundColor: palette.surface0,
-                    borderColor: palette.border,
-                    opacity: pressed ? 0.86 : 1,
-                  },
-                ]}>
-                <FontAwesome
-                  name={drawerOpen ? 'times' : 'bars'}
-                  size={14}
-                  color={palette.text}
-                />
-                <Text style={[styles.drawerToggleLabel, { color: palette.text }]}>Menu</Text>
-              </Pressable>
-            ) : null}
-            <StatusPill label={statusLabel} tone={statusTone} />
-          </View>
-        </View>
-
+      <View
+        style={[
+          styles.container,
+          {
+            backgroundColor: palette.background,
+            paddingTop: insets.top + spacing.sm,
+          },
+        ]}>
         {loadingTarget ? (
-          <View style={[styles.setupCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
+          <View
+            style={[
+              styles.setupCard,
+              { backgroundColor: palette.surface0, borderColor: palette.border },
+            ]}>
             <Text style={[styles.setupTitle, { color: palette.text }]}>Loading target</Text>
-            <Text style={[styles.setupBody, { color: palette.textSecondary }]}>
-              Checking saved gateway configuration...
-            </Text>
+            <Text style={[styles.setupBody, { color: palette.textSecondary }]}>Checking saved gateway configuration...</Text>
           </View>
         ) : null}
 
         {!loadingTarget && !hasTarget && section !== 'settings' ? (
-          <View style={[styles.setupCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
+          <View
+            style={[
+              styles.setupCard,
+              { backgroundColor: palette.surface0, borderColor: palette.border },
+            ]}>
             <Text style={[styles.setupTitle, { color: palette.text }]}>Connect your gateway</Text>
-            <Text style={[styles.setupBody, { color: palette.textSecondary }]}>
-              Open Settings from the left menu to configure target URL.
-            </Text>
+            <Text style={[styles.setupBody, { color: palette.textSecondary }]}>Open Settings from section switcher to configure target URL.</Text>
           </View>
         ) : null}
 
@@ -277,20 +393,17 @@ export function AppShell({
         </View>
 
         {!isTablet && !drawerOpen ? (
-          <View
-            pointerEvents="box-only"
-            style={styles.edgeSwipeArea}
-            {...edgeSwipeResponder.panHandlers}
-          />
+          <View pointerEvents="box-only" style={styles.edgeSwipeArea} {...edgeSwipeResponder.panHandlers} />
         ) : null}
 
-        <View pointerEvents={!isTablet && drawerOpen ? 'auto' : isTablet ? 'auto' : 'none'} style={styles.drawerLayer}>
+        <View
+          pointerEvents={!isTablet && drawerOpen ? 'auto' : isTablet ? 'auto' : 'none'}
+          style={styles.drawerLayer}>
           {!isTablet ? (
-            <Animated.View
-              style={[styles.drawerBackdrop, { backgroundColor: palette.overlay }, backdropStyle]}>
+            <Animated.View style={[styles.drawerBackdrop, { backgroundColor: palette.overlay }, backdropStyle]}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close menu"
+                accessibilityLabel="Close side panel"
                 onPress={closeDrawer}
                 style={styles.backdropHitbox}
               />
@@ -309,12 +422,12 @@ export function AppShell({
               },
               isTablet ? undefined : panelStyle,
             ]}>
-            <View style={[styles.drawerHeader, { borderBottomColor: palette.border }]}>
+            <View style={[styles.drawerHeader, { borderBottomColor: palette.border }]}> 
               <Text style={[styles.drawerTitle, { color: palette.text }]}>Homie</Text>
               {!isTablet ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Close menu"
+                  accessibilityLabel="Close side panel"
                   onPress={closeDrawer}
                   style={({ pressed }) => [
                     styles.drawerClose,
@@ -324,28 +437,110 @@ export function AppShell({
                       opacity: pressed ? 0.86 : 1,
                     },
                   ]}>
-                  <FontAwesome name="times" size={14} color={palette.text} />
+                  <X size={14} color={palette.text} />
                 </Pressable>
               ) : null}
             </View>
 
-            <PrimarySectionMenu activeSection={section} onNavigate={closeDrawer} />
-
-            <View style={[styles.detailHeader, { borderTopColor: palette.border }]}>
-              <Text style={[styles.detailLabel, { color: palette.textSecondary }]}>Section Items</Text>
+            <View style={[styles.detailHeader, { borderTopColor: palette.border }]}> 
+              <Text style={[styles.detailLabel, { color: palette.textSecondary }]}>
+                {DRAWER_DETAIL_LABELS[section]}
+              </Text>
+              <Text style={[styles.detailHint, { color: palette.textSecondary }]}>
+                {DRAWER_DETAIL_HINTS[section]}
+              </Text>
             </View>
 
-            {drawerActions ? (
-              <View style={styles.drawerActions}>
-                {drawerActions}
-              </View>
-            ) : null}
+            {drawerActions ? <View style={styles.drawerActions}>{drawerActions}</View> : null}
 
-            <View style={styles.drawerContent}>
-              {renderDrawerContent(drawerHelpers)}
-            </View>
+            <View style={styles.drawerContent}>{renderDrawerContent(drawerHelpers)}</View>
           </Animated.View>
         </View>
+
+        {!isTablet ? (
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.fabLayer,
+              {
+                paddingBottom: Math.max(insets.bottom, spacing.sm),
+              },
+            ]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={drawerOpen ? 'Close side panel' : 'Open side panel'}
+              onPress={() => {
+                triggerMobileHaptic(motion.haptics.drawerToggle);
+                setDrawerOpen((current) => !current);
+              }}
+              style={({ pressed }) => [
+                styles.panelButton,
+                {
+                  backgroundColor: palette.surface0,
+                  borderColor: palette.border,
+                  opacity: pressed ? 0.86 : 1,
+                },
+              ]}>
+              <PanelLeft size={16} color={palette.text} />
+            </Pressable>
+
+            <Animated.View
+              pointerEvents={fabOpen ? 'auto' : 'none'}
+              style={[styles.sectionOptionsContainer, fabOptionsStyle]}>
+              {MOBILE_SECTION_ITEMS.map((item, index) => {
+                const Icon = item.icon;
+                const selected = item.id === section;
+                return (
+                  <SectionOption
+                    key={item.id}
+                    expandedProgress={fabProgress}
+                    index={index}
+                    selected={selected}
+                    label={item.label}
+                    subtitle={item.subtitle}
+                    Icon={Icon}
+                    palette={palette}
+                    onPress={() => {
+                      handleSectionSelect(item.id);
+                    }}
+                  />
+                );
+              })}
+            </Animated.View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={fabOpen ? 'Collapse section menu' : 'Expand section menu'}
+              onPress={() => {
+                triggerMobileHaptic(motion.haptics.drawerToggle);
+                setFabOpen((current) => !current);
+              }}
+              style={({ pressed }) => [
+                styles.fabButton,
+                {
+                  backgroundColor: palette.surface0,
+                  borderColor: palette.border,
+                  opacity: pressed ? 0.86 : 1,
+                },
+              ]}>
+              <activeSectionItem.icon size={16} color={palette.text} />
+              <View style={styles.fabTextColumn}>
+                <Text style={[styles.fabTitle, { color: palette.text }]}>{sectionTitle}</Text>
+                <View style={styles.fabStatusRow}>
+                  <Circle size={8} fill={statusColor} color={statusColor} />
+                  <Text style={[styles.fabStatus, { color: statusColor }]}>{statusLabel}</Text>
+                </View>
+              </View>
+              <View style={[styles.fabChevronWrap, { backgroundColor: statusDim, borderColor: statusColor }]}> 
+                <ChevronUp
+                  size={14}
+                  color={statusColor}
+                  style={{ transform: [{ rotate: fabOpen ? '180deg' : '0deg' }] }}
+                />
+              </View>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
     </ScreenSurface>
   );
@@ -356,38 +551,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: spacing.lg,
     gap: spacing.lg,
-  },
-  headerRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  headerActions: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  eyebrow: {
-    ...typography.label,
-    textTransform: 'uppercase',
-  },
-  title: {
-    ...typography.display,
-  },
-  drawerToggle: {
-    alignItems: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: spacing.xs,
-    justifyContent: 'center',
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-  },
-  drawerToggleLabel: {
-    ...typography.label,
-    fontSize: 13,
   },
   setupCard: {
     borderRadius: radius.lg,
@@ -485,6 +648,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textTransform: 'uppercase',
   },
+  detailHint: {
+    ...typography.data,
+    fontSize: 12,
+    marginTop: 2,
+  },
   drawerActions: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -496,5 +664,85 @@ const styles = StyleSheet.create({
     minHeight: 0,
     paddingTop: spacing.sm,
     paddingBottom: spacing.lg,
+  },
+  fabLayer: {
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: spacing.lg,
+    position: 'absolute',
+    right: 0,
+    zIndex: 30,
+  },
+  panelButton: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+    width: 42,
+  },
+  sectionOptionsContainer: {
+    alignSelf: 'flex-end',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+    width: 220,
+  },
+  sectionOption: {
+    alignItems: 'center',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 50,
+    paddingHorizontal: spacing.md,
+  },
+  sectionOptionText: {
+    flex: 1,
+    gap: 2,
+  },
+  sectionOptionLabel: {
+    ...typography.label,
+    fontSize: 13,
+  },
+  sectionOptionSubtitle: {
+    ...typography.data,
+    fontSize: 11,
+  },
+  fabButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 56,
+    paddingHorizontal: spacing.md,
+    ...elevation.fab,
+  },
+  fabTextColumn: {
+    gap: 2,
+    minWidth: 108,
+  },
+  fabTitle: {
+    ...typography.label,
+    fontSize: 13,
+  },
+  fabStatusRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  fabStatus: {
+    ...typography.data,
+    fontSize: 11,
+  },
+  fabChevronWrap: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 26,
+    justifyContent: 'center',
+    width: 26,
   },
 });

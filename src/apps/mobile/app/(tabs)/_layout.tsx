@@ -1,24 +1,20 @@
-import { Stack, usePathname, useRouter } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect, useRef } from 'react';
 
-import { MobileShellDataProvider } from '@/components/shell/MobileShellDataContext';
-import { useMobileShellData } from '@/components/shell/MobileShellDataContext';
+import { MobileShellDataProvider, useMobileShellData } from '@/components/shell/MobileShellDataContext';
 
 function TabsStartupRoute() {
   const { loadingTarget, hasTarget } = useMobileShellData();
   const router = useRouter();
-  const pathname = usePathname();
+  const segments = useSegments();
   const routedRef = useRef(false);
 
   useEffect(() => {
     if (loadingTarget || routedRef.current) return;
 
-    const isSettingsRoute = pathname === '/settings' || pathname.endsWith('/settings');
-    const isChatRoute =
-      pathname === '/' ||
-      pathname === '/index' ||
-      pathname === '/(tabs)' ||
-      pathname.endsWith('/(tabs)');
+    const leaf = segments[segments.length - 1] ?? '(tabs)';
+    const isSettingsRoute = leaf === 'settings';
+    const isChatRoute = leaf === '(tabs)';
 
     if (hasTarget && !isChatRoute) {
       router.replace('/(tabs)');
@@ -27,7 +23,7 @@ function TabsStartupRoute() {
     }
 
     routedRef.current = true;
-  }, [hasTarget, loadingTarget, pathname, router]);
+  }, [hasTarget, loadingTarget, router, segments]);
 
   return null;
 }

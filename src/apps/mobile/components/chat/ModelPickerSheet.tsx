@@ -1,7 +1,7 @@
 // ABOUTME: Bottom-sheet modal that displays available AI models for selection.
 // ABOUTME: Shows each model's display name and description, highlights the active choice, and dismisses on tap.
 
-import { Feather } from '@expo/vector-icons';
+import { Check, X } from 'lucide-react-native';
 import type { ModelOption } from '@homie/shared';
 import {
   FlatList,
@@ -66,7 +66,7 @@ export function ModelPickerSheet({
           ) : null}
         </View>
         {isActive ? (
-          <Feather name="check" size={18} color={palette.accent} />
+          <Check size={18} color={palette.accent} />
         ) : null}
       </Pressable>
     );
@@ -99,7 +99,7 @@ export function ModelPickerSheet({
             accessibilityLabel="Close model picker"
             onPress={onClose}
             hitSlop={12}>
-            <Feather name="x" size={20} color={palette.textSecondary} />
+            <X size={20} color={palette.textSecondary} />
           </Pressable>
         </View>
         <FlatList

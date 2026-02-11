@@ -1,6 +1,7 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useRouter } from 'expo-router';
-import { memo, useCallback, type ComponentProps } from 'react';
+import type { LucideIcon } from 'lucide-react-native';
+import { ChevronRight, MessageCircle, Settings2, TerminalSquare } from 'lucide-react-native';
+import { memo, useCallback } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
@@ -9,24 +10,37 @@ import { radius, spacing, typography } from '@/theme/tokens';
 export type MobileSection = 'chat' | 'terminals' | 'settings';
 export type MobileSectionRoute = '/(tabs)' | '/(tabs)/terminals' | '/(tabs)/settings';
 
-interface MenuItem {
+export interface MobileSectionItem {
   id: MobileSection;
   label: string;
   subtitle: string;
-  icon: ComponentProps<typeof FontAwesome>['name'];
   route: MobileSectionRoute;
+  icon: LucideIcon;
 }
 
-const MENU_ITEMS: MenuItem[] = [
-  { id: 'chat', label: 'Chat', subtitle: 'Conversations', icon: 'comments', route: '/(tabs)' },
-  { id: 'terminals', label: 'Terminals', subtitle: 'Running sessions', icon: 'terminal', route: '/(tabs)/terminals' },
-  { id: 'settings', label: 'Settings', subtitle: 'Gateway and defaults', icon: 'sliders', route: '/(tabs)/settings' },
+export const MOBILE_SECTION_ITEMS: MobileSectionItem[] = [
+  {
+    id: 'chat',
+    label: 'Chat',
+    subtitle: 'Conversations',
+    route: '/(tabs)',
+    icon: MessageCircle,
+  },
+  {
+    id: 'terminals',
+    label: 'Terminals',
+    subtitle: 'Running sessions',
+    route: '/(tabs)/terminals',
+    icon: TerminalSquare,
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    subtitle: 'Gateway and defaults',
+    route: '/(tabs)/settings',
+    icon: Settings2,
+  },
 ];
-
-interface PrimarySectionMenuProps {
-  activeSection: MobileSection;
-  onNavigate?: () => void;
-}
 
 export const MOBILE_SECTION_TITLES: Record<MobileSection, string> = {
   chat: 'Chat',
@@ -40,9 +54,15 @@ export const MOBILE_SECTION_ROUTES: Record<MobileSection, MobileSectionRoute> = 
   settings: '/(tabs)/settings',
 };
 
+interface PrimarySectionMenuProps {
+  activeSection: MobileSection;
+  onNavigate?: () => void;
+}
+
 export function PrimarySectionMenu({ activeSection, onNavigate }: PrimarySectionMenuProps) {
   const { palette } = useAppTheme();
   const router = useRouter();
+
   const navigateTo = useCallback(
     (route: MobileSectionRoute, selected: boolean) => {
       if (!selected) {
@@ -55,7 +75,7 @@ export function PrimarySectionMenu({ activeSection, onNavigate }: PrimarySection
 
   return (
     <View style={styles.container}>
-      {MENU_ITEMS.map((item) => {
+      {MOBILE_SECTION_ITEMS.map((item) => {
         const selected = activeSection === item.id;
         return (
           <MenuItemRow
@@ -74,13 +94,15 @@ export function PrimarySectionMenu({ activeSection, onNavigate }: PrimarySection
 }
 
 interface MenuItemRowProps {
-  item: MenuItem;
+  item: MobileSectionItem;
   selected: boolean;
   palette: ReturnType<typeof useAppTheme>['palette'];
   onPress: () => void;
 }
 
 const MenuItemRow = memo(function MenuItemRow({ item, selected, palette, onPress }: MenuItemRowProps) {
+  const Icon = item.icon;
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -96,24 +118,14 @@ const MenuItemRow = memo(function MenuItemRow({ item, selected, palette, onPress
           opacity: pressed ? 0.86 : 1,
         },
       ]}>
-      <FontAwesome
-        name={item.icon}
-        size={14}
-        color={selected ? palette.accent : palette.textSecondary}
-      />
+      <Icon size={14} color={selected ? palette.accent : palette.textSecondary} />
       <View style={styles.textColumn}>
         <Text style={[styles.label, { color: selected ? palette.text : palette.textSecondary }]}>
           {item.label}
         </Text>
-        <Text style={[styles.subtitle, { color: palette.textSecondary }]}>
-          {item.subtitle}
-        </Text>
+        <Text style={[styles.subtitle, { color: palette.textSecondary }]}>{item.subtitle}</Text>
       </View>
-      <FontAwesome
-        name="angle-right"
-        size={12}
-        color={selected ? palette.accent : palette.textSecondary}
-      />
+      <ChevronRight size={12} color={selected ? palette.accent : palette.textSecondary} />
     </Pressable>
   );
 });

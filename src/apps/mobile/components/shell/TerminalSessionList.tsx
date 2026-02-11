@@ -1,5 +1,5 @@
 import { formatRelativeTime, type SessionInfo } from '@homie/shared';
-import { memo, useCallback } from 'react';
+import { memo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
@@ -42,23 +42,18 @@ export function TerminalSessionList({
     );
   }
 
-  const renderItem = useCallback(
-    ({ item }: { item: SessionInfo }) => (
-      <TerminalSessionRow
-        session={item}
-        selected={item.session_id === activeSessionId}
-        palette={palette}
-        onSelect={onSelect}
-      />
-    ),
-    [activeSessionId, onSelect, palette],
-  );
-
   return (
     <FlatList
       data={sessions}
       keyExtractor={(session) => session.session_id}
-      renderItem={renderItem}
+      renderItem={({ item }) => (
+        <TerminalSessionRow
+          session={item}
+          selected={item.session_id === activeSessionId}
+          palette={palette}
+          onSelect={onSelect}
+        />
+      )}
       contentContainerStyle={styles.list}
       showsVerticalScrollIndicator={false}
       initialNumToRender={12}
