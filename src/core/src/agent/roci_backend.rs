@@ -14,7 +14,7 @@ use roci::config::RociConfig;
 use roci::models::LanguageModel;
 use roci::tools::Tool;
 use roci::types::{GenerationSettings, ReasoningEffort};
-use roci::types::{ModelMessage, Role};
+use roci::types::{AgentToolCall, ContentPart, ModelMessage, Role};
 
 use crate::agent::tools::{build_tools, ToolContext};
 use crate::outbound::OutboundMessage;
@@ -598,6 +598,27 @@ impl RociBackend {
                                 "roci tool call started"
                             );
                         }
+                        {
+                            let mut guard = state.lock().await;
+                            if let Some(thread) = guard.threads.get_mut(&thread_id) {
+                                if let Some(turn) = thread
+                                    .thread
+                                    .turns
+                                    .iter_mut()
+                                    .find(|turn| turn.id == turn_id_clone)
+                                {
+                                    upsert_tool_item_started(
+                                        turn,
+                                        &call.id,
+                                        &call.name,
+                                        call.arguments.clone(),
+                                    );
+                                }
+                                thread.messages.push(model_tool_call_message(&call));
+                                thread.thread.updated_at = now_unix();
+                            }
+                        }
+                        backend.persist_thread_state(&thread_id).await;
                         tool_calls.insert(
                             call.id.clone(),
                             ToolCallInfo {
@@ -634,6 +655,33 @@ impl RociBackend {
                                 input: serde_json::Value::Null,
                             }
                         });
+                        {
+                            let mut guard = state.lock().await;
+                            if let Some(thread) = guard.threads.get_mut(&thread_id) {
+                                if let Some(turn) = thread
+                                    .thread
+                                    .turns
+                                    .iter_mut()
+                                    .find(|turn| turn.id == turn_id_clone)
+                                {
+                                    upsert_tool_item_completed(
+                                        turn,
+                                        &result.tool_call_id,
+                                        &info.name,
+                                        info.input.clone(),
+                                        result.result.clone(),
+                                        result.is_error,
+                                    );
+                                }
+                                thread.messages.push(ModelMessage::tool_result(
+                                    result.tool_call_id.clone(),
+                                    result.result.clone(),
+                                    result.is_error,
+                                ));
+                                thread.thread.updated_at = now_unix();
+                            }
+                        }
+                        backend.persist_thread_state(&thread_id).await;
                         if let Some(process_id) =
                             exec_process_id_from_result(&info.name, &result.result)
                         {
@@ -801,16 +849,31 @@ impl RociBackend {
                                 break;
                             }
                             RunLifecycle::Failed { error } => {
+                                let failure_text = if assistant_text.trim().is_empty() {
+                                    format!("Run failed: {error}")
+                                } else {
+                                    assistant_text.clone()
+                                };
                                 emit_error(
                                     &outbound,
                                     &store,
                                     &chat_id,
                                     &thread_id,
                                     &turn_id_clone,
-                                    error,
+                                    error.clone(),
                                 );
                                 let snapshot = {
                                     let mut guard = state.lock().await;
+                                    if let Some(thread) = guard.threads.get_mut(&thread_id) {
+                                        thread.update_assistant_text(
+                                            &assistant_item_id_clone,
+                                            &failure_text,
+                                        );
+                                        thread
+                                            .messages
+                                            .push(ModelMessage::assistant(failure_text.clone()));
+                                        thread.thread.updated_at = now_unix();
+                                    }
                                     let snapshot = guard
                                         .threads
                                         .get(&thread_id)
@@ -823,6 +886,23 @@ impl RociBackend {
                                     snapshot
                                 };
                                 persist_thread_snapshot(&store, &thread_id, snapshot);
+                                emit_item_completed(
+                                    &outbound,
+                                    &store,
+                                    &chat_id,
+                                    &thread_id,
+                                    &turn_id_clone,
+                                    &assistant_item_id_clone,
+                                    &failure_text,
+                                );
+                                emit_turn_completed(
+                                    &outbound,
+                                    &store,
+                                    &chat_id,
+                                    &thread_id,
+                                    &turn_id_clone,
+                                    "failed",
+                                );
                                 if let Some(next) = backend.dequeue_next_run(&thread_id).await {
                                     spawn_next_run(
                                         backend.clone(),
@@ -1098,10 +1178,41 @@ fn model_messages_from_turns(turns: &[RociTurn]) -> Vec<ModelMessage> {
                 RociItem::AgentMessage { text, .. } => {
                     messages.push(ModelMessage::assistant(text.clone()));
                 }
+                RociItem::ToolCall {
+                    id,
+                    tool,
+                    input,
+                    result,
+                    error,
+                    ..
+                } => {
+                    messages.push(model_tool_call_message(&AgentToolCall {
+                        id: id.clone(),
+                        name: tool.clone(),
+                        arguments: input.clone(),
+                        recipient: None,
+                    }));
+                    if let Some(result) = result {
+                        messages.push(ModelMessage::tool_result(
+                            id.clone(),
+                            result.clone(),
+                            *error,
+                        ));
+                    }
+                }
             }
         }
     }
     messages
+}
+
+fn model_tool_call_message(call: &AgentToolCall) -> ModelMessage {
+    ModelMessage {
+        role: Role::Assistant,
+        content: vec![ContentPart::ToolCall(call.clone())],
+        name: None,
+        timestamp: None,
+    }
 }
 
 fn backfill_thread_state_from_raw_events(
@@ -1192,6 +1303,34 @@ fn apply_raw_event_to_thread(
                         .to_string();
                     upsert_assistant_item(turn, item_id, text, false);
                 }
+                "mcpToolCall" => {
+                    let tool = item
+                        .get("tool")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("tool")
+                        .to_string();
+                    let status = item
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(if event.method == "item/completed" {
+                            "completed"
+                        } else {
+                            "running"
+                        })
+                        .to_string();
+                    let input = item
+                        .get("input")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    let result = item.get("result").cloned();
+                    let is_error = item
+                        .get("error")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    upsert_tool_item(
+                        turn, item_id, tool, status, input, result, is_error,
+                    );
+                }
                 _ => {}
             }
         }
@@ -1257,6 +1396,78 @@ fn upsert_assistant_item(turn: &mut RociTurn, item_id: &str, text: String, appen
     }
     turn.items
         .push(RociItem::assistant(item_id.to_string(), text));
+}
+
+fn upsert_tool_item_started(turn: &mut RociTurn, item_id: &str, tool: &str, input: Value) {
+    upsert_tool_item(
+        turn,
+        item_id,
+        tool.to_string(),
+        "running".to_string(),
+        input,
+        None,
+        false,
+    );
+}
+
+fn upsert_tool_item_completed(
+    turn: &mut RociTurn,
+    item_id: &str,
+    tool: &str,
+    input: Value,
+    result: Value,
+    is_error: bool,
+) {
+    let status = if is_error { "failed" } else { "completed" };
+    upsert_tool_item(
+        turn,
+        item_id,
+        tool.to_string(),
+        status.to_string(),
+        input,
+        Some(result),
+        is_error,
+    );
+}
+
+fn upsert_tool_item(
+    turn: &mut RociTurn,
+    item_id: &str,
+    tool: String,
+    status: String,
+    input: Value,
+    result: Option<Value>,
+    is_error: bool,
+) {
+    if let Some(existing) = turn.items.iter_mut().find_map(|item| match item {
+        RociItem::ToolCall {
+            id,
+            tool,
+            status,
+            input,
+            result,
+            error,
+        } if id == item_id => Some((tool, status, input, result, error)),
+        _ => None,
+    }) {
+        *existing.0 = tool;
+        *existing.1 = status;
+        *existing.2 = input;
+        *existing.4 = is_error;
+        if let Some(result) = result {
+            *existing.3 = Some(result);
+        }
+        return;
+    }
+
+    turn.items.push(RociItem::tool_call(
+        item_id.to_string(),
+        tool,
+        status,
+        input,
+        result,
+        is_error,
+    ));
 }
 
 fn raw_event_turn_id(params: &Value) -> Option<String> {
@@ -1400,6 +1611,18 @@ enum RociItem {
     },
     #[serde(rename = "agentMessage")]
     AgentMessage { id: String, text: String },
+    #[serde(rename = "mcpToolCall")]
+    ToolCall {
+        id: String,
+        tool: String,
+        status: String,
+        #[serde(default)]
+        input: serde_json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result: Option<serde_json::Value>,
+        #[serde(default)]
+        error: bool,
+    },
 }
 
 impl RociItem {
@@ -1412,6 +1635,24 @@ impl RociItem {
 
     fn assistant(id: String, text: String) -> Self {
         Self::AgentMessage { id, text }
+    }
+
+    fn tool_call(
+        id: String,
+        tool: String,
+        status: String,
+        input: serde_json::Value,
+        result: Option<serde_json::Value>,
+        error: bool,
+    ) -> Self {
+        Self::ToolCall {
+            id,
+            tool,
+            status,
+            input,
+            result,
+            error,
+        }
     }
 }
 
@@ -1757,6 +1998,83 @@ mod tests {
         assert_eq!(
             thread.last_assistant_item_id.as_deref(),
             Some(assistant_item_id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_thread_rehydrates_tool_items_into_model_messages() {
+        let thread_id = "persisted-tool-thread";
+        let store = Arc::new(SqliteStore::open_memory().expect("store"));
+        let turn_id = Uuid::new_v4().to_string();
+        let user_item_id = Uuid::new_v4().to_string();
+        let assistant_item_id = Uuid::new_v4().to_string();
+        let tool_item_id = "call_123".to_string();
+        let snapshot = PersistedThreadSnapshot {
+            thread: RociThread {
+                id: thread_id.to_string(),
+                created_at: 10,
+                updated_at: 20,
+                turns: vec![RociTurn::new(
+                    turn_id,
+                    vec![
+                        RociItem::user(user_item_id, "hello".to_string()),
+                        RociItem::assistant(assistant_item_id.clone(), "let me check".to_string()),
+                        RociItem::tool_call(
+                            tool_item_id.clone(),
+                            "ls".to_string(),
+                            "completed".to_string(),
+                            serde_json::json!({"path": ".", "limit": 20}),
+                            Some(serde_json::json!({"entries": ["src", "Cargo.toml"]})),
+                            false,
+                        ),
+                    ],
+                )],
+            },
+            messages: Vec::new(),
+            last_assistant_item_id: Some(assistant_item_id),
+        };
+        store
+            .upsert_chat_thread_state(
+                thread_id,
+                &serde_json::to_value(snapshot).expect("snapshot encode"),
+            )
+            .expect("snapshot write");
+
+        let (outbound_tx, _outbound_rx) = mpsc::channel(4);
+        let backend = RociBackend::new(
+            outbound_tx,
+            store,
+            Arc::new(ExecPolicy::empty()),
+            Arc::new(crate::HomieConfig::default()),
+        );
+
+        backend.ensure_thread(thread_id).await;
+
+        let state = backend.state.lock().await;
+        let thread = state.threads.get(thread_id).expect("state thread");
+        let has_tool_call = thread.messages.iter().any(|message| {
+            message.role == Role::Assistant
+                && message.content.iter().any(|part| {
+                    matches!(
+                        part,
+                        ContentPart::ToolCall(call) if call.id == tool_item_id && call.name == "ls"
+                    )
+                })
+        });
+        let has_tool_result = thread.messages.iter().any(|message| {
+            message.role == Role::Tool
+                && message.content.iter().any(|part| {
+                    matches!(
+                        part,
+                        ContentPart::ToolResult(result)
+                            if result.tool_call_id == tool_item_id && !result.is_error
+                    )
+                })
+        });
+        assert!(has_tool_call, "expected tool call message in rehydrated context");
+        assert!(
+            has_tool_result,
+            "expected tool result message in rehydrated context"
         );
     }
 

@@ -187,7 +187,10 @@ fn tracing_filter() -> tracing_subscriber::EnvFilter {
         env::var("HOMIE_DEBUG").as_deref(),
         Ok("1" | "true" | "TRUE" | "yes" | "YES")
     ) {
-        return tracing_subscriber::EnvFilter::new("debug");
+        // Keep broad debug visibility while suppressing high-volume dependency noise.
+        return tracing_subscriber::EnvFilter::new(
+            "debug,selectors=info,html5ever=info,markup5ever=info",
+        );
     }
     tracing_subscriber::EnvFilter::new("info")
 }
