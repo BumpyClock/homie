@@ -1,10 +1,10 @@
-// ABOUTME: Chat message composer with inline send button.
-// ABOUTME: Uses a horizontal layout with expanding TextInput and circular send icon, anchored above keyboard via KeyboardStickyView in parent.
+// ABOUTME: Chat message composer with embedded send button and animated focus states.
+// ABOUTME: Unified floating card design with model/effort pills above a multiline input, anchored above keyboard via KeyboardStickyView in parent.
 
 import { Feather } from '@expo/vector-icons';
 import type { ChatEffort, ModelOption, ReasoningEffortOption } from '@homie/shared';
 import * as Haptics from 'expo-haptics';
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -13,11 +13,23 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { EffortPickerSheet } from '@/components/chat/EffortPickerSheet';
 import { ModelPickerSheet } from '@/components/chat/ModelPickerSheet';
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { radius, spacing, typography } from '@/theme/tokens';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/** Spring config for the send button scale animation */
+const SEND_SPRING = { damping: 14, stiffness: 200, mass: 0.6 } as const;
 
 interface ChatComposerProps {
   disabled?: boolean;
@@ -42,8 +54,10 @@ export function ChatComposer({
   onSelectEffort,
   onSend,
 }: ChatComposerProps) {
-  const { palette } = useAppTheme();
+  const { palette, mode } = useAppTheme();
+  const reducedMotion = useReducedMotion();
   const [value, setValue] = useState('');
+  const [focused, setFocused] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [effortPickerVisible, setEffortPickerVisible] = useState(false);
   const inputRef = useRef<TextInput>(null);
@@ -51,6 +65,32 @@ export function ChatComposer({
   const trimmed = value.trim();
   const canSend = !disabled && !sending && trimmed.length > 0;
 
+  /* ── Animated values ─────────────────────────────────────── */
+  const focusProgress = useSharedValue(0);
+  const sendScale = useSharedValue(0);
+  const sendOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    const dur = reducedMotion ? 0 : 180;
+    focusProgress.value = withTiming(focused ? 1 : 0, { duration: dur });
+  }, [focused, focusProgress, reducedMotion]);
+
+  useEffect(() => {
+    if (canSend) {
+      sendScale.value = reducedMotion ? 1 : withSpring(1, SEND_SPRING);
+      sendOpacity.value = reducedMotion ? 1 : withTiming(1, { duration: 120 });
+    } else {
+      sendScale.value = reducedMotion ? 0.6 : withSpring(0.6, SEND_SPRING);
+      sendOpacity.value = reducedMotion ? 0.35 : withTiming(0.35, { duration: 120 });
+    }
+  }, [canSend, sendScale, sendOpacity, reducedMotion]);
+
+  const sendButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: sendScale.value }],
+    opacity: sendOpacity.value,
+  }));
+
+  /* ── Model / effort state ────────────────────────────────── */
   const activeModel =
     models.find((m) => m.model === selectedModel || m.id === selectedModel) ??
     models.find((m) => m.isDefault) ??
@@ -65,7 +105,7 @@ export function ChatComposer({
     : selectedEffort.charAt(0).toUpperCase() + selectedEffort.slice(1);
   const showEffortPill = onSelectEffort != null;
 
-  const submit = async () => {
+  const submit = useCallback(async () => {
     if (!canSend) return;
     const draft = trimmed;
     setValue('');
@@ -77,109 +117,131 @@ export function ChatComposer({
     } catch {
       setValue(draft);
     }
-  };
+  }, [canSend, trimmed, onSend]);
 
-  // Ensure the composer clears the home indicator / nav bar
   const safeBottomPadding = Math.max(bottomInset, spacing.sm);
+
+  /* ── Derived palette values ──────────────────────────────── */
+  const containerBg = mode === 'dark'
+    ? 'rgba(18, 28, 39, 0.96)'
+    : 'rgba(255, 255, 255, 0.96)';
+  const inputBg = palette.surfaceAlt;
+  const focusedBorderColor = palette.accent;
+  const restBorderColor = mode === 'dark'
+    ? 'rgba(233, 239, 247, 0.10)'
+    : 'rgba(16, 26, 39, 0.08)';
 
   return (
     <View
       style={[
-        styles.container,
-        {
-          backgroundColor: palette.surface,
-          borderTopColor: palette.border,
-          paddingBottom: safeBottomPadding,
-        },
+        styles.outerContainer,
+        { paddingBottom: safeBottomPadding },
       ]}>
-      {showModelPill ? (
-        <View style={styles.pillRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Model: ${modelLabel ?? 'Default'}. Tap to change.`}
-            onPress={() => setPickerVisible(true)}
-            disabled={disabled}
-            style={({ pressed }) => [
-              styles.modelPill,
-              {
-                backgroundColor: palette.surfaceAlt,
-                borderColor: palette.border,
-                opacity: pressed ? 0.78 : disabled ? 0.55 : 1,
-              },
-            ]}>
-            <Feather name="cpu" size={12} color={palette.textSecondary} />
-            <Text
-              style={[styles.modelPillLabel, { color: palette.textSecondary }]}
-              numberOfLines={1}>
-              {modelLabel ?? 'Default'}
-            </Text>
-            <Feather name="chevron-down" size={12} color={palette.textSecondary} />
-          </Pressable>
-          {showEffortPill ? (
+      <View
+        style={[
+          styles.container,
+          {
+            backgroundColor: containerBg,
+            borderColor: focused ? focusedBorderColor : restBorderColor,
+            borderWidth: 1,
+          },
+        ]}>
+        {/* ── Options row: model + effort pills ───────────── */}
+        {showModelPill ? (
+          <View style={styles.pillRow}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Effort: ${effortLabel}. Tap to change.`}
-              onPress={() => setEffortPickerVisible(true)}
+              accessibilityLabel={`Model: ${modelLabel ?? 'Default'}. Tap to change.`}
+              onPress={() => setPickerVisible(true)}
               disabled={disabled}
               style={({ pressed }) => [
-                styles.modelPill,
+                styles.pill,
                 {
-                  backgroundColor: palette.surfaceAlt,
-                  borderColor: palette.border,
-                  opacity: pressed ? 0.78 : disabled ? 0.55 : 1,
+                  backgroundColor: mode === 'dark'
+                    ? 'rgba(233, 239, 247, 0.07)'
+                    : 'rgba(16, 26, 39, 0.05)',
+                  opacity: pressed ? 0.7 : disabled ? 0.45 : 1,
                 },
               ]}>
-              <Feather name="activity" size={12} color={palette.textSecondary} />
+              <Feather name="cpu" size={11} color={palette.textSecondary} />
               <Text
-                style={[styles.modelPillLabel, { color: palette.textSecondary }]}
+                style={[styles.pillLabel, { color: palette.textSecondary }]}
                 numberOfLines={1}>
-                {effortLabel}
+                {modelLabel ?? 'Default'}
               </Text>
-              <Feather name="chevron-down" size={12} color={palette.textSecondary} />
+              <Feather name="chevron-down" size={10} color={palette.textSecondary} style={{ opacity: 0.6 }} />
             </Pressable>
-          ) : null}
-        </View>
-      ) : null}
-      <View style={styles.inputRow}>
-        <View
-          style={[
-            styles.inputWrap,
-            {
-              backgroundColor: palette.surfaceAlt,
-              borderColor: palette.border,
-            },
-          ]}>
+            {showEffortPill ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Effort: ${effortLabel}. Tap to change.`}
+                onPress={() => setEffortPickerVisible(true)}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  styles.pill,
+                  {
+                    backgroundColor: mode === 'dark'
+                      ? 'rgba(233, 239, 247, 0.07)'
+                      : 'rgba(16, 26, 39, 0.05)',
+                    opacity: pressed ? 0.7 : disabled ? 0.45 : 1,
+                  },
+                ]}>
+                <Feather name="activity" size={11} color={palette.textSecondary} />
+                <Text
+                  style={[styles.pillLabel, { color: palette.textSecondary }]}
+                  numberOfLines={1}>
+                  {effortLabel}
+                </Text>
+                <Feather name="chevron-down" size={10} color={palette.textSecondary} style={{ opacity: 0.6 }} />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* ── Input area with embedded send button ────────── */}
+        <View style={styles.inputRow}>
           <TextInput
             ref={inputRef}
             value={value}
             onChangeText={setValue}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             editable={!disabled && !sending}
             placeholder="Message…"
             placeholderTextColor={palette.textSecondary}
             multiline
-            style={[styles.input, { color: palette.text }]}
+            style={[
+              styles.input,
+              { color: palette.text },
+            ]}
           />
+          <AnimatedPressable
+            accessibilityRole="button"
+            accessibilityLabel={sending ? 'Sending message' : 'Send message'}
+            onPress={submit}
+            disabled={!canSend}
+            style={[
+              styles.sendButton,
+              sendButtonStyle,
+              {
+                backgroundColor: canSend ? palette.accent : (
+                  mode === 'dark'
+                    ? 'rgba(233, 239, 247, 0.08)'
+                    : 'rgba(16, 26, 39, 0.06)'
+                ),
+              },
+            ]}>
+            <Feather
+              name="arrow-up"
+              size={16}
+              color={canSend ? '#FFFFFF' : palette.textSecondary}
+              style={canSend ? undefined : { opacity: 0.5 }}
+            />
+          </AnimatedPressable>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={sending ? 'Sending message' : 'Send message'}
-          onPress={submit}
-          disabled={!canSend}
-          style={({ pressed }) => [
-            styles.sendButton,
-            {
-              backgroundColor: canSend ? palette.accent : palette.surfaceAlt,
-              opacity: pressed && canSend ? 0.82 : 1,
-              transform: [{ scale: pressed && canSend ? 0.92 : 1 }],
-            },
-          ]}>
-          <Feather
-            name="arrow-up"
-            size={18}
-            color={canSend ? '#FFFFFF' : palette.textSecondary}
-          />
-        </Pressable>
       </View>
+
+      {/* ── Bottom sheets (rendered outside container) ──── */}
       {showModelPill ? (
         <ModelPickerSheet
           visible={pickerVisible}
@@ -204,57 +266,61 @@ export function ChatComposer({
 }
 
 const styles = StyleSheet.create({
+  outerContainer: {
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.xs,
+  },
   container: {
-    borderTopWidth: 1,
+    borderRadius: radius.lg + 4,
+    overflow: 'hidden',
+    paddingHorizontal: spacing.sm,
     paddingTop: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xs,
+    paddingBottom: spacing.xs + 2,
+    gap: spacing.xs + 2,
+  },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    maxWidth: 180,
+  },
+  pillLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    letterSpacing: 0.1,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: spacing.sm,
-  },
-  inputWrap: {
-    flex: 1,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    overflow: 'hidden',
+    gap: spacing.xs,
   },
   input: {
     ...typography.body,
+    flex: 1,
     fontSize: 16,
-    minHeight: 40,
+    minHeight: 36,
     maxHeight: 120,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingTop: Platform.OS === 'ios' ? spacing.sm : spacing.xs,
+    paddingBottom: Platform.OS === 'ios' ? spacing.sm : spacing.xs,
     textAlignVertical: 'top',
   },
   sendButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginBottom: 2,
-  },
-  pillRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: spacing.xs,
-    gap: spacing.sm,
-  },
-  modelPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    maxWidth: 200,
-  },
-  modelPillLabel: {
-    ...typography.label,
-    fontWeight: '500',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginBottom: Platform.OS === 'ios' ? 2 : 0,
   },
 });
