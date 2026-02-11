@@ -3,8 +3,14 @@
 
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useState } from 'react';
-import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { useRef, useState } from 'react';
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
@@ -12,16 +18,19 @@ import { radius, spacing, typography } from '@/theme/tokens';
 interface ChatComposerProps {
   disabled?: boolean;
   sending?: boolean;
+  bottomInset?: number;
   onSend: (message: string) => Promise<void>;
 }
 
 export function ChatComposer({
   disabled = false,
   sending = false,
+  bottomInset = 0,
   onSend,
 }: ChatComposerProps) {
   const { palette } = useAppTheme();
   const [value, setValue] = useState('');
+  const inputRef = useRef<TextInput>(null);
 
   const trimmed = value.trim();
   const canSend = !disabled && !sending && trimmed.length > 0;
@@ -40,63 +49,85 @@ export function ChatComposer({
     }
   };
 
+  // Ensure the composer clears the home indicator / nav bar
+  const safeBottomPadding = Math.max(bottomInset, spacing.sm);
+
   return (
-    <View style={[styles.container, { backgroundColor: palette.surface, borderTopColor: palette.border }]}>
-      <TextInput
-        value={value}
-        onChangeText={setValue}
-        editable={!disabled && !sending}
-        placeholder="Message…"
-        placeholderTextColor={palette.textSecondary}
-        multiline
-        style={[
-          styles.input,
-          {
-            backgroundColor: palette.surfaceAlt,
-            borderColor: palette.border,
-            color: palette.text,
-          },
-        ]}
-      />
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={sending ? 'Sending message' : 'Send message'}
-        onPress={submit}
-        disabled={!canSend}
-        style={({ pressed }) => [
-          styles.sendButton,
-          {
-            backgroundColor: canSend ? palette.accent : palette.surfaceAlt,
-            opacity: pressed && canSend ? 0.8 : 1,
-          },
-        ]}>
-        <Feather
-          name="arrow-up"
-          size={18}
-          color={canSend ? '#FFFFFF' : palette.textSecondary}
-        />
-      </Pressable>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: palette.surface,
+          borderTopColor: palette.border,
+          paddingBottom: safeBottomPadding,
+        },
+      ]}>
+      <View style={styles.inputRow}>
+        <View
+          style={[
+            styles.inputWrap,
+            {
+              backgroundColor: palette.surfaceAlt,
+              borderColor: palette.border,
+            },
+          ]}>
+          <TextInput
+            ref={inputRef}
+            value={value}
+            onChangeText={setValue}
+            editable={!disabled && !sending}
+            placeholder="Message…"
+            placeholderTextColor={palette.textSecondary}
+            multiline
+            style={[styles.input, { color: palette.text }]}
+          />
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={sending ? 'Sending message' : 'Send message'}
+          onPress={submit}
+          disabled={!canSend}
+          style={({ pressed }) => [
+            styles.sendButton,
+            {
+              backgroundColor: canSend ? palette.accent : palette.surfaceAlt,
+              opacity: pressed && canSend ? 0.82 : 1,
+              transform: [{ scale: pressed && canSend ? 0.92 : 1 }],
+            },
+          ]}>
+          <Feather
+            name="arrow-up"
+            size={18}
+            color={canSend ? '#FFFFFF' : palette.textSecondary}
+          />
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    borderTopWidth: 1,
+    paddingTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderTopWidth: 1,
+  },
+  inputWrap: {
+    flex: 1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   input: {
     ...typography.body,
-    flex: 1,
     fontSize: 16,
     minHeight: 40,
     maxHeight: 120,
-    borderRadius: radius.md,
-    borderWidth: 1,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     textAlignVertical: 'top',
@@ -104,8 +135,9 @@ const styles = StyleSheet.create({
   sendButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginBottom: 2,
   },
 });

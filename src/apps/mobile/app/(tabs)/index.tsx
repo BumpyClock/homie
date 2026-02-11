@@ -273,6 +273,7 @@ export default function ChatTabScreen() {
             <ChatComposer
               disabled={status !== 'connected' || !activeThread || !hasTarget}
               sending={sendingMessage}
+              bottomInset={insets.bottom}
               onSend={sendMessage}
             />
           </KeyboardStickyView>
