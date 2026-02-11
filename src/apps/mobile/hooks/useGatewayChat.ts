@@ -8,6 +8,8 @@ import {
   mapChatEvent,
   type ModelOption,
   type SessionInfo,
+  type TmuxListResponse,
+  type TmuxSessionInfo,
   subscribeToChatEvents,
   type ChatThreadSummary,
   type ConnectionStatus,
@@ -50,6 +52,9 @@ export interface UseGatewayChatResult {
   loadingTerminals: boolean;
   pendingApproval: PendingApprovalMetadata | null;
   terminalSessions: SessionInfo[];
+  tmuxSupported: boolean;
+  tmuxError: string | null;
+  tmuxSessions: TmuxSessionInfo[];
   models: ModelOption[];
   selectedModel: string | null;
   selectedEffort: ChatEffort;
@@ -59,6 +64,7 @@ export interface UseGatewayChatResult {
   refreshThreads: () => Promise<void>;
   refreshTerminals: () => Promise<void>;
   startTerminalSession: (shell?: string) => Promise<string | null>;
+  attachTmuxSession: (sessionName: string) => Promise<string | null>;
   attachTerminalSession: (
     sessionId: string,
     options?: { replay?: boolean; maxBytes?: number },
@@ -102,6 +108,34 @@ function normalizeTerminalSessions(raw: unknown): SessionInfo[] {
     .filter((entry): entry is SessionInfo => entry !== null);
 }
 
+function normalizeTmuxList(raw: unknown): TmuxListResponse {
+  if (!raw || typeof raw !== 'object') {
+    return { supported: false, sessions: [] };
+  }
+  const record = raw as Record<string, unknown>;
+  const input = Array.isArray(record.sessions) ? record.sessions : [];
+  const supported = record.supported === true || input.length > 0;
+  const sessions: TmuxSessionInfo[] = input
+    .map((entry): TmuxSessionInfo | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const session = entry as Record<string, unknown>;
+      const name = typeof session.name === 'string' ? session.name : '';
+      const windows = typeof session.windows === 'number' ? session.windows : 0;
+      const attached = session.attached === true;
+      if (!name) return null;
+      return { name, windows, attached };
+    })
+    .filter((entry): entry is TmuxSessionInfo => entry !== null);
+  return { supported, sessions };
+}
+
+function isRpcMethodNotFound(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const record = error as Record<string, unknown>;
+  if (typeof record.code === 'number') return record.code === -32601;
+  return false;
+}
+
 const LAST_ACTIVE_CHAT_KEY_PREFIX = 'homie.mobile.last_active_chat';
 const SELECTED_MODEL_KEY = 'homie.mobile.selected_model';
 const SELECTED_EFFORT_KEY = 'homie.mobile.selected_effort';
@@ -132,6 +166,9 @@ export function useGatewayChat(
   const [creatingChat, setCreatingChat] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [terminalSessions, setTerminalSessions] = useState<SessionInfo[]>([]);
+  const [tmuxSessions, setTmuxSessions] = useState<TmuxSessionInfo[]>([]);
+  const [tmuxSupported, setTmuxSupported] = useState(false);
+  const [tmuxError, setTmuxError] = useState<string | null>(null);
   const [loadingTerminals, setLoadingTerminals] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModelState] = useState<string | null>(null);
@@ -359,13 +396,42 @@ export function useGatewayChat(
     const transport = transportRef.current;
     if (!transport || status !== 'connected') {
       setTerminalSessions([]);
+      setTmuxSessions([]);
+      setTmuxSupported(false);
+      setTmuxError(null);
       return;
     }
 
     setLoadingTerminals(true);
     try {
-      const result = await transport.call<{ sessions?: unknown }>('terminal.session.list');
-      setTerminalSessions(normalizeTerminalSessions(result));
+      const [sessionResult, tmuxResult] = await Promise.allSettled([
+        transport.call<{ sessions?: unknown }>('terminal.session.list'),
+        transport.call<TmuxListResponse>('terminal.tmux.list'),
+      ]);
+
+      if (sessionResult.status === 'rejected') {
+        throw sessionResult.reason;
+      }
+
+      setTerminalSessions(normalizeTerminalSessions(sessionResult.value));
+
+      if (tmuxResult.status === 'fulfilled') {
+        const normalized = normalizeTmuxList(tmuxResult.value);
+        setTmuxSupported(normalized.supported);
+        setTmuxSessions(normalized.sessions);
+        setTmuxError(null);
+      } else if (isRpcMethodNotFound(tmuxResult.reason)) {
+        setTmuxSupported(false);
+        setTmuxSessions([]);
+        setTmuxError(null);
+      } else {
+        // Keep tmux state available only when listing succeeded.
+        // On transport/api failure we surface the error and avoid false positives.
+        setTmuxSupported(false);
+        setTmuxSessions([]);
+        setTmuxError(formatError(tmuxResult.reason));
+      }
+
       setError(null);
     } catch (nextError) {
       setError(formatError(nextError));
@@ -382,6 +448,23 @@ export function useGatewayChat(
       const response = await transport.call<{ session_id?: string }>('terminal.session.start', params);
       await refreshTerminals();
       return typeof response.session_id === 'string' ? response.session_id : null;
+    } catch (nextError) {
+      setError(formatError(nextError));
+      return null;
+    }
+  }, [refreshTerminals, status]);
+
+  const attachTmuxSession = useCallback(async (sessionName: string) => {
+    const transport = transportRef.current;
+    if (!transport || status !== 'connected') return null;
+    try {
+      const response = await transport.call<SessionInfo>('terminal.tmux.attach', {
+        session_name: sessionName,
+        cols: 80,
+        rows: 24,
+      });
+      await refreshTerminals();
+      return response?.session_id ?? null;
     } catch (nextError) {
       setError(formatError(nextError));
       return null;
@@ -769,6 +852,9 @@ export function useGatewayChat(
     loadingTerminals,
     pendingApproval,
     terminalSessions,
+    tmuxSupported,
+    tmuxError,
+    tmuxSessions,
     models,
     selectedModel,
     selectedEffort,
@@ -778,6 +864,7 @@ export function useGatewayChat(
     refreshThreads,
     refreshTerminals,
     startTerminalSession,
+    attachTmuxSession,
     attachTerminalSession,
     resizeTerminalSession,
     sendTerminalInput,

@@ -1,4 +1,8 @@
-import type { SessionInfo } from "@homie/shared";
+import {
+  sessionDisplayName,
+  tmuxSessionName,
+  type SessionInfo,
+} from "@homie/shared";
 
 export type TmuxCloseBehavior = "detach" | "kill";
 export type PreviewRefresh = "10s" | "30s" | "1m" | "5m" | "15m" | "never";
@@ -28,26 +32,9 @@ export function normalizeRpcError(err: unknown): { code: number; message: string
   return undefined;
 }
 
-export function tmuxSessionName(shell?: string | null): string | undefined {
-  if (!shell) return undefined;
-  if (shell.startsWith("tmux:")) {
-    const name = shell.slice("tmux:".length).trim();
-    return name.length > 0 ? name : undefined;
-  }
-  return undefined;
-}
-
 export function shortSessionId(sessionId: string): string {
   if (!sessionId) return "";
   return sessionId.length > 8 ? `${sessionId.slice(0, 8)}...` : sessionId;
-}
-
-export function sessionDisplayName(session: Pick<SessionInfo, "session_id" | "shell" | "name">): string {
-  const tmuxName = tmuxSessionName(session.shell);
-  if (tmuxName) return tmuxName;
-  const name = typeof session.name === "string" ? session.name.trim() : "";
-  if (name) return name;
-  return shortSessionId(session.session_id);
 }
 
 export function resolveTmuxCloseBehavior(): TmuxCloseBehavior {

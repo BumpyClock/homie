@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, SessionPreviewResponse, TmuxListResponse, TmuxSessionInfo } from "@homie/shared";
+import {
+  filterAvailableTmuxSessions,
+  partitionTerminalSessions,
+  type SessionInfo,
+  type SessionPreviewResponse,
+  type TmuxListResponse,
+  type TmuxSessionInfo,
+} from "@homie/shared";
 import { loadPreview, removePreview, savePreview } from '@/lib/session-previews';
 import {
   normalizeRpcError,
@@ -319,15 +326,9 @@ export function SessionList({ call, status, onAttach, onRename, previewNamespace
       return null;
   }
 
-  const activeSessions = sessions.filter((s) => s.status === 'active');
-  const inactiveSessions = sessions.filter((s) => s.status !== 'active');
-  const activeTmuxNames = new Set(
-    activeSessions
-      .map((s) => tmuxSessionName(s.shell))
-      .filter((v): v is string => !!v)
-  );
+  const { active: activeSessions, history: inactiveSessions } = partitionTerminalSessions(sessions);
   const availableTmux = tmuxSupported
-    ? tmuxSessions.filter((s) => !activeTmuxNames.has(s.name))
+    ? filterAvailableTmuxSessions(tmuxSessions, activeSessions)
     : [];
 
   return (

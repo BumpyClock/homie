@@ -17,8 +17,12 @@ export default function TerminalsTabScreen() {
     error,
     loadingTerminals,
     terminalSessions,
+    tmuxSessions,
+    tmuxSupported,
+    tmuxError,
     refreshTerminals,
     startTerminalSession,
+    attachTmuxSession,
     attachTerminalSession,
     resizeTerminalSession,
     sendTerminalInput,
@@ -87,10 +91,19 @@ export default function TerminalsTabScreen() {
       renderDrawerContent={({ closeDrawer }) => (
         <TerminalSessionList
           sessions={terminalSessions}
+          tmuxSessions={tmuxSessions}
+          tmuxSupported={tmuxSupported}
+          tmuxError={tmuxError}
           loading={loadingTerminals}
           activeSessionId={activeTerminalSessionId}
-          onSelect={(sessionId) => {
+          onSelectSession={(sessionId) => {
             setActiveTerminalSessionId(sessionId);
+            closeDrawer();
+          }}
+          onAttachTmux={(sessionName) => {
+            void attachTmuxSession(sessionName).then((sessionId) => {
+              if (sessionId) setActiveTerminalSessionId(sessionId);
+            });
             closeDrawer();
           }}
         />

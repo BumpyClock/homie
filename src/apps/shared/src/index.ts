@@ -5,5 +5,6 @@ export * from "./chat-types";
 export * from "./chat-client";
 export * from "./chat-events";
 export * from "./chat-turns";
+export * from "./terminal-sessions";
 
-export const SHARED_PACKAGE_VERSION = "0.1.1";
+export const SHARED_PACKAGE_VERSION = "0.1.3";
