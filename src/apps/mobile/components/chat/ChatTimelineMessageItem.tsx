@@ -211,9 +211,6 @@ function ApprovalItem({
 
   return (
     <View
-      accessible
-      accessibilityRole="summary"
-      accessibilityLabel={`Approval request ${approvalStatusLabel(statusValue)}${item.reason ? `. ${item.reason}` : ''}`}
       style={[
         styles.approvalCard,
         {
