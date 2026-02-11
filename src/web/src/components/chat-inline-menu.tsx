@@ -43,6 +43,9 @@ export function ChatInlineMenu({
   const left = clamp(Math.round(position.x) - 12, 12, window.innerWidth - maxWidth - 12);
   const bottomRaw = window.innerHeight - Math.round(position.y) + 8;
   const bottom = clamp(bottomRaw, 12, window.innerHeight - 12);
+  const listboxId =
+    trigger.type === "slash" ? "chat-inline-menu-skills" : "chat-inline-menu-mention";
+  const activeOptionId = `${listboxId}-option-${menuIndex}`;
 
   return (
     <div
@@ -50,8 +53,14 @@ export function ChatInlineMenu({
         visible ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-2 scale-[0.98]"
       }`}
       style={{ left, bottom, width: maxWidth, maxWidth }}
+      aria-hidden={!visible}
     >
-      <div className="max-h-[240px] overflow-y-auto py-1">
+      <div
+        id={listboxId}
+        role="listbox"
+        aria-activedescendant={activeOptionId}
+        className="max-h-[240px] overflow-y-auto py-1"
+      >
         {trigger.type === "slash" && (
           <>
             <div className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border/60">
@@ -66,6 +75,9 @@ export function ChatInlineMenu({
                 type="button"
                 onClick={() => onSelectSkill(skill)}
                 onMouseEnter={() => onHoverIndex(idx)}
+                role="option"
+                aria-selected={idx === menuIndex}
+                id={`${listboxId}-option-${idx}`}
                 className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
                   idx === menuIndex ? "bg-muted/60" : "hover:bg-muted/40"
                 }`}
@@ -95,6 +107,9 @@ export function ChatInlineMenu({
                 type="button"
                 onClick={() => onSelectSkill(skill)}
                 onMouseEnter={() => onHoverIndex(idx)}
+                role="option"
+                aria-selected={idx === menuIndex}
+                id={`${listboxId}-option-${idx}`}
                 className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
                   idx === menuIndex ? "bg-muted/60" : "hover:bg-muted/40"
                 }`}
@@ -133,6 +148,9 @@ export function ChatInlineMenu({
                     }
                   }}
                   onMouseEnter={() => onHoverIndex(absoluteIndex)}
+                  role="option"
+                  aria-selected={absoluteIndex === menuIndex}
+                  id={`${listboxId}-option-${absoluteIndex}`}
                   className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
                     absoluteIndex === menuIndex ? "bg-muted/60" : "hover:bg-muted/40"
                   }`}

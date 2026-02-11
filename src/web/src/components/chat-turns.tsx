@@ -65,8 +65,8 @@ function statusBadge(status?: string) {
 
 function UserBubble({ text }: { text: string }) {
   return (
-    <div className="flex justify-end homie-fade-in">
-      <div className="max-w-[720px] rounded-[14px] bg-foreground/5 px-4 py-3 text-sm text-foreground">
+    <div className="flex justify-end homie-message-in">
+      <div className="max-w-[min(720px,85%)] rounded-[14px] bg-foreground/5 px-4 py-3 text-sm text-foreground">
         <ChatMarkdown content={text} compact />
       </div>
     </div>
@@ -84,7 +84,7 @@ function ActivityRow({
   if (item.kind === "approval") {
     const canRespond = item.requestId !== undefined;
     return (
-      <div className="rounded-md border border-amber-300/60 bg-amber-50/60 dark:bg-amber-500/10 p-3 text-sm">
+      <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:bg-amber-500/10 p-3 text-sm">
         <div className="text-xs uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-2">
           Approval required
         </div>
@@ -128,7 +128,7 @@ function ActivityRow({
     const summaryText = summary.join("\n");
     const contentText = content.join("\n");
     return (
-      <div className="rounded-md border border-border bg-card/40 p-3 text-sm">
+      <div className="rounded-lg border border-border bg-card/40 p-3 text-sm">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground mb-2">
           <MessageCircleDashed className="h-4 w-4" />
           Reasoning
@@ -149,7 +149,7 @@ function ActivityRow({
 
   if (item.kind === "command") {
     return (
-      <div className="rounded-md border border-border bg-card/40 p-3 text-sm">
+      <div className="rounded-lg border border-border bg-card/40 p-3 text-sm">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
             <Terminal className="h-4 w-4" />
@@ -171,7 +171,7 @@ function ActivityRow({
 
   if (item.kind === "file") {
     return (
-      <div className="rounded-md border border-border bg-card/40 p-3 text-sm">
+      <div className="rounded-lg border border-border bg-card/40 p-3 text-sm">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
             <FileDiff className="h-4 w-4" />
@@ -199,7 +199,7 @@ function ActivityRow({
 
   if (item.kind === "plan") {
     return (
-      <div className="rounded-md border border-border bg-card/40 p-3 text-sm">
+      <div className="rounded-lg border border-border bg-card/40 p-3 text-sm">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground mb-2">
           <ClipboardList className="h-4 w-4" />
           Plan
@@ -211,7 +211,7 @@ function ActivityRow({
 
   if (item.kind === "diff") {
     return (
-      <div className="rounded-md border border-border bg-card/40 p-3 text-sm">
+      <div className="rounded-lg border border-border bg-card/40 p-3 text-sm">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground mb-2">
           <FileDiff className="h-4 w-4" />
           Diff
@@ -235,7 +235,7 @@ function ActivityRow({
       );
     const toolDetail = renderToolDetail(item);
     return (
-      <div className="rounded-md border border-border bg-card/30 p-3 text-sm">
+      <div className="rounded-lg border border-border bg-card/30 p-3 text-sm">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground mb-1">
           {statusIcon}
           Tool
@@ -255,7 +255,7 @@ function ActivityRow({
 
   if (item.kind === "system") {
     return (
-      <div className="rounded-md border border-border bg-card/30 p-3 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-border bg-card/30 p-3 text-sm text-muted-foreground">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide mb-1">
           <Globe className="h-4 w-4" />
           System
@@ -266,7 +266,7 @@ function ActivityRow({
   }
 
   return (
-    <div className="rounded-md border border-border bg-card/30 p-3 text-sm text-muted-foreground">
+    <div className="rounded-lg border border-border bg-card/30 p-3 text-sm text-muted-foreground">
       {item.text || "Unsupported item"}
     </div>
   );
@@ -421,24 +421,24 @@ function AssistantTurn({
   const showStreamingDots = isStreaming && !expanded;
 
   return (
-    <div className="flex justify-start homie-fade-in">
-      <div className="w-full max-w-[720px] space-y-3">
+    <div className="flex justify-start homie-message-in">
+      <div className="w-full max-w-[min(720px,85%)] space-y-3">
         {hasActivities && (
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}
-            className="w-full flex items-center justify-between gap-3 rounded-md border border-border bg-card/40 px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/40 transition-colors"
+            className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/70 bg-card/40 px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/40 transition-colors motion-reduce:transition-none"
           >
-            <div className="flex items-center gap-2 min-w-0">
-              <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
-              <span className="truncate">{preview}</span>
-            </div>
-            <span className="text-[11px] uppercase tracking-wide">{activities.length} steps</span>
+            <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+            <span className="truncate">{preview}</span>
+            <span className="shrink-0 text-[10px] uppercase tracking-wide opacity-70">
+              {activities.length} steps
+            </span>
           </button>
         )}
 
         {!expanded && lastActivity && (
-          <div className="rounded-md border border-border bg-card/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2 homie-fade-in">
+          <div className="rounded-lg border border-border bg-card/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2 homie-fade-in">
             <span className="text-[11px] uppercase tracking-wide">Last step</span>
             <span className="text-foreground/80 truncate flex-1">
               {getActivityPreview(lastActivity)}
@@ -454,7 +454,7 @@ function AssistantTurn({
         )}
 
         {!expanded && showReasoningPreview && reasoningItem && (
-          <div className="rounded-md border border-border bg-card/20 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2 homie-fade-in">
+          <div className="rounded-lg border border-border bg-card/20 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2 homie-fade-in">
             <span className="text-[11px] uppercase tracking-wide">Reasoning</span>
             <span className="text-foreground/80 truncate flex-1">
               {getReasoningPreview(reasoningItem)}
@@ -479,26 +479,37 @@ function AssistantTurn({
 
         {hasActivities && (
           <div
-            className={`overflow-hidden transition-[max-height,opacity] duration-200 ease-out motion-reduce:transition-none ${
-              expanded ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0"
+            data-expanded={expanded ? "true" : "false"}
+            className={`homie-activity-collapse transition-opacity duration-200 ease-out motion-reduce:transition-none ${
+              expanded ? "opacity-100" : "opacity-0"
             }`}
           >
-            <div className="space-y-3 pb-1">
-              {nonApprovalActivities.map((item) => (
-                <ActivityRow key={item.id} item={item} onApprove={onApprove} />
-              ))}
+            <div>
+              <div className="space-y-3 pb-1">
+                {nonApprovalActivities.map((item) => (
+                  <ActivityRow key={item.id} item={item} onApprove={onApprove} />
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        <div className="rounded-[14px] border border-border bg-muted/30 px-4 py-3 text-sm text-foreground">
+        <div className="relative rounded-[14px] border border-border bg-muted/30 px-4 py-3 text-sm text-foreground overflow-hidden">
+          <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-primary/30" />
           {response ? (
             <div className="homie-fade-in">
               <ChatMarkdown content={response} />
             </div>
           ) : (
-            <div className="text-sm text-muted-foreground">
-              {isStreaming ? "Thinking…" : "Awaiting response"}
+            <div className="text-sm text-muted-foreground inline-flex items-center gap-1.5">
+              <span>{isStreaming ? "Thinking" : "Awaiting response"}</span>
+              {isStreaming ? (
+                <span className="homie-dots inline-flex items-center gap-1 align-middle" aria-hidden="true">
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
+                </span>
+              ) : null}
             </div>
           )}
         </div>

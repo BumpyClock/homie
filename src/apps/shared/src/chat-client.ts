@@ -49,6 +49,37 @@ export interface ChatThreadReadResult {
   raw: unknown;
 }
 
+export interface ChatAccountProviderStatus {
+  id: string;
+  key: string;
+  enabled: boolean;
+  loggedIn: boolean;
+  expiresAt?: string;
+  scopes?: string[];
+  hasRefreshToken?: boolean;
+}
+
+export interface ChatDeviceCodeSession {
+  provider: string;
+  verificationUrl: string;
+  userCode: string;
+  deviceCode: string;
+  intervalSecs: number;
+  expiresAt: string;
+}
+
+export type ChatDeviceCodePollStatus =
+  | "pending"
+  | "slow_down"
+  | "authorized"
+  | "denied"
+  | "expired";
+
+export interface ChatDeviceCodePollResult {
+  status: ChatDeviceCodePollStatus;
+  intervalSecs?: number;
+}
+
 export interface SendChatMessageInput {
   chatId: string;
   message: string;
@@ -86,6 +117,17 @@ export interface SearchChatFilesInput {
   query: string;
   limit?: number;
   basePath?: string | null;
+}
+
+export interface StartChatAccountLoginInput {
+  provider: string;
+  profile?: string;
+}
+
+export interface PollChatAccountLoginInput {
+  provider: string;
+  session: ChatDeviceCodeSession;
+  profile?: string;
 }
 
 export interface ChatSettingsPatch {
@@ -126,6 +168,9 @@ export interface ChatClient {
   renameThread(input: RenameChatThreadInput): Promise<unknown>;
   respondApproval(input: RespondToApprovalInput): Promise<unknown>;
   readAccount(): Promise<Record<string, unknown>>;
+  listAccounts(): Promise<ChatAccountProviderStatus[]>;
+  startAccountLogin(input: StartChatAccountLoginInput): Promise<ChatDeviceCodeSession>;
+  pollAccountLogin(input: PollChatAccountLoginInput): Promise<ChatDeviceCodePollResult>;
   listModels(): Promise<ModelOption[]>;
   listCollaborationModes(): Promise<CollaborationModeOption[]>;
   listSkills(): Promise<SkillOption[]>;
@@ -180,6 +225,82 @@ function parseTurnResult(raw: unknown): ChatTurnResult {
     turnId: asString(record.turn_id || record.turnId) || undefined,
     queued: typeof record.queued === "boolean" ? record.queued : undefined,
     raw,
+  };
+}
+
+function normalizeAccountProviders(raw: unknown): ChatAccountProviderStatus[] {
+  const root = asObject(raw);
+  const providers = Array.isArray(root?.providers) ? root.providers : [];
+  return providers
+    .map((entry): ChatAccountProviderStatus | null => {
+      const record = asObject(entry);
+      if (!record) return null;
+      const id = asString(record.id);
+      if (!id) return null;
+      const key = asString(record.key) || id.replace(/-/g, "_");
+      const enabled = asBoolean(record.enabled) ?? false;
+      const loggedIn = asBoolean(record.logged_in ?? record.loggedIn) ?? false;
+      const expiresAt = asString(record.expires_at ?? record.expiresAt) || undefined;
+      const scopes = Array.isArray(record.scopes)
+        ? record.scopes.map((value) => asString(value)).filter(Boolean)
+        : undefined;
+      const hasRefreshToken =
+        asBoolean(record.has_refresh_token ?? record.hasRefreshToken) ?? undefined;
+      return {
+        id,
+        key,
+        enabled,
+        loggedIn,
+        expiresAt,
+        scopes,
+        hasRefreshToken,
+      };
+    })
+    .filter((entry): entry is ChatAccountProviderStatus => entry !== null);
+}
+
+function parseDeviceCodeSession(raw: unknown): ChatDeviceCodeSession {
+  const root = asObject(raw) ?? {};
+  const session = asObject(root.session) ?? root;
+  const provider = asString(session.provider);
+  const verificationUrl = asString(session.verification_url ?? session.verificationUrl);
+  const userCode = asString(session.user_code ?? session.userCode);
+  const deviceCode = asString(session.device_code ?? session.deviceCode);
+  const intervalSecsRaw = session.interval_secs ?? session.intervalSecs;
+  const intervalSecs =
+    typeof intervalSecsRaw === "number"
+      ? intervalSecsRaw
+      : Number.parseInt(asString(intervalSecsRaw) || "0", 10);
+  const expiresAt = asString(session.expires_at ?? session.expiresAt);
+  if (!provider || !verificationUrl || !userCode || !deviceCode || !intervalSecs || !expiresAt) {
+    throw new Error("Invalid device code session response");
+  }
+  return {
+    provider,
+    verificationUrl,
+    userCode,
+    deviceCode,
+    intervalSecs,
+    expiresAt,
+  };
+}
+
+function parseDeviceCodePoll(raw: unknown): ChatDeviceCodePollResult {
+  const record = asObject(raw) ?? {};
+  const status = asString(record.status) as ChatDeviceCodePollStatus;
+  const intervalRaw = record.interval_secs ?? record.intervalSecs;
+  const interval =
+    typeof intervalRaw === "number"
+      ? intervalRaw
+      : intervalRaw != null
+        ? Number.parseInt(asString(intervalRaw) || "0", 10)
+        : undefined;
+  if (!status) {
+    throw new Error("Invalid device code poll response");
+  }
+  return {
+    status,
+    intervalSecs: interval && interval > 0 ? interval : undefined,
   };
 }
 
@@ -631,6 +752,35 @@ export function createChatClient(transport: ChatRpcCall | ChatRpcTransport): Cha
     async readAccount() {
       const raw = await call("chat.account.read");
       return asObject(raw) ?? {};
+    },
+
+    async listAccounts() {
+      const raw = await call("chat.account.list");
+      return normalizeAccountProviders(raw);
+    },
+
+    async startAccountLogin(input) {
+      const raw = await call("chat.account.login.start", {
+        provider: input.provider,
+        profile: input.profile,
+      });
+      return parseDeviceCodeSession(raw);
+    },
+
+    async pollAccountLogin(input) {
+      const raw = await call("chat.account.login.poll", {
+        provider: input.provider,
+        profile: input.profile,
+        session: {
+          provider: input.session.provider,
+          verification_url: input.session.verificationUrl,
+          user_code: input.session.userCode,
+          device_code: input.session.deviceCode,
+          interval_secs: input.session.intervalSecs,
+          expires_at: input.session.expiresAt,
+        },
+      });
+      return parseDeviceCodePoll(raw);
     },
 
     async listModels() {

@@ -42,7 +42,7 @@ export function TerminalScreen({
   sessionMenu,
 }: TerminalScreenProps) {
   return (
-    <div className="min-h-[100dvh] w-screen flex flex-col bg-background overflow-hidden">
+    <div className="h-dvh w-screen flex flex-col bg-background overflow-hidden">
       <div className="flex items-center justify-between p-2 bg-muted/50 border-b border-border shrink-0">
         <div className="flex items-center gap-4">
           <button

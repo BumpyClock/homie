@@ -1,4 +1,4 @@
-import {
+export {
   sessionDisplayName,
   tmuxSessionName,
   type SessionInfo,

@@ -4,6 +4,8 @@ Location: `~/.homie/config.toml` (or `HOMIE_HOME` override).
 
 Example: `config.toml.example` (repo root).
 
+Provider auth runbook: `docs/provider-auth.md`.
+
 ## System prompt
 - Default prompt stored in repo: `src/core/system_prompt.md`.
 - On first run, Homie writes `~/.homie/system_prompt.md` if missing.
@@ -69,6 +71,98 @@ deny_tools = ["exec"]
 enabled = true
 channels = ["web"]
 ```
+
+## Provider auth flow (Homie)
+Detailed step-by-step flow: `docs/provider-auth.md`.
+
+Homie uses device-code auth for providers that support it.
+
+Supported now:
+- `openai-codex`
+- `github-copilot`
+
+Not supported via device-code:
+- `claude-code` (CLI credential import only)
+
+### Check provider status
+Call:
+- `chat.account.list`
+
+Response shape:
+- `providers[]` with:
+  - `id` (`openai-codex`, `github-copilot`, `claude-code`)
+  - `enabled` (from config)
+  - `logged_in`
+  - optional: `expires_at`, `scopes`, `has_refresh_token`
+
+### Start login
+Call:
+- `chat.account.login.start`
+
+Params:
+```json
+{
+  "provider": "github-copilot",
+  "profile": "default"
+}
+```
+
+Notes:
+- `provider` accepts either dash or underscore form:
+  - `github-copilot` / `github_copilot`
+  - `openai-codex` / `openai_codex`
+- `profile` is optional; default is `"default"`.
+
+Returns:
+- `session` with:
+  - `verification_url`
+  - `user_code`
+  - `device_code`
+  - `interval_secs`
+  - `expires_at` (RFC3339)
+
+### Poll login
+After user completes browser verification, call:
+- `chat.account.login.poll`
+
+Params:
+```json
+{
+  "provider": "github-copilot",
+  "profile": "default",
+  "session": {
+    "verification_url": "...",
+    "user_code": "...",
+    "device_code": "...",
+    "interval_secs": 5,
+    "expires_at": "2026-02-11T22:10:00Z"
+  }
+}
+```
+
+Poll result status:
+- `pending`
+- `slow_down`
+- `authorized`
+- `denied`
+- `expired`
+
+Stop when `authorized`, then refresh with:
+- `chat.account.list` (or `chat.account.read`)
+
+### Credentials storage
+- Default path: `~/.homie/credentials`
+- Override: `paths.credentials_dir` in `~/.homie/config.toml`
+- Provider files are TOML and profile-scoped.
+
+### Provider-specific notes
+- `openai-codex`:
+  - Homie can import Codex CLI credentials when available.
+- `github-copilot`:
+  - Requires Homie device-code flow above.
+  - `gh auth login` alone does not create Homie provider credentials.
+- `claude-code`:
+  - Uses CLI credential import (`providers.claude_code.import_from_cli = true`).
 
 ## Paths
 - `paths.credentials_dir` default: `~/.homie/credentials`.

@@ -31,6 +31,7 @@ export default function ChatTabScreen() {
     creatingChat,
     sendingMessage,
     models,
+    skills,
     selectedModel,
     selectedEffort,
     setSelectedModel,
@@ -114,6 +115,7 @@ export default function ChatTabScreen() {
                 sending={sendingMessage}
                 bottomInset={insets.bottom}
                 models={models}
+                skills={skills}
                 selectedModel={selectedModel}
                 selectedEffort={selectedEffort}
                 onSelectModel={setSelectedModel}

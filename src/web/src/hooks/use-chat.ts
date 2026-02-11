@@ -20,7 +20,11 @@ import { resolveChatAccountStatus } from "@/hooks/chat-account-status";
 import { applyThreadOverrides, updateThreadOverrides } from "@/hooks/chat-overrides";
 import {
   buildCollaborationPayload as buildCollaborationPayloadShared,
+  createChatClient,
   type ActiveChatThread,
+  type ChatAccountProviderStatus,
+  type ChatDeviceCodePollResult,
+  type ChatDeviceCodeSession,
   type ChatSettings,
   type ChatThreadSummary,
   type ChatWebToolName,
@@ -50,6 +54,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<ActiveChatThread | null>(null);
   const [account, setAccount] = useState<Record<string, unknown> | null>(null);
+  const [accountProviders, setAccountProviders] = useState<ChatAccountProviderStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [queuedNoticeByChatId, setQueuedNoticeByChatId] = useState<Record<string, boolean>>({});
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -109,6 +114,8 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     const preferred = models.find((model) => model.isDefault) ?? models[0];
     return preferred ? preferred.model || preferred.id : undefined;
   }, [models]);
+
+  const chatClient = useMemo(() => createChatClient(call), [call]);
 
   const baseSettings = useMemo<ChatSettings>(
     () => ({
@@ -255,6 +262,16 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     }
   }, [call, enabled, status]);
 
+  const refreshAccountProviders = useCallback(async () => {
+    if (!enabled || status !== "connected") return;
+    try {
+      const providers = await chatClient.listAccounts();
+      setAccountProviders(providers);
+    } catch {
+      setAccountProviders([]);
+    }
+  }, [chatClient, enabled, status]);
+
   const refreshSkills = useCallback(async () => {
     if (!enabled || status !== "connected") return;
     try {
@@ -296,6 +313,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     const timer = setTimeout(() => {
       refreshLocalSettings();
       void refreshAccount();
+      void refreshAccountProviders();
       void loadChats();
       void refreshModels();
       void refreshCollaborationModes();
@@ -308,6 +326,7 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     status,
     refreshLocalSettings,
     refreshAccount,
+    refreshAccountProviders,
     loadChats,
     refreshModels,
     refreshCollaborationModes,
@@ -457,6 +476,27 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
 
   const clearError = useCallback(() => setError(null), []);
 
+  const startAccountLogin = useCallback(async (provider: string, profile?: string) => {
+    const session = await chatClient.startAccountLogin({ provider, profile });
+    return session;
+  }, [chatClient]);
+
+  const pollAccountLogin = useCallback(
+    async (
+      provider: string,
+      session: ChatDeviceCodeSession,
+      profile?: string,
+    ): Promise<ChatDeviceCodePollResult> => {
+      const result = await chatClient.pollAccountLogin({ provider, session, profile });
+      if (result.status === "authorized") {
+        void refreshAccount();
+        void refreshAccountProviders();
+      }
+      return result;
+    },
+    [chatClient, refreshAccount, refreshAccountProviders],
+  );
+
   const accountStatus = useMemo(() => resolveChatAccountStatus(account), [account]);
 
   const queuedNotice = activeThread ? queuedNoticeByChatId[activeThread.chatId] ?? false : false;
@@ -475,6 +515,10 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
     renameChat,
     respondApproval,
     accountStatus,
+    accountProviders,
+    refreshAccountProviders,
+    startAccountLogin,
+    pollAccountLogin,
     models,
     collaborationModes,
     supportsCollaboration,

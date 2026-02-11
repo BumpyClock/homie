@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Folder } from "lucide-react";
+import { ArrowDown, ArrowUp, Folder, MessageCircleDashed } from "lucide-react";
 import { ChatTurns } from "@/components/chat-turns";
 import { groupTurns } from "@/lib/chat-turns-utils";
 import { ChatComposerBar } from "@/components/chat-composer-bar";
@@ -9,7 +9,7 @@ import { ChatThreadHeader } from "@/components/chat-thread-header";
 import { ChatComposerInput } from "@/components/chat-composer-input";
 import { useChat } from "@/hooks/use-chat";
 import type { ConnectionStatus } from "@/hooks/use-gateway";
-import type { FileOption, SkillOption } from "@/lib/chat-utils";
+import type { ChatDeviceCodeSession, FileOption, SkillOption } from "@/lib/chat-utils";
 import { getTextareaCaretPosition } from "@/lib/caret";
 
 interface ChatPanelProps {
@@ -35,6 +35,10 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     renameChat,
     respondApproval,
     accountStatus,
+    accountProviders,
+    refreshAccountProviders,
+    startAccountLogin,
+    pollAccountLogin,
     models,
     collaborationModes,
     skills,
@@ -48,6 +52,9 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     formatRelativeTime,
     queuedNotice,
   } = useChat({ status, call, onEvent, enabled, namespace });
+  const [authSessions, setAuthSessions] = useState<Record<string, ChatDeviceCodeSession | undefined>>({});
+  const [authBusyByProvider, setAuthBusyByProvider] = useState<Record<string, boolean>>({});
+  const [authErrorByProvider, setAuthErrorByProvider] = useState<Record<string, string | undefined>>({});
 
   const [draft, setDraft] = useState("");
   const [showThreadList, setShowThreadList] = useState(() => {
@@ -74,13 +81,38 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   const stickToBottomRef = useRef(true);
   const mentionSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mentionQueryRef = useRef("");
-  const [visibleTurnCount, setVisibleTurnCount] = useState(40);
+  const [visibleTurnCount, setVisibleTurnCount] = useState(60);
+  const [stickToBottom, setStickToBottom] = useState(true);
+  const emptySuggestions = useMemo(
+    () => [
+      "Explain this repository structure.",
+      "Summarize recent chat and terminal activity.",
+      "Find likely bugs in the current branch.",
+      "Plan the next implementation steps.",
+    ],
+    [],
+  );
+
+  const providerLabel = useMemo<Record<string, string>>(
+    () => ({
+      "openai-codex": "OpenAI Codex",
+      "github-copilot": "GitHub Copilot",
+      "claude-code": "Claude Code",
+    }),
+    [],
+  );
 
   const activeTitle = activeThread?.title ?? "";
   const isMobileViewport = typeof window !== "undefined" ? window.innerWidth < 640 : false;
   const canSend = status === "connected" && !!activeThread;
   const canEditSettings = status === "connected" && !!activeThread;
   const attachedFolder = activeSettings.attachedFolder;
+
+  useEffect(() => {
+    setAuthSessions({});
+    setAuthBusyByProvider({});
+    setAuthErrorByProvider({});
+  }, [namespace]);
 
   const skillOptions = useMemo(() => {
     if (!trigger || trigger.type !== "slash") return [];
@@ -139,6 +171,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   const handleSend = async () => {
     if (!draft.trim()) return;
     stickToBottomRef.current = true;
+    setStickToBottom(true);
     await sendMessage(draft);
     setDraft("");
     setTrigger(null);
@@ -193,7 +226,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
 
   const updateTrigger = (value: string, cursorPosition: number) => {
     const textBefore = value.slice(0, cursorPosition);
-    const slashMatch = textBefore.match(/(?:^|\s)\/(\w*)$/);
+    const slashMatch = textBefore.match(/(?:^|\s)\/([\w-]*)$/);
     const atMatch = textBefore.match(/@([\w./-]*)$/);
     if (atMatch) {
       const start = textBefore.lastIndexOf("@");
@@ -201,7 +234,12 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
       const valid = /\s/.test(charBefore) || /[("']/.test(charBefore) || start === 0;
       if (valid) {
         updateMenuPosition(value, cursorPosition);
-        const nextTrigger = {
+        const nextTrigger: {
+          type: "mention";
+          start: number;
+          cursor: number;
+          query: string;
+        } = {
           type: "mention",
           start,
           cursor: cursorPosition,
@@ -276,8 +314,9 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     setTitleDraft("");
     setAttachOpen(false);
     setAttachDraft("");
-    setVisibleTurnCount(40);
+    setVisibleTurnCount(60);
     stickToBottomRef.current = true;
+    setStickToBottom(true);
     if (isMobileViewport) {
       setShowThreadList(false);
     }
@@ -289,15 +328,50 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     setTitleDraft("");
     setAttachOpen(false);
     setAttachDraft("");
-    setVisibleTurnCount(40);
+    setVisibleTurnCount(60);
     stickToBottomRef.current = true;
+    setStickToBottom(true);
     if (isMobileViewport) {
       setShowThreadList(false);
     }
   };
 
+  const connectProvider = async (provider: string) => {
+    setAuthErrorByProvider((prev) => ({ ...prev, [provider]: undefined }));
+    setAuthBusyByProvider((prev) => ({ ...prev, [provider]: true }));
+    try {
+      const session = await startAccountLogin(provider);
+      setAuthSessions((prev) => ({ ...prev, [provider]: session }));
+      let delaySeconds = Math.max(1, session.intervalSecs || 5);
+      for (let i = 0; i < 120; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+        const result = await pollAccountLogin(provider, session);
+        if (result.status === "authorized") {
+          setAuthSessions((prev) => ({ ...prev, [provider]: undefined }));
+          setAuthBusyByProvider((prev) => ({ ...prev, [provider]: false }));
+          await refreshAccountProviders();
+          return;
+        }
+        if (result.status === "pending" || result.status === "slow_down") {
+          delaySeconds = Math.max(1, result.intervalSecs ?? delaySeconds);
+          continue;
+        }
+        const reason = result.status === "denied" ? "Access denied." : "Device code expired.";
+        setAuthErrorByProvider((prev) => ({ ...prev, [provider]: reason }));
+        setAuthBusyByProvider((prev) => ({ ...prev, [provider]: false }));
+        return;
+      }
+      setAuthErrorByProvider((prev) => ({ ...prev, [provider]: "Authorization timed out." }));
+    } catch (nextError) {
+      const message = nextError instanceof Error ? nextError.message : "Login failed.";
+      setAuthErrorByProvider((prev) => ({ ...prev, [provider]: message }));
+    } finally {
+      setAuthBusyByProvider((prev) => ({ ...prev, [provider]: false }));
+    }
+  };
+
   return (
-    <div className="h-full min-h-0 flex border border-border rounded-lg overflow-hidden bg-card/20">
+    <div className="relative h-full min-h-0 overflow-hidden bg-transparent sm:flex">
       <ChatThreadList
         threads={threads}
         activeChatId={activeChatId}
@@ -310,8 +384,12 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
       />
 
       <section
-        className={`flex-1 min-h-0 flex flex-col ${
-          isMobileViewport ? (showThreadList ? "hidden" : "flex") : "flex"
+        className={`absolute inset-0 sm:static sm:flex flex-1 min-h-0 flex-col transition-transform duration-200 ease-out motion-reduce:transition-none will-change-transform ${
+          isMobileViewport
+            ? showThreadList
+              ? "translate-x-full pointer-events-none"
+              : "translate-x-0 pointer-events-auto"
+            : "translate-x-0 pointer-events-auto"
         }`}
       >
         <ChatThreadHeader
@@ -343,7 +421,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
         />
 
         <div
-          className="flex-1 min-h-0"
+          className="relative flex-1 min-h-0"
           style={{
             maskImage:
               "linear-gradient(to bottom, transparent 0%, black 32px, black calc(100% - 32px), transparent 100%)",
@@ -357,7 +435,9 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               const viewport = scrollRef.current;
               if (!viewport) return;
               const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-              stickToBottomRef.current = distance < 24;
+              const nearBottom = distance < 24;
+              stickToBottomRef.current = nearBottom;
+              setStickToBottom((prev) => (prev === nearBottom ? prev : nearBottom));
               if (viewport.scrollTop < 120 && activeThread) {
                 const totalTurns = groupTurns(activeThread.items).length;
                 if (visibleTurnCount < totalTurns) {
@@ -371,11 +451,52 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
                 }
               }
             }}
-            className="h-full overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4"
+            className="chat-scroll h-full overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4"
           >
           {!accountStatus.ok && (
             <div className="rounded-lg border border-amber-400/60 bg-amber-50/70 dark:bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
-              {accountStatus.message}
+              <div className="font-medium">{accountStatus.message}</div>
+              {accountProviders.length > 0 ? (
+                <div className="mt-3 space-y-3">
+                  {accountProviders
+                    .filter((provider) => provider.enabled)
+                    .map((provider) => {
+                      const session = authSessions[provider.id];
+                      const busy = !!authBusyByProvider[provider.id];
+                      const authError = authErrorByProvider[provider.id];
+                      return (
+                        <div key={provider.id} className="rounded-md border border-amber-400/40 bg-amber-100/60 dark:bg-amber-500/5 p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium">{providerLabel[provider.id] ?? provider.id}</span>
+                            {provider.loggedIn ? (
+                              <span className="text-xs px-2 py-0.5 rounded-full border border-emerald-500/50 text-emerald-700 dark:text-emerald-300">
+                                Connected
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void connectProvider(provider.id)}
+                                className="px-2 py-1 text-xs rounded border border-amber-500/50 hover:bg-amber-200/50 disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {busy ? "Connecting..." : "Connect"}
+                              </button>
+                            )}
+                          </div>
+                          {!provider.loggedIn && session ? (
+                            <div className="mt-2 text-xs space-y-1">
+                              <div>
+                                Visit <a className="underline" href={session.verificationUrl} target="_blank" rel="noreferrer">{session.verificationUrl}</a> and enter code:
+                              </div>
+                              <div className="font-mono tracking-wide">{session.userCode}</div>
+                            </div>
+                          ) : null}
+                          {authError ? <div className="mt-2 text-xs text-red-700 dark:text-red-300">{authError}</div> : null}
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -404,8 +525,29 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
                 />
               </div>
             ) : (
-              <div className="text-sm text-muted-foreground">
-                No messages yet. Start the conversation below.
+              <div className="min-h-[280px] flex flex-col items-center justify-center text-center gap-4 px-4">
+                <div className="h-12 w-12 rounded-full border border-border bg-card/40 inline-flex items-center justify-center text-muted-foreground">
+                  <MessageCircleDashed className="h-6 w-6" />
+                </div>
+                <div>
+                  <div className="text-base font-semibold tracking-tight">What would you like to work on?</div>
+                  <div className="text-sm text-muted-foreground mt-1">Start with a prompt or choose a suggestion.</div>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {emptySuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => {
+                        setDraft(suggestion);
+                        requestAnimationFrame(() => inputRef.current?.focus());
+                      }}
+                      className="rounded-full border border-border bg-card/40 px-3 py-1.5 text-sm hover:bg-muted/40 transition-colors motion-reduce:transition-none"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
               </div>
             )
           ) : (
@@ -415,6 +557,23 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
           )}
           <div ref={endRef} />
           </div>
+          {!stickToBottom && activeThread?.running ? (
+            <div className="pointer-events-none absolute right-8 bottom-24 sm:bottom-28">
+              <button
+                type="button"
+                onClick={() => {
+                  stickToBottomRef.current = true;
+                  setStickToBottom(true);
+                  scrollToBottom("smooth");
+                }}
+                className="pointer-events-auto homie-fab-in inline-flex items-center gap-1.5 rounded-full bg-primary/90 text-primary-foreground shadow-md px-3 py-2 text-xs hover:bg-primary transition-colors motion-reduce:transition-none"
+                aria-label="Scroll to latest messages"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+                New messages
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="border-t border-border p-4 bg-card/60 relative">
@@ -515,6 +674,16 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               inputRef={inputRef}
               disabled={!canSend}
               placeholder={canSend ? "Send a message…" : "Connect to a gateway to chat."}
+              action={
+                <button
+                  type="submit"
+                  disabled={!canSend || !draft.trim()}
+                  className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors motion-reduce:transition-none disabled:opacity-40"
+                  aria-label="Send message"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </button>
+              }
               onChange={(value, cursor) => {
                 setDraft(value);
                 updateTrigger(value, cursor);
@@ -581,11 +750,15 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
             <button
               type="submit"
               disabled={!canSend || !draft.trim()}
-              className="w-full sm:w-auto px-4 py-2 min-h-[44px] rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="w-full sm:hidden inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] rounded-full bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors motion-reduce:transition-none disabled:opacity-50"
             >
+              <ArrowUp className="h-4 w-4" />
               Send
             </button>
           </form>
+          <div className="hidden sm:block mt-2 text-[11px] text-muted-foreground/80">
+            Enter to send · Shift+Enter for newline
+          </div>
           <ChatInlineMenu
             trigger={trigger}
             visible={menuVisible}

@@ -85,6 +85,10 @@ channels = ["web"]
 enabled = true
 issuer = "https://auth.openai.com"
 refresh_token_url_override = ""
+# Auth trigger:
+# - call chat.account.login.start {provider:"openai-codex"}
+# - complete verification_url + user_code
+# - poll chat.account.login.poll until status="authorized"
 
 [providers.github_copilot]
 enabled = true
@@ -92,6 +96,11 @@ github_host = "github.com"
 device_code_url = "https://github.com/login/device/code"
 token_url = "https://github.com/login/oauth/access_token"
 copilot_token_url = "https://api.github.com/copilot_internal/v2/token"
+# Auth trigger:
+# - call chat.account.login.start {provider:"github-copilot"}
+# - complete verification_url + user_code
+# - poll chat.account.login.poll until status="authorized"
+# Note: gh auth login alone does not populate ~/.homie/credentials for this provider.
 
 [providers.claude_code]
 enabled = true

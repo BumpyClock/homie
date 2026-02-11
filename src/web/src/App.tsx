@@ -40,6 +40,9 @@ function App() {
   const [runningSessions, setRunningSessions] = useState<SessionInfo[]>([]);
   const [runningSessionsLoading, setRunningSessionsLoading] = useState(false);
   const [runningSessionsError, setRunningSessionsError] = useState<string | null>(null);
+  const sessionMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const sessionMenuRef = useRef<HTMLDivElement | null>(null);
+  const sessionMenuFirstItemRef = useRef<HTMLButtonElement | null>(null);
 
   const fetchRunningSessions = useCallback(async () => {
     if (status !== 'connected') return;
@@ -102,6 +105,39 @@ function App() {
     if (!isSessionMenuOpen) return;
     void fetchRunningSessions();
   }, [isSessionMenuOpen, fetchRunningSessions, refreshToken]);
+
+  useEffect(() => {
+    if (!isSessionMenuOpen) return;
+
+    requestAnimationFrame(() => {
+      sessionMenuFirstItemRef.current?.focus();
+    });
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsSessionMenuOpen(false);
+        sessionMenuTriggerRef.current?.focus();
+      }
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      const insideMenu =
+        sessionMenuRef.current?.contains(target) ||
+        sessionMenuTriggerRef.current?.contains(target);
+      if (!insideMenu) {
+        setIsSessionMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [isSessionMenuOpen]);
 
   useEffect(() => {
     if (!isTargetOpen) return;
@@ -252,6 +288,9 @@ function App() {
             isOpen: isSessionMenuOpen,
             onToggle: () => setIsSessionMenuOpen((v) => !v),
             onClose: () => setIsSessionMenuOpen(false),
+            triggerRef: sessionMenuTriggerRef,
+            menuRef: sessionMenuRef,
+            firstItemRef: sessionMenuFirstItemRef,
             sessions: runningActive,
             loading: runningSessionsLoading,
             error: runningSessionsError,
@@ -264,7 +303,7 @@ function App() {
 
   // Dashboard View
   return (
-    <div className="min-h-[100dvh] bg-background text-foreground flex flex-col overflow-hidden">
+    <div className="homie-app-shell h-dvh min-h-0 bg-background text-foreground flex flex-col overflow-hidden">
       <GatewayHeader
         status={status}
         serverHello={serverHello}

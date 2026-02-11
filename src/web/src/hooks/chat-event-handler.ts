@@ -93,10 +93,14 @@ export function handleChatEvent(event: ChatGatewayEvent, ctx: ChatEventContext) 
       setRunningState(ctx, mapped.chatId, true, mapped.turnId);
     }
 
-    if (ctx.activeChatIdRef.current === mapped.chatId && mapped.itemId) {
+    if (ctx.activeChatIdRef.current === mapped.chatId) {
       ctx.setActiveThread((prev) => {
         if (!prev) return prev;
-        const index = prev.items.findIndex((item) => item.id === mapped.itemId);
+        const fallbackId = mapped.turnId
+          ? `assistant-${mapped.turnId}`
+          : `assistant-${mapped.activityAt}`;
+        const itemId = mapped.itemId ?? fallbackId;
+        const index = prev.items.findIndex((item) => item.id === itemId);
         if (index >= 0) {
           const next = [...prev.items];
           next[index] = { ...next[index], text: mapped.text };
@@ -107,7 +111,7 @@ export function handleChatEvent(event: ChatGatewayEvent, ctx: ChatEventContext) 
           items: [
             ...prev.items,
             {
-              id: mapped.itemId,
+              id: itemId,
               kind: "assistant",
               role: "assistant",
               text: mapped.text,

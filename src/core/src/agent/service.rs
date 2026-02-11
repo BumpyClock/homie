@@ -311,6 +311,9 @@ impl CodexChatCore {
                     )
                 }
             };
+        let normalized_model = model
+            .as_ref()
+            .map(|m| normalize_model_selector(m, &self.homie_config.providers));
 
         if self.use_roci() {
             let thread_id = match self.resolve_thread_id(&chat_id, None) {
@@ -325,7 +328,7 @@ impl CodexChatCore {
             };
 
             let settings = build_chat_settings(
-                model.as_ref(),
+                normalized_model.as_ref(),
                 effort.as_ref(),
                 approval_policy.as_ref(),
                 collaboration_mode.as_ref(),
@@ -356,7 +359,7 @@ impl CodexChatCore {
                 }
             }
 
-            let roci_model = match RociBackend::parse_model(model.as_ref()) {
+            let roci_model = match RociBackend::parse_model(normalized_model.as_ref()) {
                 Ok(model) => model,
                 Err(err) => return Response::error(req_id, error_codes::INVALID_PARAMS, err),
             };
@@ -417,7 +420,7 @@ impl CodexChatCore {
             "threadId": thread_id,
             "input": [{"type": "text", "text": message}],
         });
-        if let Some(model) = model.as_ref() {
+        if let Some(model) = normalized_model.as_ref() {
             codex_params["model"] = json!(model);
         }
         if let Some(effort) = effort.as_ref() {
@@ -432,7 +435,7 @@ impl CodexChatCore {
             }
         }
         let settings = build_chat_settings(
-            model.as_ref(),
+            normalized_model.as_ref(),
             effort.as_ref(),
             approval_policy.as_ref(),
             collaboration_mode.as_ref(),
@@ -645,6 +648,7 @@ impl CodexChatCore {
                 )
             }
         };
+        let updates = normalize_settings_models(updates, &self.homie_config.providers);
 
         let existing = self
             .store
@@ -1162,6 +1166,24 @@ impl CodexChatCore {
                             if let Some(base) = config.get_base_url("openai") {
                                 config.set_base_url("openai-codex", base);
                             }
+                        }
+                    }
+                }
+            }
+            "github-copilot" => {
+                if cfg.github_copilot.enabled && config.get_api_key("github-copilot").is_none() {
+                    let auth = self.github_copilot_auth(store.clone(), "default");
+                    if let Ok(token) = auth.exchange_copilot_token().await {
+                        config.set_api_key("github-copilot", token.token.clone());
+                        if config.get_base_url("github-copilot").is_none() {
+                            config.set_base_url("github-copilot", token.base_url.clone());
+                        }
+                        // Backward-compat for legacy openai-compatible model selectors.
+                        if config.get_api_key("openai-compatible").is_none() {
+                            config.set_api_key("openai-compatible", token.token.clone());
+                        }
+                        if config.get_base_url("openai-compatible").is_none() {
+                            config.set_base_url("openai-compatible", token.base_url);
                         }
                     }
                 }
@@ -2072,6 +2094,62 @@ fn parse_settings_update_params(params: &Option<Value>) -> Option<(String, Value
     Some((chat_id, settings))
 }
 
+fn normalize_settings_models(settings: Value, providers: &ProvidersConfig) -> Value {
+    let mut map = match settings {
+        Value::Object(map) => map,
+        other => return other,
+    };
+    if let Some(model_value) = map.get("model").and_then(|v| v.as_str()) {
+        map.insert(
+            "model".to_string(),
+            Value::String(normalize_model_selector(model_value, providers)),
+        );
+    }
+    Value::Object(map)
+}
+
+fn normalize_model_selector(raw: &str, providers: &ProvidersConfig) -> String {
+    let trimmed = raw.trim();
+    if !providers.github_copilot.enabled {
+        return trimmed.to_string();
+    }
+    if let Some(model_id) = trimmed.strip_prefix("openai-compatible:") {
+        if is_known_copilot_model(model_id) {
+            return format!("github-copilot:{model_id}");
+        }
+    }
+    trimmed.to_string()
+}
+
+fn is_known_copilot_model(model_id: &str) -> bool {
+    matches!(
+        model_id.trim(),
+        "gpt-4.1"
+            | "gpt-5"
+            | "gpt-5-mini"
+            | "gpt-5.3-codex"
+            | "gpt-5-codex"
+            | "gpt-5.1"
+            | "gpt-5.1-codex"
+            | "gpt-5.1-codex-mini"
+            | "gpt-5.1-codex-max"
+            | "gpt-5.2"
+            | "gpt-5.2-codex"
+            | "claude-haiku-4.5"
+            | "claude-opus-4.1"
+            | "claude-opus-4.5"
+            | "claude-opus-4.6"
+            | "claude-opus-4.6-fast"
+            | "claude-sonnet-4"
+            | "claude-sonnet-4.5"
+            | "gemini-2.5-pro"
+            | "gemini-3-flash"
+            | "gemini-3-pro"
+            | "grok-code-fast-1"
+            | "raptor-mini"
+    )
+}
+
 fn parse_files_search_params(
     params: &Option<Value>,
 ) -> Option<(String, String, usize, Option<String>)> {
@@ -2492,14 +2570,17 @@ fn roci_model_catalog(providers: &ProvidersConfig) -> Vec<Value> {
 
     if providers.openai_codex.enabled {
         let codex_models = [
+            "gpt-5.3-codex",
+            "gpt-5.2",
             "gpt-5.2-codex",
+            "gpt-5-codex",
             "gpt-5.1-codex",
             "gpt-5.1-codex-mini",
             "gpt-5.1-codex-max",
         ];
-        for model_id in codex_models {
+        for (idx, model_id) in codex_models.iter().enumerate() {
             let model = format!("openai-codex:{model_id}");
-            let is_default = !default_set && model_id == "gpt-5.1-codex";
+            let is_default = !default_set && idx == 0;
             if is_default {
                 default_set = true;
             }
@@ -2513,9 +2594,36 @@ fn roci_model_catalog(providers: &ProvidersConfig) -> Vec<Value> {
     }
 
     if providers.github_copilot.enabled {
-        let compat_models = ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"];
+        let compat_models = [
+            // Source: https://docs.github.com/en/copilot/reference/ai-models/supported-models
+            // (validated 2026-02-11). Keep broad so fallback tracks Copilot's
+            // cross-provider catalog when live discovery is unavailable.
+            "gpt-4.1",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5.3-codex",
+            "gpt-5-codex",
+            "gpt-5.1",
+            "gpt-5.1-codex",
+            "gpt-5.1-codex-mini",
+            "gpt-5.1-codex-max",
+            "gpt-5.2",
+            "gpt-5.2-codex",
+            "claude-haiku-4.5",
+            "claude-opus-4.1",
+            "claude-opus-4.5",
+            "claude-opus-4.6",
+            "claude-opus-4.6-fast",
+            "claude-sonnet-4",
+            "claude-sonnet-4.5",
+            "gemini-2.5-pro",
+            "gemini-3-flash",
+            "gemini-3-pro",
+            "grok-code-fast-1",
+            "raptor-mini",
+        ];
         for model_id in compat_models {
-            let model = format!("openai-compatible:{model_id}");
+            let model = format!("github-copilot:{model_id}");
             models.push(json!({
                 "id": model,
                 "model": model,
@@ -2677,6 +2785,63 @@ mod tests {
         }));
         let (_, _, _, _, _, _, inject) = parse_message_params(&params).unwrap();
         assert!(inject);
+    }
+
+    #[test]
+    fn normalize_model_selector_upgrades_legacy_copilot_ids() {
+        let providers = ProvidersConfig {
+            github_copilot: crate::homie_config::GithubCopilotProviderConfig {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let normalized = normalize_model_selector("openai-compatible:gpt-5.2-codex", &providers);
+        assert_eq!(normalized, "github-copilot:gpt-5.2-codex");
+    }
+
+    #[test]
+    fn normalize_model_selector_keeps_unknown_compat_ids() {
+        let providers = ProvidersConfig {
+            github_copilot: crate::homie_config::GithubCopilotProviderConfig {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let normalized =
+            normalize_model_selector("openai-compatible:custom-proxy-model", &providers);
+        assert_eq!(normalized, "openai-compatible:custom-proxy-model");
+    }
+
+    #[test]
+    fn roci_model_catalog_uses_github_copilot_prefix() {
+        let providers = ProvidersConfig {
+            github_copilot: crate::homie_config::GithubCopilotProviderConfig {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let models = roci_model_catalog(&providers);
+        assert!(
+            models.iter().any(|m| {
+                m.get("model")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.starts_with("github-copilot:"))
+                    .unwrap_or(false)
+            }),
+            "expected at least one github-copilot model in catalog"
+        );
+        assert!(
+            !models.iter().any(|m| {
+                m.get("model")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.starts_with("openai-compatible:"))
+                    .unwrap_or(false)
+            }),
+            "did not expect openai-compatible fallback entries for copilot catalog"
+        );
     }
 
     #[test]

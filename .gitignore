@@ -3,3 +3,5 @@ target/
 **/*.rs.bk
 *.db
 .ai_agents/
+plans/
+node_modules/

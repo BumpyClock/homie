@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "pnpm --dir ../apps/shared build",
     "dev": "vite",
+    "prebuild": "pnpm --dir ../apps/shared build",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
@@ -12,6 +14,7 @@
   },
   "dependencies": {
     "@homie/shared": "file:../apps/shared",
+    "@radix-ui/react-select": "^2.2.6",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "clsx": "^2.1.1",

@@ -19,26 +19,44 @@
 
 @layer base {
   :root {
-    /* Default Light Scheme (Zinc-ish) */
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    /* Default Light Scheme (Aligned with Mobile) */
+    --background: 216 33.3% 97.1%;
+    --foreground: 211.8 36.2% 9.2%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 211.8 36.2% 9.2%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
+    --popover-foreground: 211.8 36.2% 9.2%;
+    --primary: 210.3 91.7% 47.5%;
     --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
+    --secondary: 220 25% 95.3%;
+    --secondary-foreground: 211.8 36.2% 9.2%;
+    --muted: 220 25% 95.3%;
+    --muted-foreground: 213.1 13.7% 41.4%;
+    --accent: 216 27.8% 92.9%;
+    --accent-foreground: 211.8 36.2% 9.2%;
+    --destructive: 350.4 56.1% 48.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
+    --border: 211.8 36.2% 9.2% / 0.08;
+    --input: 211.8 36.2% 9.2% / 0.08;
+    --ring: 210.3 91.7% 47.5%;
+
+    /* Extended semantic tokens (aligned with mobile) */
+    --surface-0: 0 0% 100%;
+    --surface-1: 220 25% 95.3%;
+    --surface-2: 216 27.8% 92.9%;
+    --surface-3: 216.9 23.6% 89.2%;
+    --text-primary: 211.8 36.2% 9.2%;
+    --text-secondary: 213.1 13.7% 41.4%;
+    --text-tertiary: 214.3 15.6% 64.7%;
+    --accent-dim: 210.3 91.7% 47.5% / 0.08;
+    --success: 153.8 69.2% 33.1%;
+    --success-dim: 153.8 69.2% 33.1% / 0.08;
+    --warning: 34.7 89.2% 36.5%;
+    --warning-dim: 34.7 89.2% 36.5% / 0.08;
+    --danger: 350.4 56.1% 48.2%;
+    --danger-dim: 350.4 56.1% 48.2% / 0.08;
+    --border-active: 211.8 36.2% 9.2% / 0.16;
+    --overlay: 0 0% 0% / 0.3;
 
     /* Terminal ANSI palette (default light) */
     --term-black: 240 10% 3.9%;
@@ -60,29 +78,51 @@
     --term-bright-white: 240 5.9% 10%;
 
     --radius: 0.5rem;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
   }
 
   .dark {
-    /* Default Dark Scheme (Zinc-ish) */
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
+    /* Default Dark Scheme (Aligned with Mobile) */
+    --background: 216.9 37.1% 6.9%;
+    --foreground: 212.7 31.4% 93.1%;
+    --card: 210 32% 9.8%;
+    --card-foreground: 212.7 31.4% 93.1%;
+    --popover: 210 32% 9.8%;
+    --popover-foreground: 212.7 31.4% 93.1%;
+    --primary: 211 100% 65.5%;
+    --primary-foreground: 216.9 37.1% 6.9%;
+    --secondary: 211.4 30.4% 13.5%;
+    --secondary-foreground: 212.7 31.4% 93.1%;
+    --muted: 211.4 30.4% 13.5%;
+    --muted-foreground: 212.7 14.3% 54.7%;
+    --accent: 211.2 28.7% 17.1%;
+    --accent-foreground: 212.7 31.4% 93.1%;
+    --destructive: 350.1 81.7% 67.8%;
+    --destructive-foreground: 216.9 37.1% 6.9%;
+    --border: 0 0% 100% / 0.06;
+    --input: 0 0% 100% / 0.06;
+    --ring: 211 100% 65.5%;
+
+    /* Extended semantic tokens (aligned with mobile) */
+    --surface-0: 210 32% 9.8%;
+    --surface-1: 211.4 30.4% 13.5%;
+    --surface-2: 211.2 28.7% 17.1%;
+    --surface-3: 212 27.8% 21.2%;
+    --text-primary: 212.7 31.4% 93.1%;
+    --text-secondary: 212.7 14.3% 54.7%;
+    --text-tertiary: 214 16.9% 34.9%;
+    --accent-dim: 211 100% 65.5% / 0.12;
+    --success: 153.3 51.6% 51.4%;
+    --success-dim: 153.3 51.6% 51.4% / 0.12;
+    --warning: 37.9 84.5% 62.2%;
+    --warning-dim: 37.9 84.5% 62.2% / 0.12;
+    --danger: 350.1 81.7% 67.8%;
+    --danger-dim: 350.1 81.7% 67.8% / 0.12;
+    --border-active: 0 0% 100% / 0.12;
+    --overlay: 0 0% 0% / 0.45;
 
     /* Terminal ANSI palette (default dark) */
     --term-black: 240 6% 8%;
@@ -522,6 +562,23 @@
   }
 }
 
+:root {
+  --duration-micro: 80ms;
+  --duration-fast: 140ms;
+  --duration-standard: 200ms;
+  --duration-emphasis: 300ms;
+  --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-move: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.homie-app-shell {
+  min-height: 100dvh;
+  min-height: 100svh;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 @theme {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -542,6 +599,22 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-surface-0: hsl(var(--surface-0));
+  --color-surface-1: hsl(var(--surface-1));
+  --color-surface-2: hsl(var(--surface-2));
+  --color-surface-3: hsl(var(--surface-3));
+  --color-text-primary: hsl(var(--text-primary));
+  --color-text-secondary: hsl(var(--text-secondary));
+  --color-text-tertiary: hsl(var(--text-tertiary));
+  --color-accent-dim: hsl(var(--accent-dim));
+  --color-success: hsl(var(--success));
+  --color-success-dim: hsl(var(--success-dim));
+  --color-warning: hsl(var(--warning));
+  --color-warning-dim: hsl(var(--warning-dim));
+  --color-danger: hsl(var(--danger));
+  --color-danger-dim: hsl(var(--danger-dim));
+  --color-border-active: hsl(var(--border-active));
+  --color-overlay: hsl(var(--overlay));
   --radius-radius: var(--radius);
 }
 
@@ -586,6 +659,75 @@
   animation: homie-fade-in 160ms cubic-bezier(0.25, 1, 0.5, 1) both;
 }
 
+@keyframes homie-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.homie-message-in {
+  animation: homie-message-in var(--duration-standard, 200ms) var(--ease-enter, cubic-bezier(0, 0, 0.2, 1))
+    both;
+}
+
+@keyframes homie-fab-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.homie-fab-in {
+  animation: homie-fab-in var(--duration-standard, 200ms) var(--ease-out-quart, cubic-bezier(0.165, 0.84, 0.44, 1))
+    both;
+  will-change: transform, opacity;
+}
+
+.homie-activity-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-emphasis, 300ms) var(--ease-move, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.homie-activity-collapse[data-expanded="true"] {
+  grid-template-rows: 1fr;
+}
+
+.homie-activity-collapse > div {
+  overflow: hidden;
+}
+
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.15) transparent;
+}
+
+.chat-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.15);
+  border-radius: 3px;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.25);
+}
+
 @keyframes homie-dot {
   0%,
   80%,
@@ -612,11 +754,26 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-micro: 0ms;
+    --duration-fast: 0ms;
+    --duration-standard: 0ms;
+    --duration-emphasis: 0ms;
+  }
   .homie-popover {
     animation: none;
   }
   .homie-fade-in {
     animation: none;
+  }
+  .homie-message-in {
+    animation: none;
+  }
+  .homie-fab-in {
+    animation: none;
+  }
+  .homie-activity-collapse {
+    transition: none;
   }
   .homie-dots span {
     animation: none;

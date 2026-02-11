@@ -1,6 +1,9 @@
 import {
   buildChatThreadSummaries,
+  type ChatAccountProviderStatus,
   type ChatApprovalDecision,
+  type ChatDeviceCodePollResult,
+  type ChatDeviceCodeSession,
   type ChatEffort,
   createChatClient,
   deriveTitleFromThread,
@@ -8,6 +11,7 @@ import {
   mapChatEvent,
   type ModelOption,
   type SessionInfo,
+  type SkillOption,
   type TmuxListResponse,
   type TmuxSessionInfo,
   subscribeToChatEvents,
@@ -56,12 +60,15 @@ export interface UseGatewayChatResult {
   tmuxError: string | null;
   tmuxSessions: TmuxSessionInfo[];
   models: ModelOption[];
+  skills: SkillOption[];
+  accountProviders: ChatAccountProviderStatus[];
   selectedModel: string | null;
   selectedEffort: ChatEffort;
   setSelectedModel: (modelId: string | null) => void;
   setSelectedEffort: (effort: ChatEffort) => void;
   selectThread: (chatId: string) => void;
   refreshThreads: () => Promise<void>;
+  refreshAccountProviders: () => Promise<void>;
   refreshTerminals: () => Promise<void>;
   startTerminalSession: (shell?: string) => Promise<string | null>;
   attachTmuxSession: (sessionName: string) => Promise<string | null>;
@@ -77,6 +84,12 @@ export interface UseGatewayChatResult {
   renameThread: (chatId: string, title: string) => Promise<void>;
   archiveThread: (chatId: string) => Promise<void>;
   respondApproval: (requestId: number | string, decision: ChatApprovalDecision) => Promise<void>;
+  startProviderLogin: (provider: string, profile?: string) => Promise<ChatDeviceCodeSession>;
+  pollProviderLogin: (
+    provider: string,
+    session: ChatDeviceCodeSession,
+    profile?: string,
+  ) => Promise<ChatDeviceCodePollResult>;
 }
 
 function normalizeTerminalSessions(raw: unknown): SessionInfo[] {
@@ -171,6 +184,8 @@ export function useGatewayChat(
   const [tmuxError, setTmuxError] = useState<string | null>(null);
   const [loadingTerminals, setLoadingTerminals] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [skills, setSkills] = useState<SkillOption[]>([]);
+  const [accountProviders, setAccountProviders] = useState<ChatAccountProviderStatus[]>([]);
   const [selectedModel, setSelectedModelState] = useState<string | null>(null);
   const selectedModelRef = useRef<string | null>(null);
   const [selectedEffort, setSelectedEffortState] = useState<ChatEffort>('auto');
@@ -392,6 +407,20 @@ export function useGatewayChat(
     }
   }, [hydrateThread]);
 
+  const refreshAccountProviders = useCallback(async () => {
+    const chatClient = chatClientRef.current;
+    if (!chatClient || status !== 'connected') {
+      setAccountProviders([]);
+      return;
+    }
+    try {
+      const providers = await chatClient.listAccounts();
+      setAccountProviders(providers);
+    } catch {
+      setAccountProviders([]);
+    }
+  }, [status]);
+
   const refreshTerminals = useCallback(async () => {
     const transport = transportRef.current;
     if (!transport || status !== 'connected') {
@@ -598,6 +627,7 @@ export function useGatewayChat(
     if (status !== 'connected') {
       bootstrappedRef.current = false;
       setTerminalSessions([]);
+      setSkills([]);
       return;
     }
     if (bootstrappedRef.current) return;
@@ -609,6 +639,7 @@ export function useGatewayChat(
       setError(formatError(nextError));
     });
     void refreshThreads();
+    void refreshAccountProviders();
     void refreshTerminals();
 
     const chatClient = chatClientRef.current;
@@ -626,6 +657,10 @@ export function useGatewayChat(
         }).catch(() => { return; });
       }).catch(() => { return; });
 
+      void chatClient.listSkills().then((nextSkills) => {
+        setSkills(nextSkills);
+      }).catch(() => { return; });
+
       void AsyncStorage.getItem(SELECTED_EFFORT_KEY).then((stored) => {
         if (stored) {
           selectedEffortRef.current = stored as ChatEffort;
@@ -633,7 +668,7 @@ export function useGatewayChat(
         }
       }).catch(() => { return; });
     }
-  }, [refreshTerminals, refreshThreads, status]);
+  }, [refreshAccountProviders, refreshTerminals, refreshThreads, status]);
 
   useEffect(() => {
     if (restoringSelection) return;
@@ -835,6 +870,36 @@ export function useGatewayChat(
     [setActiveThread, updateThreadSummaryFromActive],
   );
 
+  const startProviderLogin = useCallback(
+    async (provider: string, profile?: string) => {
+      const chatClient = chatClientRef.current;
+      if (!chatClient || status !== 'connected') {
+        throw new Error('Gateway is not connected.');
+      }
+      return chatClient.startAccountLogin({ provider, profile });
+    },
+    [status],
+  );
+
+  const pollProviderLogin = useCallback(
+    async (
+      provider: string,
+      session: ChatDeviceCodeSession,
+      profile?: string,
+    ): Promise<ChatDeviceCodePollResult> => {
+      const chatClient = chatClientRef.current;
+      if (!chatClient || status !== 'connected') {
+        throw new Error('Gateway is not connected.');
+      }
+      const result = await chatClient.pollAccountLogin({ provider, session, profile });
+      if (result.status === 'authorized') {
+        void refreshAccountProviders();
+      }
+      return result;
+    },
+    [refreshAccountProviders, status],
+  );
+
   const pendingApproval = pendingApprovalFromThread(activeThreadState);
 
   return {
@@ -856,12 +921,15 @@ export function useGatewayChat(
     tmuxError,
     tmuxSessions,
     models,
+    skills,
+    accountProviders,
     selectedModel,
     selectedEffort,
     setSelectedModel,
     setSelectedEffort,
     selectThread,
     refreshThreads,
+    refreshAccountProviders,
     refreshTerminals,
     startTerminalSession,
     attachTmuxSession,
@@ -874,5 +942,7 @@ export function useGatewayChat(
     renameThread,
     archiveThread,
     respondApproval,
+    startProviderLogin,
+    pollProviderLogin,
   };
 }

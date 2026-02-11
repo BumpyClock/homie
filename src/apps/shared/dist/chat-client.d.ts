@@ -25,6 +25,28 @@ export interface ChatThreadReadResult {
     settings: Partial<ChatSettings> | null;
     raw: unknown;
 }
+export interface ChatAccountProviderStatus {
+    id: string;
+    key: string;
+    enabled: boolean;
+    loggedIn: boolean;
+    expiresAt?: string;
+    scopes?: string[];
+    hasRefreshToken?: boolean;
+}
+export interface ChatDeviceCodeSession {
+    provider: string;
+    verificationUrl: string;
+    userCode: string;
+    deviceCode: string;
+    intervalSecs: number;
+    expiresAt: string;
+}
+export type ChatDeviceCodePollStatus = "pending" | "slow_down" | "authorized" | "denied" | "expired";
+export interface ChatDeviceCodePollResult {
+    status: ChatDeviceCodePollStatus;
+    intervalSecs?: number;
+}
 export interface SendChatMessageInput {
     chatId: string;
     message: string;
@@ -57,6 +79,15 @@ export interface SearchChatFilesInput {
     query: string;
     limit?: number;
     basePath?: string | null;
+}
+export interface StartChatAccountLoginInput {
+    provider: string;
+    profile?: string;
+}
+export interface PollChatAccountLoginInput {
+    provider: string;
+    session: ChatDeviceCodeSession;
+    profile?: string;
 }
 export interface ChatSettingsPatch {
     model?: string | null;
@@ -92,6 +123,9 @@ export interface ChatClient {
     renameThread(input: RenameChatThreadInput): Promise<unknown>;
     respondApproval(input: RespondToApprovalInput): Promise<unknown>;
     readAccount(): Promise<Record<string, unknown>>;
+    listAccounts(): Promise<ChatAccountProviderStatus[]>;
+    startAccountLogin(input: StartChatAccountLoginInput): Promise<ChatDeviceCodeSession>;
+    pollAccountLogin(input: PollChatAccountLoginInput): Promise<ChatDeviceCodePollResult>;
     listModels(): Promise<ModelOption[]>;
     listCollaborationModes(): Promise<CollaborationModeOption[]>;
     listSkills(): Promise<SkillOption[]>;

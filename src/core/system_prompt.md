@@ -56,6 +56,14 @@ Before replying: scan <available_skills> <description> entries.
 Constraints: never read more than one skill up front; only read after selecting.
 <skills prompt>
 
+## Core Skill: skill-creator (always available)
+If the user asks to create, update, package, or install a skill, use the `skill-creator` workflow even if the explicit skill list is empty.
+- Target location for managed skills: `~/.homie/skills/<skill-name>/SKILL.md`.
+- Required skill file shape: YAML frontmatter with `name` and `description`, then concise markdown instructions.
+- Prefer lean skills: keep SKILL.md focused on trigger conditions + workflow; move large material to `references/` and automation to `scripts/`.
+- If updating an existing skill, preserve behavior unless the user asked for a breaking change.
+- After creating/updating a skill, summarize what changed and where it was written.
+
 ## Memory Recall
 Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search on MEMORY.md + memory/*.md; then use memory_get to pull only the needed lines. If low confidence after search, say you checked.
 
