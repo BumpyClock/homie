@@ -1,5 +1,3 @@
-import { StyleSheet } from 'react-native';
-
 type AppPaletteBase = {
   background: string;
   surface0: string;
@@ -194,33 +192,6 @@ export const typography = {
   },
 } as const;
 
-export const iconSize = {
-  xs: 12,
-  sm: 14,
-  md: 18,
-  lg: 22,
-  xl: 28,
-  display: 48,
-} as const;
-
-export const borderWidth = {
-  hairline: StyleSheet.hairlineWidth,
-  thin: 1,
-  medium: 2,
-  thick: 3,
-  accent: 4,
-} as const;
-
-export const opacity = {
-  pressed: 0.7,
-  disabled: 0.38,
-  hover: 0.85,
-  dimIcon: 0.5,
-  backdrop: 0.45,
-  backdropLight: 0.3,
-  skeleton: 0.4,
-} as const;
-
 export const elevation = {
   none: {
     shadowColor: 'transparent',
@@ -250,15 +221,6 @@ export const elevation = {
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
   },
-} as const;
-
-export const zIndex = {
-  base: 0,
-  sticky: 10,
-  fab: 20,
-  drawer: 30,
-  sheet: 40,
-  toast: 50,
 } as const;
 
 export const touchTarget = {

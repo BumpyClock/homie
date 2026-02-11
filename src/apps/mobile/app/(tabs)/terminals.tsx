@@ -1,27 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppShell } from '@/components/shell/AppShell';
 import { useMobileShellData } from '@/components/shell/MobileShellDataContext';
 import { TerminalSessionList } from '@/components/shell/TerminalSessionList';
+import { ActionButton } from '@/components/ui/ActionButton';
+import { LabeledValueRow } from '@/components/ui/LabeledValueRow';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
-
-type SettingRowProps = {
-  label: string;
-  value: string;
-};
-
-function SettingRow({ label, value }: SettingRowProps) {
-  const { palette } = useAppTheme();
-
-  return (
-    <View style={[styles.settingRow, { borderColor: palette.border }]}> 
-      <Text style={[styles.settingLabel, { color: palette.textSecondary }]}>{label}</Text>
-      <Text style={[styles.settingValue, { color: palette.text }]}>{value}</Text>
-    </View>
-  );
-}
 
 export default function TerminalsTabScreen() {
   const { palette } = useAppTheme();
@@ -71,24 +57,14 @@ export default function TerminalsTabScreen() {
       error={error}
       statusBadge={statusBadge}
       renderDrawerActions={() => (
-        <Pressable
-          accessibilityRole="button"
+        <ActionButton
           disabled={!canRefreshTerminals}
+          label={loadingTerminals ? 'Refreshing...' : 'Refresh Sessions'}
           onPress={() => {
             void refreshTerminals();
           }}
-          style={({ pressed }) => [
-            styles.actionButton,
-            {
-              backgroundColor: palette.surface1,
-              borderColor: palette.border,
-              opacity: pressed ? 0.86 : canRefreshTerminals ? 1 : 0.58,
-            },
-          ]}>
-          <Text style={[styles.actionLabel, { color: palette.text }]}> 
-            {loadingTerminals ? 'Refreshing...' : 'Refresh Sessions'}
-          </Text>
-        </Pressable>
+          flex
+        />
       )}
       renderDrawerContent={({ closeDrawer }) => (
         <TerminalSessionList
@@ -105,12 +81,12 @@ export default function TerminalsTabScreen() {
         <Text style={[styles.sectionTitle, { color: palette.text }]}>Terminal Session</Text>
         {activeTerminalSession ? (
           <>
-            <SettingRow label="Name" value={activeTerminalSession.name || activeTerminalSession.shell} />
-            <SettingRow
+            <LabeledValueRow label="Name" value={activeTerminalSession.name || activeTerminalSession.shell} />
+            <LabeledValueRow
               label="Resolution"
               value={`${activeTerminalSession.cols} x ${activeTerminalSession.rows}`}
             />
-            <SettingRow label="Status" value={activeTerminalSession.status} />
+            <LabeledValueRow label="Status" value={activeTerminalSession.status} last />
             <Text style={[styles.meta, { color: palette.textSecondary }]}>Terminal rendering ships in the next milestone.</Text>
           </>
         ) : (
@@ -122,19 +98,6 @@ export default function TerminalsTabScreen() {
 }
 
 const styles = StyleSheet.create({
-  actionButton: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    flex: 1,
-  },
-  actionLabel: {
-    ...typography.label,
-    fontSize: 13,
-  },
   sectionCard: {
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -143,18 +106,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     ...typography.title,
-  },
-  settingRow: {
-    borderBottomWidth: 1,
-    paddingVertical: spacing.sm,
-    gap: spacing.xs,
-  },
-  settingLabel: {
-    ...typography.label,
-    textTransform: 'uppercase',
-  },
-  settingValue: {
-    ...typography.data,
   },
   meta: {
     ...typography.body,

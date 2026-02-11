@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatComposer } from '@/components/chat/ChatComposer';
@@ -9,11 +9,9 @@ import { ThreadList } from '@/components/chat/ThreadList';
 import { AppShell } from '@/components/shell/AppShell';
 import { useMobileShellData } from '@/components/shell/MobileShellDataContext';
 import { ThreadActionSheet } from '@/components/shell/ThreadActionSheet';
-import { useAppTheme } from '@/hooks/useAppTheme';
-import { radius, spacing, typography } from '@/theme/tokens';
+import { ActionButton } from '@/components/ui/ActionButton';
 
 export default function ChatTabScreen() {
-  const { palette } = useAppTheme();
   const insets = useSafeAreaInsets();
   const [actioningThreadId, setActioningThreadId] = useState<string | null>(null);
   const [busyThreadAction, setBusyThreadAction] = useState(false);
@@ -67,43 +65,22 @@ export default function ChatTabScreen() {
         statusBadge={statusBadge}
         renderDrawerActions={({ closeDrawer }) => (
           <>
-            <Pressable
-              accessibilityRole="button"
+            <ActionButton
               disabled={!canCreateChat}
+              flex
+              label={creatingChat ? 'Creating...' : 'New Chat'}
               onPress={() => {
                 void createChat().then(closeDrawer);
               }}
-              style={({ pressed }) => [
-                styles.actionButton,
-                styles.primaryAction,
-                {
-                  backgroundColor: palette.accent,
-                  borderColor: palette.accent,
-                  opacity: pressed ? 0.86 : canCreateChat ? 1 : 0.58,
-                },
-              ]}>
-              <Text style={[styles.actionLabel, { color: palette.surface0 }]}> 
-                {creatingChat ? 'Creating...' : 'New Chat'}
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
+              variant="primary"
+            />
+            <ActionButton
               disabled={!canRefreshThreads}
+              label={loadingThreads ? 'Refreshing...' : 'Refresh'}
               onPress={() => {
                 void refreshThreads();
               }}
-              style={({ pressed }) => [
-                styles.actionButton,
-                {
-                  backgroundColor: palette.surface1,
-                  borderColor: palette.border,
-                  opacity: pressed ? 0.86 : canRefreshThreads ? 1 : 0.58,
-                },
-              ]}>
-              <Text style={[styles.actionLabel, { color: palette.text }]}> 
-                {loadingThreads ? 'Refreshing...' : 'Refresh'}
-              </Text>
-            </Pressable>
+            />
           </>
         )}
         renderDrawerContent={({ closeDrawer }) => (
@@ -185,20 +162,5 @@ const styles = StyleSheet.create({
   chatPane: {
     flex: 1,
     minHeight: 0,
-  },
-  actionButton: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-  },
-  primaryAction: {
-    flex: 1,
-  },
-  actionLabel: {
-    ...typography.label,
-    fontSize: 13,
   },
 });

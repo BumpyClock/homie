@@ -10,58 +10,11 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppShell } from '@/components/shell/AppShell';
 import { useMobileShellData } from '@/components/shell/MobileShellDataContext';
 import { GatewayTargetForm } from '@/components/gateway/GatewayTargetForm';
+import { LabeledValueRow } from '@/components/ui/LabeledValueRow';
+import { StatusPill } from '@/components/ui/StatusPill';
 import { runtimeConfig } from '@/config/runtime';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
-
-type InfoRowProps = {
-  label: string;
-  value: string;
-  mono?: boolean;
-  last?: boolean;
-};
-
-function InfoRow({ label, value, mono = false, last = false }: InfoRowProps) {
-  const { palette } = useAppTheme();
-
-  return (
-    <View
-      style={[
-        styles.infoRow,
-        {
-          borderBottomColor: palette.border,
-          borderBottomWidth: last ? 0 : 1,
-        },
-      ]}>
-      <Text style={[styles.infoLabel, { color: palette.textSecondary }]}>{label}</Text>
-      <Text style={[mono ? styles.infoValueMono : styles.infoValue, { color: palette.text }]}>{value}</Text>
-    </View>
-  );
-}
-
-type StatusTone = 'accent' | 'success' | 'warning';
-
-function statusToneStyles(tone: StatusTone, palette: ReturnType<typeof useAppTheme>['palette']) {
-  if (tone === 'success') {
-    return {
-      backgroundColor: palette.successDim,
-      borderColor: palette.success,
-      textColor: palette.success,
-    };
-  }
-  if (tone === 'accent') {
-    return {
-      backgroundColor: palette.accentDim,
-      borderColor: palette.accent,
-      textColor: palette.accent,
-    };
-  }
-  return {
-    backgroundColor: palette.warningDim,
-    borderColor: palette.warning,
-    textColor: palette.warning,
-  };
-}
 
 function statusDetails(status: string, hasTarget: boolean, loadingTarget: boolean): string {
   if (loadingTarget) return 'Loading saved gateway target from device storage.';
@@ -88,7 +41,6 @@ export default function SettingsTabScreen() {
     statusBadge,
     error,
   } = useMobileShellData();
-  const tone = statusToneStyles(statusBadge.tone, palette);
   const activeTarget = targetUrl ?? targetHint ?? 'Not set';
 
   return (
@@ -125,16 +77,14 @@ export default function SettingsTabScreen() {
         <View style={[styles.heroCard, { backgroundColor: palette.surface1, borderColor: palette.border }]}>
           <View style={styles.heroHeader}>
             <Text style={[styles.heroEyebrow, { color: palette.textSecondary }]}>Connection</Text>
-            <View style={[styles.statusChip, { backgroundColor: tone.backgroundColor, borderColor: tone.borderColor }]}>
-              <Text style={[styles.statusChipLabel, { color: tone.textColor }]}>{statusBadge.label}</Text>
-            </View>
+            <StatusPill compact label={statusBadge.label} tone={statusBadge.tone} />
           </View>
           <Text style={[styles.heroTitle, { color: palette.text }]}>Gateway Status</Text>
           <Text style={[styles.heroBody, { color: palette.textSecondary }]}>
             {statusDetails(status, hasTarget, loadingTarget)}
           </Text>
-          <InfoRow label="Current target" value={activeTarget} mono />
-          <InfoRow label="Transport state" value={status} mono last />
+          <LabeledValueRow label="Current target" value={activeTarget} mono />
+          <LabeledValueRow label="Transport state" value={status} mono last />
           {targetError ? (
             <View style={[styles.inlineAlert, { backgroundColor: palette.dangerDim, borderColor: palette.danger }]}>
               <Text style={[styles.inlineAlertText, { color: palette.danger }]}>{targetError}</Text>
@@ -170,10 +120,10 @@ export default function SettingsTabScreen() {
             <SlidersHorizontal size={14} color={palette.accent} />
             <Text style={[styles.cardTitle, { color: palette.text }]}>App Defaults & Help</Text>
           </View>
-          <InfoRow label="Theme" value={mode} />
-          <InfoRow label="Provider" value="OpenAI Codex" />
-          <InfoRow label="Model" value="gpt-5.2-codex" />
-          <InfoRow label="Gateway path" value="/ws" mono last />
+          <LabeledValueRow label="Theme" value={mode} />
+          <LabeledValueRow label="Provider" value="OpenAI Codex" />
+          <LabeledValueRow label="Model" value="gpt-5.2-codex" />
+          <LabeledValueRow label="Gateway path" value="/ws" mono last />
           <View style={[styles.helpCard, { backgroundColor: palette.surface1, borderColor: palette.border }]}>
             <Text style={[styles.helpTitle, { color: palette.text }]}>Tips</Text>
             <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Prefer `wss://` for remote access.</Text>
@@ -210,15 +160,6 @@ const styles = StyleSheet.create({
     ...typography.overline,
     textTransform: 'uppercase',
   },
-  statusChip: {
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  statusChipLabel: {
-    ...typography.label,
-  },
   heroTitle: {
     ...typography.heading,
     fontSize: 20,
@@ -245,22 +186,6 @@ const styles = StyleSheet.create({
   cardBody: {
     ...typography.body,
     fontSize: 14,
-  },
-  infoRow: {
-    paddingVertical: spacing.sm,
-    gap: spacing.xs,
-  },
-  infoLabel: {
-    ...typography.label,
-    textTransform: 'uppercase',
-  },
-  infoValue: {
-    ...typography.bodyMedium,
-    fontSize: 14,
-  },
-  infoValueMono: {
-    ...typography.mono,
-    fontSize: 12,
   },
   inlineAlert: {
     borderRadius: radius.md,

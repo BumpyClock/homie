@@ -6,9 +6,10 @@ import { radius, spacing, typography } from '@/theme/tokens';
 type StatusPillProps = {
   label: string;
   tone?: 'accent' | 'success' | 'warning';
+  compact?: boolean;
 };
 
-export function StatusPill({ label, tone = 'accent' }: StatusPillProps) {
+export function StatusPill({ label, tone = 'accent', compact = false }: StatusPillProps) {
   const { palette } = useAppTheme();
 
   const foreground = tone === 'success'
@@ -28,30 +29,43 @@ export function StatusPill({ label, tone = 'accent' }: StatusPillProps) {
       accessibilityRole="text"
       accessibilityLabel={`Status ${label}`}
       style={[
-        styles.container,
+        styles.base,
+        compact ? styles.compact : styles.regular,
         {
           backgroundColor: background,
           borderColor: foreground,
         },
       ]}>
-      <Text style={[styles.label, { color: foreground }]}>{label}</Text>
+      <Text style={[compact ? styles.compactLabel : styles.regularLabel, { color: foreground }]}>{label}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  base: {
     alignItems: 'center',
     borderWidth: 1,
+    borderRadius: radius.pill,
     justifyContent: 'center',
+  },
+  regular: {
     minHeight: 28,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
   },
-  label: {
+  compact: {
+    minHeight: 20,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  regularLabel: {
     ...typography.label,
     fontSize: 12,
+    textTransform: 'uppercase',
+  },
+  compactLabel: {
+    ...typography.label,
+    fontSize: 10,
     textTransform: 'uppercase',
   },
 });

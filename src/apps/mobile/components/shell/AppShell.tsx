@@ -19,6 +19,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ScreenSurface } from '@/components/ui/ScreenSurface';
+import { StatusPill } from '@/components/ui/StatusPill';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { motion, triggerMobileHaptic } from '@/theme/motion';
@@ -60,19 +61,6 @@ const SECTION_TITLES: Record<MobileSection, string> = {
   terminals: 'Terminals',
   settings: 'Settings',
 };
-
-function statusToneColor(
-  tone: 'accent' | 'success' | 'warning',
-  palette: ReturnType<typeof useAppTheme>['palette'],
-) {
-  if (tone === 'success') {
-    return { foreground: palette.success, background: palette.successDim };
-  }
-  if (tone === 'warning') {
-    return { foreground: palette.warning, background: palette.warningDim };
-  }
-  return { foreground: palette.accent, background: palette.accentDim };
-}
 
 export function AppShell({
   section,
@@ -245,7 +233,7 @@ export function AppShell({
   const sectionTitle = SECTION_TITLES[section];
   const drawerActions = renderDrawerActions?.(drawerHelpers);
   const statusLabel = hasTarget ? statusBadge.label : 'Setup';
-  const toneColor = statusToneColor(hasTarget ? statusBadge.tone : 'warning', palette);
+  const statusTone = hasTarget ? statusBadge.tone : 'warning';
 
   return (
     <ScreenSurface>
@@ -334,9 +322,7 @@ export function AppShell({
             ]}>
             <View style={[styles.drawerHeader, { borderBottomColor: palette.border }]}> 
               <Text style={[styles.drawerTitle, { color: palette.text }]}>Homie</Text>
-              <View style={[styles.statusPill, { backgroundColor: toneColor.background, borderColor: toneColor.foreground }]}> 
-                <Text style={[styles.statusPillLabel, { color: toneColor.foreground }]}>{statusLabel}</Text>
-              </View>
+              <StatusPill compact label={statusLabel} tone={statusTone} />
               {!isTablet ? (
                 <Pressable
                   accessibilityRole="button"
@@ -474,17 +460,6 @@ const styles = StyleSheet.create({
     ...typography.title,
     fontSize: 19,
     flex: 1,
-  },
-  statusPill: {
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-  },
-  statusPillLabel: {
-    ...typography.label,
-    fontSize: 10,
-    textTransform: 'uppercase',
   },
   drawerClose: {
     alignItems: 'center',
