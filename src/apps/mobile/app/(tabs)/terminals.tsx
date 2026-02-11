@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { AppShell } from '@/components/shell/AppShell';
 import { useMobileShellData } from '@/components/shell/MobileShellDataContext';
 import { TerminalSessionList } from '@/components/shell/TerminalSessionList';
+import { MobileTerminalPane } from '@/components/terminal/MobileTerminalPane';
 import { ActionButton } from '@/components/ui/ActionButton';
-import { LabeledValueRow } from '@/components/ui/LabeledValueRow';
-import { useAppTheme } from '@/hooks/useAppTheme';
-import { radius, spacing, typography } from '@/theme/tokens';
+import { spacing } from '@/theme/tokens';
 
 export default function TerminalsTabScreen() {
-  const { palette } = useAppTheme();
   const {
     loadingTarget,
     hasTarget,
@@ -20,6 +18,11 @@ export default function TerminalsTabScreen() {
     loadingTerminals,
     terminalSessions,
     refreshTerminals,
+    startTerminalSession,
+    attachTerminalSession,
+    resizeTerminalSession,
+    sendTerminalInput,
+    onTerminalBinary,
   } = useMobileShellData();
   const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null);
 
@@ -48,6 +51,7 @@ export default function TerminalsTabScreen() {
   );
 
   const canRefreshTerminals = hasTarget && status === 'connected' && !loadingTerminals;
+  const canStartSession = hasTarget && status === 'connected';
 
   return (
     <AppShell
@@ -57,14 +61,28 @@ export default function TerminalsTabScreen() {
       error={error}
       statusBadge={statusBadge}
       renderDrawerActions={() => (
-        <ActionButton
-          disabled={!canRefreshTerminals}
-          label={loadingTerminals ? 'Refreshing...' : 'Refresh Sessions'}
-          onPress={() => {
-            void refreshTerminals();
-          }}
-          flex
-        />
+        <>
+          <ActionButton
+            disabled={!canStartSession}
+            label="New Session"
+            onPress={() => {
+              void startTerminalSession().then((sessionId) => {
+                if (sessionId) {
+                  setActiveTerminalSessionId(sessionId);
+                }
+              });
+            }}
+            variant="primary"
+            flex
+          />
+          <ActionButton
+            disabled={!canRefreshTerminals}
+            label={loadingTerminals ? 'Refreshing...' : 'Refresh'}
+            onPress={() => {
+              void refreshTerminals();
+            }}
+          />
+        </>
       )}
       renderDrawerContent={({ closeDrawer }) => (
         <TerminalSessionList
@@ -77,39 +95,27 @@ export default function TerminalsTabScreen() {
           }}
         />
       )}>
-      <View style={[styles.sectionCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}> 
-        <Text style={[styles.sectionTitle, { color: palette.text }]}>Terminal Session</Text>
-        {activeTerminalSession ? (
-          <>
-            <LabeledValueRow label="Name" value={activeTerminalSession.name || activeTerminalSession.shell} />
-            <LabeledValueRow
-              label="Resolution"
-              value={`${activeTerminalSession.cols} x ${activeTerminalSession.rows}`}
-            />
-            <LabeledValueRow label="Status" value={activeTerminalSession.status} last />
-            <Text style={[styles.meta, { color: palette.textSecondary }]}>Terminal rendering ships in the next milestone.</Text>
-          </>
-        ) : (
-          <Text style={[styles.meta, { color: palette.textSecondary }]}>Pick a terminal from the left list.</Text>
-        )}
+      <View style={styles.shell}>
+        <MobileTerminalPane
+          connected={status === 'connected'}
+          onAttach={attachTerminalSession}
+          onBinaryMessage={onTerminalBinary}
+          onInput={sendTerminalInput}
+          onResize={resizeTerminalSession}
+          sessionId={activeTerminalSessionId}
+          sessionCols={activeTerminalSession?.cols ?? null}
+          sessionRows={activeTerminalSession?.rows ?? null}
+          sessionStatus={activeTerminalSession?.status ?? null}
+          shellLabel={activeTerminalSession?.name || activeTerminalSession?.shell || null}
+        />
       </View>
     </AppShell>
   );
 }
 
 const styles = StyleSheet.create({
-  sectionCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  sectionTitle: {
-    ...typography.title,
-  },
-  meta: {
-    ...typography.body,
-    fontWeight: '400',
-    fontSize: 13,
+  shell: {
+    flex: 1,
+    minHeight: 0,
   },
 });

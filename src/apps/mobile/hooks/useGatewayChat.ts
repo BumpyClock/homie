@@ -58,6 +58,14 @@ export interface UseGatewayChatResult {
   selectThread: (chatId: string) => void;
   refreshThreads: () => Promise<void>;
   refreshTerminals: () => Promise<void>;
+  startTerminalSession: (shell?: string) => Promise<string | null>;
+  attachTerminalSession: (
+    sessionId: string,
+    options?: { replay?: boolean; maxBytes?: number },
+  ) => Promise<void>;
+  resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<void>;
+  sendTerminalInput: (sessionId: string, data: string) => Promise<void>;
+  onTerminalBinary: (callback: (data: ArrayBuffer) => void) => () => void;
   createChat: () => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
   renameThread: (chatId: string, title: string) => Promise<void>;
@@ -365,6 +373,64 @@ export function useGatewayChat(
       setLoadingTerminals(false);
     }
   }, [status]);
+
+  const startTerminalSession = useCallback(async (shell?: string) => {
+    const transport = transportRef.current;
+    if (!transport || status !== 'connected') return null;
+    try {
+      const params = shell ? { shell } : undefined;
+      const response = await transport.call<{ session_id?: string }>('terminal.session.start', params);
+      await refreshTerminals();
+      return typeof response.session_id === 'string' ? response.session_id : null;
+    } catch (nextError) {
+      setError(formatError(nextError));
+      return null;
+    }
+  }, [refreshTerminals, status]);
+
+  const attachTerminalSession = useCallback(
+    async (sessionId: string, options?: { replay?: boolean; maxBytes?: number }) => {
+      const transport = transportRef.current;
+      if (!transport || status !== 'connected') return;
+      await transport.call('terminal.session.attach', {
+        session_id: sessionId,
+        replay: options?.replay ?? true,
+        max_bytes: options?.maxBytes ?? 65536,
+      });
+    },
+    [status],
+  );
+
+  const resizeTerminalSession = useCallback(
+    async (sessionId: string, cols: number, rows: number) => {
+      const transport = transportRef.current;
+      if (!transport || status !== 'connected') return;
+      await transport.call('terminal.session.resize', {
+        session_id: sessionId,
+        cols,
+        rows,
+      });
+    },
+    [status],
+  );
+
+  const sendTerminalInput = useCallback(
+    async (sessionId: string, data: string) => {
+      const transport = transportRef.current;
+      if (!transport || status !== 'connected') return;
+      await transport.call('terminal.session.input', {
+        session_id: sessionId,
+        data,
+      });
+    },
+    [status],
+  );
+
+  const onTerminalBinary = useCallback((callback: (data: ArrayBuffer) => void) => {
+    const transport = transportRef.current;
+    if (!transport) return () => { return; };
+    return transport.onBinaryMessage(callback);
+  }, []);
 
   const handleGatewayEvent = useCallback((event: RpcEvent) => {
     const mapped = mapChatEvent(
@@ -711,6 +777,11 @@ export function useGatewayChat(
     selectThread,
     refreshThreads,
     refreshTerminals,
+    startTerminalSession,
+    attachTerminalSession,
+    resizeTerminalSession,
+    sendTerminalInput,
+    onTerminalBinary,
     createChat,
     sendMessage,
     renameThread,
