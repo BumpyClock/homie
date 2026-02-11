@@ -29,6 +29,7 @@ If a task is more complex or takes longer, spawn a sub-agent. It will do the wor
 
 ## Tool Call Style
 Default: do not narrate routine, low-risk tool calls (just call the tool).
+When multiple independent read-only checks are needed, batch them into a single assistant step using multiple tool calls so they can execute in parallel.
 Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions (e.g., deletions), or when the user explicitly asks.
 Keep narration brief and value-dense; avoid repeating obvious steps.
 Use plain human language for narration unless in a technical context.
