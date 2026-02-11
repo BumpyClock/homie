@@ -49,6 +49,7 @@ pub struct RociBackend {
     tools: Vec<Arc<dyn Tool>>,
     processes: Arc<crate::agent::tools::ProcessRegistry>,
     exec_policy: Arc<ExecPolicy>,
+    raw_events_enabled: bool,
 }
 
 struct PendingRun {
@@ -87,6 +88,7 @@ impl RociBackend {
             tools,
             processes,
             exec_policy,
+            raw_events_enabled: homie_config.raw_events_enabled(),
         }
     }
 
@@ -269,6 +271,31 @@ impl RociBackend {
             (turn_id, user_item_id, assistant_item_id)
         };
         self.persist_thread_state(thread_id).await;
+
+        if self.raw_events_enabled {
+            persist_roci_raw_event(
+                &self.store,
+                &turn_id,
+                thread_id,
+                "turn/started",
+                serde_json::json!({ "threadId": thread_id, "turnId": turn_id.clone() }),
+            );
+            persist_roci_raw_event(
+                &self.store,
+                &turn_id,
+                thread_id,
+                "item/completed",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "turnId": turn_id.clone(),
+                    "item": {
+                        "id": user_item_id.clone(),
+                        "type": "userMessage",
+                        "content": [{ "type": "text", "text": message }],
+                    },
+                }),
+            );
+        }
 
         self.register_tool_turn(thread_id, &turn_id).await;
 
@@ -535,6 +562,7 @@ impl RociBackend {
         let chat_id = pending.chat_id.clone();
         let assistant_item_id_clone = pending.assistant_item_id.clone();
         let collaboration_mode = pending.collaboration_mode.clone();
+        let raw_events_enabled = self.raw_events_enabled;
         let backend = self.clone();
 
         tokio::spawn(async move {
@@ -563,6 +591,20 @@ impl RociBackend {
                                 &assistant_item_id_clone,
                                 &text,
                             );
+                            if raw_events_enabled {
+                                persist_roci_raw_event(
+                                    &store,
+                                    &turn_id_clone,
+                                    &thread_id,
+                                    "item/agentMessage/delta",
+                                    serde_json::json!({
+                                        "threadId": thread_id,
+                                        "turnId": turn_id_clone,
+                                        "itemId": assistant_item_id_clone,
+                                        "delta": text,
+                                    }),
+                                );
+                            }
                         }
                     }
                     RunEventPayload::ReasoningDelta { text } => {
@@ -619,6 +661,25 @@ impl RociBackend {
                             }
                         }
                         backend.persist_thread_state(&thread_id).await;
+                        if raw_events_enabled {
+                            persist_roci_raw_event(
+                                &store,
+                                &turn_id_clone,
+                                &thread_id,
+                                "item/started",
+                                serde_json::json!({
+                                    "threadId": thread_id,
+                                    "turnId": turn_id_clone,
+                                    "item": {
+                                        "id": call.id.clone(),
+                                        "type": "mcpToolCall",
+                                        "tool": call.name.clone(),
+                                        "status": "running",
+                                        "input": call.arguments.clone(),
+                                    },
+                                }),
+                            );
+                        }
                         tool_calls.insert(
                             call.id.clone(),
                             ToolCallInfo {
@@ -682,6 +743,28 @@ impl RociBackend {
                             }
                         }
                         backend.persist_thread_state(&thread_id).await;
+                        if raw_events_enabled {
+                            let status = if result.is_error { "failed" } else { "completed" };
+                            persist_roci_raw_event(
+                                &store,
+                                &turn_id_clone,
+                                &thread_id,
+                                "item/completed",
+                                serde_json::json!({
+                                    "threadId": thread_id,
+                                    "turnId": turn_id_clone,
+                                    "item": {
+                                        "id": result.tool_call_id.clone(),
+                                        "type": "mcpToolCall",
+                                        "tool": info.name.clone(),
+                                        "status": status,
+                                        "input": info.input.clone(),
+                                        "result": result.result.clone(),
+                                        "error": result.is_error,
+                                    },
+                                }),
+                            );
+                        }
                         if let Some(process_id) =
                             exec_process_id_from_result(&info.name, &result.result)
                         {
@@ -808,6 +891,24 @@ impl RociBackend {
                                     snapshot
                                 };
                                 persist_thread_snapshot(&store, &thread_id, snapshot);
+                                if raw_events_enabled {
+                                    persist_roci_raw_event(
+                                        &store,
+                                        &turn_id_clone,
+                                        &thread_id,
+                                        "item/completed",
+                                        serde_json::json!({
+                                            "threadId": thread_id,
+                                            "turnId": turn_id_clone,
+                                            "item": {
+                                                "id": assistant_item_id_clone,
+                                                "type": "agentMessage",
+                                                "text": assistant_text,
+                                            },
+                                        }),
+                                    );
+                                    let _ = store.prune_chat_raw_events(10);
+                                }
 
                                 emit_item_completed(
                                     &outbound,
@@ -886,6 +987,24 @@ impl RociBackend {
                                     snapshot
                                 };
                                 persist_thread_snapshot(&store, &thread_id, snapshot);
+                                if raw_events_enabled {
+                                    persist_roci_raw_event(
+                                        &store,
+                                        &turn_id_clone,
+                                        &thread_id,
+                                        "item/completed",
+                                        serde_json::json!({
+                                            "threadId": thread_id,
+                                            "turnId": turn_id_clone,
+                                            "item": {
+                                                "id": assistant_item_id_clone,
+                                                "type": "agentMessage",
+                                                "text": failure_text,
+                                            },
+                                        }),
+                                    );
+                                    let _ = store.prune_chat_raw_events(10);
+                                }
                                 emit_item_completed(
                                     &outbound,
                                     &store,
@@ -2607,5 +2726,21 @@ fn emit_event(
             tracing::warn!(topic = topic, "backpressure: dropping chat event");
         }
         Err(mpsc::error::TrySendError::Closed(_)) => {}
+    }
+}
+
+fn persist_roci_raw_event(
+    store: &Arc<dyn Store>,
+    run_id: &str,
+    thread_id: &str,
+    method: &str,
+    params: Value,
+) {
+    if let Err(error) = store.insert_chat_raw_event(run_id, thread_id, method, &params) {
+        tracing::warn!(
+            %thread_id,
+            %method,
+            "failed to persist roci raw event: {error}"
+        );
     }
 }
