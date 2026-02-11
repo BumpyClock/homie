@@ -1,5 +1,5 @@
 import { type ChatItem } from '@homie/shared';
-import { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import Markdown, { Renderer, type RendererInterface } from 'react-native-marked';
 
@@ -49,9 +49,15 @@ class ChatMarkdownRenderer extends Renderer implements RendererInterface {
   }
 }
 
-function MarkdownImage({ uri, alt, palette }: { uri: string; alt: string; palette: AppPalette }) {
+const MarkdownImage = React.memo(function MarkdownImage({ uri, alt, palette }: { uri: string; alt: string; palette: AppPalette }) {
   const [aspectRatio, setAspectRatio] = useState<number>(16 / 10);
   const [failed, setFailed] = useState(false);
+
+  const handleRatio = useCallback((nextRatio: number) => {
+    if (nextRatio > 0 && Number.isFinite(nextRatio)) setAspectRatio(nextRatio);
+  }, []);
+
+  const handleError = useCallback(() => setFailed(true), []);
 
   if (failed) {
     return (
@@ -75,18 +81,16 @@ function MarkdownImage({ uri, alt, palette }: { uri: string; alt: string; palett
           <MarkdownImageNative
             uri={uri}
             alt={alt}
-            onRatio={(nextRatio) => {
-              if (nextRatio > 0 && Number.isFinite(nextRatio)) setAspectRatio(nextRatio);
-            }}
-            onError={() => setFailed(true)}
+            onRatio={handleRatio}
+            onError={handleError}
           />
         </View>
       </View>
     </View>
   );
-}
+});
 
-function MarkdownImageNative({
+const MarkdownImageNative = React.memo(function MarkdownImageNative({
   uri,
   alt,
   onRatio,
@@ -97,23 +101,36 @@ function MarkdownImageNative({
   onRatio: (ratio: number) => void;
   onError: () => void;
 }) {
+  const sourceRef = useRef({ uri });
+  // Keep source object stable to prevent Image from reloading.
+  if (sourceRef.current.uri !== uri) {
+    sourceRef.current = { uri };
+  }
+
+  const handleLoad = useCallback(
+    (event: { nativeEvent: { source?: { width: number; height: number } } }) => {
+      const source = event.nativeEvent?.source;
+      if (!source || source.width <= 0 || source.height <= 0) return;
+      onRatio(source.width / source.height);
+    },
+    [onRatio],
+  );
+
   return (
     <Image
       accessibilityLabel={alt}
       resizeMode="contain"
-      source={{ uri }}
+      source={sourceRef.current}
       style={styles.nativeImage}
       onError={onError}
-      onLoad={(event) => {
-        const source = event.nativeEvent?.source;
-        if (!source || source.width <= 0 || source.height <= 0) return;
-        onRatio(source.width / source.height);
-      }}
+      onLoad={handleLoad}
     />
   );
-}
+});
 
-export function ChatMarkdown({ content, itemKind, palette }: ChatMarkdownProps) {
+const FLAT_LIST_PROPS = { scrollEnabled: false } as const;
+
+export const ChatMarkdown = React.memo(function ChatMarkdown({ content, itemKind, palette }: ChatMarkdownProps) {
   const renderer = useMemo(() => new ChatMarkdownRenderer(palette), [palette]);
   const isAgentContent =
     itemKind === 'assistant' ||
@@ -121,6 +138,65 @@ export function ChatMarkdown({ content, itemKind, palette }: ChatMarkdownProps) 
     itemKind === 'tool' ||
     itemKind === 'plan' ||
     itemKind === 'diff';
+
+  const markdownStyles = useMemo(
+    () => ({
+      text: {
+        ...styles.itemBody,
+        color: palette.text,
+      },
+      paragraph: {
+        marginBottom: spacing.xs,
+      },
+      code: {
+        backgroundColor: palette.surface,
+        borderColor: palette.border,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        padding: spacing.xs,
+      },
+      codespan: {
+        ...styles.commandText,
+        backgroundColor: palette.surface,
+        color: palette.text,
+      },
+      link: {
+        color: palette.accent,
+        textDecorationLine: 'underline' as const,
+      },
+      blockquote: {
+        borderLeftColor: palette.border,
+        borderLeftWidth: 3,
+        paddingLeft: spacing.sm,
+      },
+      list: {
+        marginBottom: spacing.xs,
+      },
+      li: {
+        ...styles.itemBody,
+        color: palette.text,
+      },
+      h1: {
+        ...styles.itemBody,
+        color: palette.text,
+        fontSize: 18,
+        fontWeight: '700' as const,
+      },
+      h2: {
+        ...styles.itemBody,
+        color: palette.text,
+        fontSize: 16,
+        fontWeight: '700' as const,
+      },
+      h3: {
+        ...styles.itemBody,
+        color: palette.text,
+        fontSize: 15,
+        fontWeight: '600' as const,
+      },
+    }),
+    [palette],
+  );
 
   if (!isAgentContent) {
     return <Text style={[styles.itemBody, { color: palette.text }]}>{content}</Text>;
@@ -130,67 +206,11 @@ export function ChatMarkdown({ content, itemKind, palette }: ChatMarkdownProps) 
     <Markdown
       value={content}
       renderer={renderer}
-      styles={{
-        text: {
-          ...styles.itemBody,
-          color: palette.text,
-        },
-        paragraph: {
-          marginBottom: spacing.xs,
-        },
-        code: {
-          backgroundColor: palette.surface,
-          borderColor: palette.border,
-          borderRadius: radius.sm,
-          borderWidth: 1,
-          padding: spacing.xs,
-        },
-        codespan: {
-          ...styles.commandText,
-          backgroundColor: palette.surface,
-          color: palette.text,
-        },
-        link: {
-          color: palette.accent,
-          textDecorationLine: 'underline',
-        },
-        blockquote: {
-          borderLeftColor: palette.border,
-          borderLeftWidth: 3,
-          paddingLeft: spacing.sm,
-        },
-        list: {
-          marginBottom: spacing.xs,
-        },
-        li: {
-          ...styles.itemBody,
-          color: palette.text,
-        },
-        h1: {
-          ...styles.itemBody,
-          color: palette.text,
-          fontSize: 18,
-          fontWeight: '700',
-        },
-        h2: {
-          ...styles.itemBody,
-          color: palette.text,
-          fontSize: 16,
-          fontWeight: '700',
-        },
-        h3: {
-          ...styles.itemBody,
-          color: palette.text,
-          fontSize: 15,
-          fontWeight: '600',
-        },
-      }}
-      flatListProps={{
-        scrollEnabled: false,
-      }}
+      styles={markdownStyles}
+      flatListProps={FLAT_LIST_PROPS}
     />
   );
-}
+});
 
 const styles = StyleSheet.create({
   itemBody: {
