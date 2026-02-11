@@ -1,6 +1,7 @@
 import {
   buildChatThreadSummaries,
   type ChatApprovalDecision,
+  type ChatEffort,
   createChatClient,
   deriveTitleFromThread,
   itemsFromThread,
@@ -51,7 +52,9 @@ export interface UseGatewayChatResult {
   terminalSessions: SessionInfo[];
   models: ModelOption[];
   selectedModel: string | null;
+  selectedEffort: ChatEffort;
   setSelectedModel: (modelId: string | null) => void;
+  setSelectedEffort: (effort: ChatEffort) => void;
   selectThread: (chatId: string) => void;
   refreshThreads: () => Promise<void>;
   refreshTerminals: () => Promise<void>;
@@ -93,6 +96,7 @@ function normalizeTerminalSessions(raw: unknown): SessionInfo[] {
 
 const LAST_ACTIVE_CHAT_KEY_PREFIX = 'homie.mobile.last_active_chat';
 const SELECTED_MODEL_KEY = 'homie.mobile.selected_model';
+const SELECTED_EFFORT_KEY = 'homie.mobile.selected_effort';
 
 function storageKeyForGatewayTarget(gatewayUrl: string): string | null {
   const normalized = gatewayUrl.trim();
@@ -124,6 +128,8 @@ export function useGatewayChat(
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModelState] = useState<string | null>(null);
   const selectedModelRef = useRef<string | null>(null);
+  const [selectedEffort, setSelectedEffortState] = useState<ChatEffort>('auto');
+  const selectedEffortRef = useRef<ChatEffort>('auto');
 
   const transportRef = useRef<GatewayTransport | null>(null);
   const chatClientRef = useRef<ReturnType<typeof createChatClient> | null>(null);
@@ -144,6 +150,12 @@ export function useGatewayChat(
     } else {
       void AsyncStorage.removeItem(SELECTED_MODEL_KEY).catch(() => { return; });
     }
+  }, []);
+
+  const setSelectedEffort = useCallback((effort: ChatEffort) => {
+    selectedEffortRef.current = effort;
+    setSelectedEffortState(effort);
+    void AsyncStorage.setItem(SELECTED_EFFORT_KEY, effort).catch(() => { return; });
   }, []);
 
   useEffect(() => {
@@ -464,6 +476,13 @@ export function useGatewayChat(
           }
         }).catch(() => { return; });
       }).catch(() => { return; });
+
+      void AsyncStorage.getItem(SELECTED_EFFORT_KEY).then((stored) => {
+        if (stored) {
+          selectedEffortRef.current = stored as ChatEffort;
+          setSelectedEffortState(stored as ChatEffort);
+        }
+      }).catch(() => { return; });
     }
   }, [refreshTerminals, refreshThreads, status]);
 
@@ -556,10 +575,12 @@ export function useGatewayChat(
     updateThreadSummaryFromActive(optimistic, Date.now());
 
     try {
+      const effortValue = selectedEffortRef.current;
       await chatClient.sendMessage({
         chatId: active.chatId,
         message: trimmed,
         model: selectedModelRef.current ?? undefined,
+        effort: effortValue !== 'auto' ? effortValue : undefined,
       });
       setError(null);
     } catch (nextError) {
@@ -684,7 +705,9 @@ export function useGatewayChat(
     terminalSessions,
     models,
     selectedModel,
+    selectedEffort,
     setSelectedModel,
+    setSelectedEffort,
     selectThread,
     refreshThreads,
     refreshTerminals,

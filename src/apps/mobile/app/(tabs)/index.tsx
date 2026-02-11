@@ -94,7 +94,9 @@ export default function ChatTabScreen() {
     terminalSessions,
     models,
     selectedModel,
+    selectedEffort,
     setSelectedModel,
+    setSelectedEffort,
     selectThread,
     refreshThreads,
     refreshTerminals,
@@ -279,7 +281,9 @@ export default function ChatTabScreen() {
               bottomInset={insets.bottom}
               models={models}
               selectedModel={selectedModel}
+              selectedEffort={selectedEffort}
               onSelectModel={setSelectedModel}
+              onSelectEffort={setSelectedEffort}
               onSend={sendMessage}
             />
           </KeyboardStickyView>

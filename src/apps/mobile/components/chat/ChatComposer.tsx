@@ -2,7 +2,7 @@
 // ABOUTME: Uses a horizontal layout with expanding TextInput and circular send icon, anchored above keyboard via KeyboardStickyView in parent.
 
 import { Feather } from '@expo/vector-icons';
-import type { ModelOption } from '@homie/shared';
+import type { ChatEffort, ModelOption, ReasoningEffortOption } from '@homie/shared';
 import * as Haptics from 'expo-haptics';
 import { useRef, useState } from 'react';
 import {
@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 
+import { EffortPickerSheet } from '@/components/chat/EffortPickerSheet';
 import { ModelPickerSheet } from '@/components/chat/ModelPickerSheet';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
@@ -24,7 +25,9 @@ interface ChatComposerProps {
   bottomInset?: number;
   models?: ModelOption[];
   selectedModel?: string | null;
+  selectedEffort?: ChatEffort;
   onSelectModel?: (modelId: string) => void;
+  onSelectEffort?: (effort: ChatEffort) => void;
   onSend: (message: string) => Promise<void>;
 }
 
@@ -34,12 +37,15 @@ export function ChatComposer({
   bottomInset = 0,
   models = [],
   selectedModel = null,
+  selectedEffort = 'auto',
   onSelectModel,
+  onSelectEffort,
   onSend,
 }: ChatComposerProps) {
   const { palette } = useAppTheme();
   const [value, setValue] = useState('');
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [effortPickerVisible, setEffortPickerVisible] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   const trimmed = value.trim();
@@ -51,6 +57,13 @@ export function ChatComposer({
     null;
   const modelLabel = activeModel?.displayName ?? activeModel?.model ?? null;
   const showModelPill = models.length > 0 && onSelectModel;
+
+  const supportedEfforts: ReasoningEffortOption[] = activeModel?.supportedReasoningEfforts ?? [];
+  const defaultEffort = activeModel?.defaultReasoningEffort ?? null;
+  const effortLabel = selectedEffort === 'auto'
+    ? 'Auto'
+    : selectedEffort.charAt(0).toUpperCase() + selectedEffort.slice(1);
+  const showEffortPill = onSelectEffort != null;
 
   const submit = async () => {
     if (!canSend) return;
@@ -102,6 +115,29 @@ export function ChatComposer({
             </Text>
             <Feather name="chevron-down" size={12} color={palette.textSecondary} />
           </Pressable>
+          {showEffortPill ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Effort: ${effortLabel}. Tap to change.`}
+              onPress={() => setEffortPickerVisible(true)}
+              disabled={disabled}
+              style={({ pressed }) => [
+                styles.modelPill,
+                {
+                  backgroundColor: palette.surfaceAlt,
+                  borderColor: palette.border,
+                  opacity: pressed ? 0.78 : disabled ? 0.55 : 1,
+                },
+              ]}>
+              <Feather name="activity" size={12} color={palette.textSecondary} />
+              <Text
+                style={[styles.modelPillLabel, { color: palette.textSecondary }]}
+                numberOfLines={1}>
+                {effortLabel}
+              </Text>
+              <Feather name="chevron-down" size={12} color={palette.textSecondary} />
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       <View style={styles.inputRow}>
@@ -153,6 +189,16 @@ export function ChatComposer({
           onClose={() => setPickerVisible(false)}
         />
       ) : null}
+      {showEffortPill ? (
+        <EffortPickerSheet
+          visible={effortPickerVisible}
+          supportedEfforts={supportedEfforts}
+          defaultEffort={defaultEffort}
+          selectedEffort={selectedEffort}
+          onSelect={onSelectEffort}
+          onClose={() => setEffortPickerVisible(false)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -195,6 +241,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingBottom: spacing.xs,
+    gap: spacing.sm,
   },
   modelPill: {
     flexDirection: 'row',
