@@ -130,7 +130,7 @@ const MarkdownImageNative = React.memo(function MarkdownImageNative({
 
 const FLAT_LIST_PROPS = { scrollEnabled: false } as const;
 
-export const ChatMarkdown = React.memo(function ChatMarkdown({ content, itemKind, palette }: ChatMarkdownProps) {
+export function ChatMarkdown({ content, itemKind, palette }: ChatMarkdownProps) {
   const renderer = useMemo(() => new ChatMarkdownRenderer(palette), [palette]);
   const isAgentContent =
     itemKind === 'assistant' ||
@@ -210,7 +210,7 @@ export const ChatMarkdown = React.memo(function ChatMarkdown({ content, itemKind
       flatListProps={FLAT_LIST_PROPS}
     />
   );
-});
+}
 
 const styles = StyleSheet.create({
   itemBody: {
