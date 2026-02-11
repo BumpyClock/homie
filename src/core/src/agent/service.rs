@@ -578,22 +578,14 @@ impl CodexChatCore {
                 return Response::success(req_id, with_settings(thread));
             }
 
-            if let Some(thread) = self.roci.thread_read(&thread_id).await {
-                return Response::success(req_id, with_settings(thread));
-            }
-
-            tracing::debug!(
-                %thread_id,
-                chat_id = ?chat_id,
-                "roci thread missing in memory; creating empty thread shell"
-            );
             self.roci.ensure_thread(&thread_id).await;
 
             if let Some(thread) = self.roci.thread_read(&thread_id).await {
                 return Response::success(req_id, with_settings(thread));
             }
 
-            return Response::error(req_id, error_codes::SESSION_NOT_FOUND, "thread not found");
+            let thread = json!({ "id": thread_id });
+            return Response::success(req_id, with_settings(thread));
         }
 
         if let Err(e) = self.ensure_process().await {
@@ -2797,6 +2789,97 @@ mod tests {
         let result = resp.result.unwrap();
         let chats = result["chats"].as_array().unwrap();
         assert!(chats.is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_thread_read_without_turns_returns_thread_shell_with_settings() {
+        let thread_id = "thread-no-turns";
+        let chat_id = "chat-no-turns";
+        let settings = json!({
+            "model": "openai-codex:gpt-5.1-codex",
+            "effort": "high"
+        });
+        let store = make_store();
+        store
+            .upsert_chat(&ChatRecord {
+                chat_id: chat_id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: chrono_now(),
+                status: SessionStatus::Active,
+                event_pointer: 0,
+                settings: Some(settings.clone()),
+            })
+            .unwrap();
+
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
+        let mut svc = ChatService::new(
+            tx,
+            store,
+            Arc::new(HomieConfig::default()),
+            Arc::new(ExecPolicy::empty()),
+        );
+        let resp = svc
+            .handle_request(
+                Uuid::new_v4(),
+                "chat.thread.read",
+                Some(json!({
+                    "chat_id": chat_id,
+                    "include_turns": false,
+                })),
+            )
+            .await;
+
+        assert!(resp.error.is_none());
+        let result = resp.result.expect("thread read result");
+        assert_eq!(result["thread"]["id"], thread_id);
+        assert!(result["thread"]["turns"].is_null());
+        assert_eq!(result["settings"], settings);
+    }
+
+    #[tokio::test]
+    async fn chat_thread_read_recovers_from_invalid_persisted_thread_state() {
+        let thread_id = "thread-invalid-state";
+        let chat_id = "chat-invalid-state";
+        let settings = json!({
+            "model": "openai-codex:gpt-5.1-codex",
+        });
+        let store = make_store();
+        store
+            .upsert_chat(&ChatRecord {
+                chat_id: chat_id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: chrono_now(),
+                status: SessionStatus::Active,
+                event_pointer: 0,
+                settings: Some(settings.clone()),
+            })
+            .unwrap();
+        store
+            .upsert_chat_thread_state(thread_id, &json!({ "invalid": true }))
+            .unwrap();
+
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
+        let mut svc = ChatService::new(
+            tx,
+            store,
+            Arc::new(HomieConfig::default()),
+            Arc::new(ExecPolicy::empty()),
+        );
+        let resp = svc
+            .handle_request(
+                Uuid::new_v4(),
+                "chat.thread.read",
+                Some(json!({
+                    "chat_id": chat_id,
+                    "include_turns": true,
+                })),
+            )
+            .await;
+
+        assert!(resp.error.is_none());
+        let result = resp.result.expect("thread read result");
+        assert_eq!(result["thread"]["id"], thread_id);
+        assert_eq!(result["settings"], settings);
     }
 
     #[tokio::test]

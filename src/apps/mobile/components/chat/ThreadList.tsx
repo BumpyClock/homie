@@ -1,5 +1,9 @@
+// ABOUTME: Scrollable list of chat thread summary cards for the drawer sidebar.
+// ABOUTME: Shows thread title, preview, relative time, running status with haptic feedback on interactions.
+
 import { formatRelativeTime, type ChatThreadSummary } from '@homie/shared';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
@@ -71,9 +75,17 @@ export function ThreadList({
             accessibilityState={{ selected }}
             delayLongPress={300}
             onLongPress={() => {
+              if (Platform.OS !== 'web') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              }
               onLongPressThread?.(thread);
             }}
-            onPress={() => onSelect(thread.chatId)}
+            onPress={() => {
+              if (Platform.OS !== 'web') {
+                Haptics.selectionAsync();
+              }
+              onSelect(thread.chatId);
+            }}
             style={({ pressed }) => [
               styles.threadCard,
               {

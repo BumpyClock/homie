@@ -1,5 +1,10 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+// ABOUTME: Chat message composer with inline send button.
+// ABOUTME: Uses a horizontal layout with expanding TextInput and circular send icon, anchored above keyboard via KeyboardStickyView in parent.
+
+import { Feather } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
+import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
@@ -25,6 +30,9 @@ export function ChatComposer({
     if (!canSend) return;
     const draft = trimmed;
     setValue('');
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     try {
       await onSend(draft);
     } catch {
@@ -33,12 +41,12 @@ export function ChatComposer({
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+    <View style={[styles.container, { backgroundColor: palette.surface, borderTopColor: palette.border }]}>
       <TextInput
         value={value}
         onChangeText={setValue}
         editable={!disabled && !sending}
-        placeholder="Message gateway chat"
+        placeholder="Message…"
         placeholderTextColor={palette.textSecondary}
         multiline
         style={[
@@ -52,19 +60,21 @@ export function ChatComposer({
       />
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel={sending ? 'Sending message' : 'Send message'}
         onPress={submit}
         disabled={!canSend}
         style={({ pressed }) => [
           styles.sendButton,
           {
             backgroundColor: canSend ? palette.accent : palette.surfaceAlt,
-            borderColor: canSend ? palette.accent : palette.border,
-            opacity: pressed ? 0.85 : 1,
+            opacity: pressed && canSend ? 0.8 : 1,
           },
         ]}>
-        <Text style={[styles.sendLabel, { color: canSend ? palette.surface : palette.textSecondary }]}>
-          {sending ? 'Sending...' : 'Send'}
-        </Text>
+        <Feather
+          name="arrow-up"
+          size={18}
+          color={canSend ? '#FFFFFF' : palette.textSecondary}
+        />
       </Pressable>
     </View>
   );
@@ -72,15 +82,19 @@ export function ChatComposer({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
     gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
   },
   input: {
     ...typography.body,
-    minHeight: 72,
-    maxHeight: 140,
+    flex: 1,
+    fontSize: 16,
+    minHeight: 40,
+    maxHeight: 120,
     borderRadius: radius.md,
     borderWidth: 1,
     paddingHorizontal: spacing.md,
@@ -89,13 +103,9 @@ const styles = StyleSheet.create({
   },
   sendButton: {
     alignItems: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 44,
-  },
-  sendLabel: {
-    ...typography.label,
-    fontSize: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
 });

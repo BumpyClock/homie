@@ -5,6 +5,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { palettes } from '@/theme/tokens';
@@ -70,10 +71,12 @@ function RootLayoutNav() {
       };
 
   return (
-    <ThemeProvider value={theme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      </Stack>
-    </ThemeProvider>
+    <KeyboardProvider>
+      <ThemeProvider value={theme}>
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        </Stack>
+      </ThemeProvider>
+    </KeyboardProvider>
   );
 }

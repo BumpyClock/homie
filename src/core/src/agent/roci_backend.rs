@@ -1121,7 +1121,10 @@ fn backfill_thread_state_from_raw_events(
 
     let mut thread = RociThread {
         id: thread_id.to_string(),
-        created_at: events.first().map(|e| e.created_at).unwrap_or_else(now_unix),
+        created_at: events
+            .first()
+            .map(|e| e.created_at)
+            .unwrap_or_else(now_unix),
         updated_at: events.last().map(|e| e.created_at).unwrap_or_else(now_unix),
         turns: Vec::new(),
     };
@@ -1237,8 +1240,7 @@ fn upsert_user_item(turn: &mut RociTurn, item_id: &str, text: String) {
         existing.push(RociContent::Text { text });
         return;
     }
-    turn.items
-        .push(RociItem::user(item_id.to_string(), text));
+    turn.items.push(RociItem::user(item_id.to_string(), text));
 }
 
 fn upsert_assistant_item(turn: &mut RociTurn, item_id: &str, text: String, append: bool) {

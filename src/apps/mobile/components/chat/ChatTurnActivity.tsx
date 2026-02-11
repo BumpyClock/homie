@@ -1,3 +1,6 @@
+// ABOUTME: Collapsible card showing grouped tool calls per turn in the chat timeline.
+// ABOUTME: Expandable rows with tool names, status, and JSON payload detail views.
+
 import { Feather } from '@expo/vector-icons';
 import { memo, useCallback, useMemo, useState } from 'react';
 import {
@@ -179,10 +182,9 @@ export const ChatTurnActivity = memo(ChatTurnActivityCard);
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    marginRight: spacing.xl,
-    maxWidth: '94%',
+    marginLeft: 36,
     overflow: 'hidden',
   },
   headerPressable: {

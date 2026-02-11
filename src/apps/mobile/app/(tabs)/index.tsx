@@ -14,6 +14,8 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatComposer } from '@/components/chat/ChatComposer';
 import { ChatTimeline } from '@/components/chat/ChatTimeline';
@@ -55,6 +57,7 @@ export default function ChatTabScreen() {
   const reducedMotion = useReducedMotion();
   const drawerProgress = useSharedValue(0);
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isTablet = width >= 600;
   const drawerWidth = isTablet ? 340 : Math.min(360, Math.round(width * 0.86));
   const edgeGestureWidth = 24;
@@ -266,11 +269,13 @@ export default function ChatTabScreen() {
             loading={loadingMessages && hasTarget}
             onApprovalDecision={respondApproval}
           />
-          <ChatComposer
-            disabled={status !== 'connected' || !activeThread || !hasTarget}
-            sending={sendingMessage}
-            onSend={sendMessage}
-          />
+          <KeyboardStickyView offset={{ closed: 0, opened: -insets.bottom }}>
+            <ChatComposer
+              disabled={status !== 'connected' || !activeThread || !hasTarget}
+              sending={sendingMessage}
+              onSend={sendMessage}
+            />
+          </KeyboardStickyView>
         </View>
       );
     }
@@ -316,7 +321,7 @@ export default function ChatTabScreen() {
 
   return (
     <ScreenSurface>
-      <View style={[styles.container, { backgroundColor: palette.background }]}> 
+      <View style={[styles.container, { backgroundColor: palette.background, paddingTop: insets.top + spacing.sm }]}> 
         <View style={styles.headerRow}>
           <View>
             <Text style={[styles.eyebrow, { color: palette.textSecondary }]}>Gateway</Text>
@@ -574,7 +579,6 @@ export default function ChatTabScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: spacing.xxl,
     paddingHorizontal: spacing.lg,
     gap: spacing.lg,
   },
@@ -645,7 +649,6 @@ const styles = StyleSheet.create({
   chatPane: {
     flex: 1,
     minHeight: 0,
-    gap: spacing.md,
   },
   drawerLayer: {
     ...StyleSheet.absoluteFillObject,
