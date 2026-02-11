@@ -114,7 +114,7 @@ export function AppShell({
   }, [hasTarget, isTablet]);
 
   useEffect(() => {
-    if (!hasTarget || section === 'settings') return;
+    if (hasTarget || section === 'settings') return;
     router.replace(MOBILE_SECTION_ROUTES.settings);
   }, [hasTarget, router, section]);
 
