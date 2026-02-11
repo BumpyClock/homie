@@ -2,16 +2,19 @@
 // ABOUTME: Uses a horizontal layout with expanding TextInput and circular send icon, anchored above keyboard via KeyboardStickyView in parent.
 
 import { Feather } from '@expo/vector-icons';
+import type { ModelOption } from '@homie/shared';
 import * as Haptics from 'expo-haptics';
 import { useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
   StyleSheet,
+  Text,
   TextInput,
   View,
 } from 'react-native';
 
+import { ModelPickerSheet } from '@/components/chat/ModelPickerSheet';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
 
@@ -19,6 +22,9 @@ interface ChatComposerProps {
   disabled?: boolean;
   sending?: boolean;
   bottomInset?: number;
+  models?: ModelOption[];
+  selectedModel?: string | null;
+  onSelectModel?: (modelId: string) => void;
   onSend: (message: string) => Promise<void>;
 }
 
@@ -26,14 +32,25 @@ export function ChatComposer({
   disabled = false,
   sending = false,
   bottomInset = 0,
+  models = [],
+  selectedModel = null,
+  onSelectModel,
   onSend,
 }: ChatComposerProps) {
   const { palette } = useAppTheme();
   const [value, setValue] = useState('');
+  const [pickerVisible, setPickerVisible] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   const trimmed = value.trim();
   const canSend = !disabled && !sending && trimmed.length > 0;
+
+  const activeModel =
+    models.find((m) => m.model === selectedModel || m.id === selectedModel) ??
+    models.find((m) => m.isDefault) ??
+    null;
+  const modelLabel = activeModel?.displayName ?? activeModel?.model ?? null;
+  const showModelPill = models.length > 0 && onSelectModel;
 
   const submit = async () => {
     if (!canSend) return;
@@ -62,6 +79,31 @@ export function ChatComposer({
           paddingBottom: safeBottomPadding,
         },
       ]}>
+      {showModelPill ? (
+        <View style={styles.pillRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Model: ${modelLabel ?? 'Default'}. Tap to change.`}
+            onPress={() => setPickerVisible(true)}
+            disabled={disabled}
+            style={({ pressed }) => [
+              styles.modelPill,
+              {
+                backgroundColor: palette.surfaceAlt,
+                borderColor: palette.border,
+                opacity: pressed ? 0.78 : disabled ? 0.55 : 1,
+              },
+            ]}>
+            <Feather name="cpu" size={12} color={palette.textSecondary} />
+            <Text
+              style={[styles.modelPillLabel, { color: palette.textSecondary }]}
+              numberOfLines={1}>
+              {modelLabel ?? 'Default'}
+            </Text>
+            <Feather name="chevron-down" size={12} color={palette.textSecondary} />
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.inputRow}>
         <View
           style={[
@@ -102,6 +144,15 @@ export function ChatComposer({
           />
         </Pressable>
       </View>
+      {showModelPill ? (
+        <ModelPickerSheet
+          visible={pickerVisible}
+          models={models}
+          selectedModelId={selectedModel}
+          onSelect={onSelectModel}
+          onClose={() => setPickerVisible(false)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -139,5 +190,24 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     marginBottom: 2,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: spacing.xs,
+  },
+  modelPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    maxWidth: 200,
+  },
+  modelPillLabel: {
+    ...typography.label,
+    fontWeight: '500',
   },
 });

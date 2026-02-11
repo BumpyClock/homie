@@ -5,6 +5,7 @@ import {
   deriveTitleFromThread,
   itemsFromThread,
   mapChatEvent,
+  type ModelOption,
   type SessionInfo,
   subscribeToChatEvents,
   type ChatThreadSummary,
@@ -48,6 +49,9 @@ export interface UseGatewayChatResult {
   loadingTerminals: boolean;
   pendingApproval: PendingApprovalMetadata | null;
   terminalSessions: SessionInfo[];
+  models: ModelOption[];
+  selectedModel: string | null;
+  setSelectedModel: (modelId: string | null) => void;
   selectThread: (chatId: string) => void;
   refreshThreads: () => Promise<void>;
   refreshTerminals: () => Promise<void>;
@@ -88,6 +92,7 @@ function normalizeTerminalSessions(raw: unknown): SessionInfo[] {
 }
 
 const LAST_ACTIVE_CHAT_KEY_PREFIX = 'homie.mobile.last_active_chat';
+const SELECTED_MODEL_KEY = 'homie.mobile.selected_model';
 
 function storageKeyForGatewayTarget(gatewayUrl: string): string | null {
   const normalized = gatewayUrl.trim();
@@ -116,6 +121,9 @@ export function useGatewayChat(
   const [sendingMessage, setSendingMessage] = useState(false);
   const [terminalSessions, setTerminalSessions] = useState<SessionInfo[]>([]);
   const [loadingTerminals, setLoadingTerminals] = useState(false);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selectedModel, setSelectedModelState] = useState<string | null>(null);
+  const selectedModelRef = useRef<string | null>(null);
 
   const transportRef = useRef<GatewayTransport | null>(null);
   const chatClientRef = useRef<ReturnType<typeof createChatClient> | null>(null);
@@ -127,6 +135,16 @@ export function useGatewayChat(
   const restoredChatIdRef = useRef<string | null>(null);
   const bootstrappedRef = useRef(false);
   const [restoringSelection, setRestoringSelection] = useState(false);
+
+  const setSelectedModel = useCallback((modelId: string | null) => {
+    selectedModelRef.current = modelId;
+    setSelectedModelState(modelId);
+    if (modelId) {
+      void AsyncStorage.setItem(SELECTED_MODEL_KEY, modelId).catch(() => { return; });
+    } else {
+      void AsyncStorage.removeItem(SELECTED_MODEL_KEY).catch(() => { return; });
+    }
+  }, []);
 
   useEffect(() => {
     threadsRef.current = threads;
@@ -431,6 +449,22 @@ export function useGatewayChat(
     });
     void refreshThreads();
     void refreshTerminals();
+
+    const chatClient = chatClientRef.current;
+    if (chatClient) {
+      void chatClient.listModels().then((nextModels) => {
+        setModels(nextModels);
+        void AsyncStorage.getItem(SELECTED_MODEL_KEY).then((stored) => {
+          if (stored) {
+            const match = nextModels.find((m) => m.model === stored || m.id === stored);
+            if (match) {
+              selectedModelRef.current = stored;
+              setSelectedModelState(stored);
+            }
+          }
+        }).catch(() => { return; });
+      }).catch(() => { return; });
+    }
   }, [refreshTerminals, refreshThreads, status]);
 
   useEffect(() => {
@@ -525,6 +559,7 @@ export function useGatewayChat(
       await chatClient.sendMessage({
         chatId: active.chatId,
         message: trimmed,
+        model: selectedModelRef.current ?? undefined,
       });
       setError(null);
     } catch (nextError) {
@@ -647,6 +682,9 @@ export function useGatewayChat(
     loadingTerminals,
     pendingApproval,
     terminalSessions,
+    models,
+    selectedModel,
+    setSelectedModel,
     selectThread,
     refreshThreads,
     refreshTerminals,
