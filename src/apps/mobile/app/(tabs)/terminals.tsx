@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { AppShell } from '@/components/shell/AppShell';
 import { useMobileShellData } from '@/components/shell/MobileShellDataContext';
@@ -9,6 +9,7 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { spacing } from '@/theme/tokens';
 
 export default function TerminalsTabScreen() {
+  const { width } = useWindowDimensions();
   const {
     loadingTarget,
     hasTarget,
@@ -56,6 +57,7 @@ export default function TerminalsTabScreen() {
 
   const canRefreshTerminals = hasTarget && status === 'connected' && !loadingTerminals;
   const canStartSession = hasTarget && status === 'connected';
+  const wideTerminalLayout = width >= 1200;
 
   return (
     <AppShell
@@ -109,18 +111,20 @@ export default function TerminalsTabScreen() {
         />
       )}>
       <View style={styles.shell}>
-        <MobileTerminalPane
-          connected={status === 'connected'}
-          onAttach={attachTerminalSession}
-          onBinaryMessage={onTerminalBinary}
-          onInput={sendTerminalInput}
-          onResize={resizeTerminalSession}
-          sessionId={activeTerminalSessionId}
-          sessionCols={activeTerminalSession?.cols ?? null}
-          sessionRows={activeTerminalSession?.rows ?? null}
-          sessionStatus={activeTerminalSession?.status ?? null}
-          shellLabel={activeTerminalSession?.name || activeTerminalSession?.shell || null}
-        />
+        <View style={[styles.terminalFrame, wideTerminalLayout ? styles.terminalFrameWide : null]}>
+          <MobileTerminalPane
+            connected={status === 'connected'}
+            onAttach={attachTerminalSession}
+            onBinaryMessage={onTerminalBinary}
+            onInput={sendTerminalInput}
+            onResize={resizeTerminalSession}
+            sessionId={activeTerminalSessionId}
+            sessionCols={activeTerminalSession?.cols ?? null}
+            sessionRows={activeTerminalSession?.rows ?? null}
+            sessionStatus={activeTerminalSession?.status ?? null}
+            shellLabel={activeTerminalSession?.name || activeTerminalSession?.shell || null}
+          />
+        </View>
       </View>
     </AppShell>
   );
@@ -130,5 +134,14 @@ const styles = StyleSheet.create({
   shell: {
     flex: 1,
     minHeight: 0,
+  },
+  terminalFrame: {
+    flex: 1,
+    minHeight: 0,
+    width: '100%',
+  },
+  terminalFrameWide: {
+    alignSelf: 'center',
+    maxWidth: 1320,
   },
 });

@@ -5,7 +5,7 @@ import {
   SlidersHorizontal,
   Wifi,
 } from 'lucide-react-native';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { AppShell } from '@/components/shell/AppShell';
 import { useMobileShellData } from '@/components/shell/MobileShellDataContext';
@@ -27,6 +27,7 @@ function statusDetails(status: string, hasTarget: boolean, loadingTarget: boolea
 }
 
 export default function SettingsTabScreen() {
+  const { width } = useWindowDimensions();
   const { palette, mode } = useAppTheme();
   const {
     status,
@@ -42,6 +43,71 @@ export default function SettingsTabScreen() {
     error,
   } = useMobileShellData();
   const activeTarget = targetUrl ?? targetHint ?? 'Not set';
+  const wideLayout = width >= 1080;
+
+  const connectionCard = (
+    <View style={[styles.heroCard, { backgroundColor: palette.surface1, borderColor: palette.border }]}> 
+      <View style={styles.heroHeader}>
+        <Text style={[styles.heroEyebrow, { color: palette.textSecondary }]}>Connection</Text>
+        <StatusPill compact label={statusBadge.label} tone={statusBadge.tone} />
+      </View>
+      <Text style={[styles.heroTitle, { color: palette.text }]}>Gateway Status</Text>
+      <Text style={[styles.heroBody, { color: palette.textSecondary }]}>
+        {statusDetails(status, hasTarget, loadingTarget)}
+      </Text>
+      <LabeledValueRow label="Current target" value={activeTarget} mono />
+      <LabeledValueRow label="Transport state" value={status} mono last />
+      {targetError ? (
+        <View style={[styles.inlineAlert, { backgroundColor: palette.dangerDim, borderColor: palette.danger }]}> 
+          <Text style={[styles.inlineAlertText, { color: palette.danger }]}>{targetError}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const targetCard = (
+    <View style={[styles.card, { backgroundColor: palette.surface0, borderColor: palette.border }]}> 
+      <View style={styles.cardHeader}>
+        <Server size={14} color={palette.accent} />
+        <Text style={[styles.cardTitle, { color: palette.text }]}>Gateway Target</Text>
+      </View>
+      <Text style={[styles.cardBody, { color: palette.textSecondary }]}>
+        Set the URL used by mobile chat + terminal sessions.
+      </Text>
+      <GatewayTargetForm
+        initialValue={targetUrl ?? targetHint}
+        hintValue={targetHint}
+        saving={savingTarget || loadingTarget}
+        saveLabel={hasTarget ? 'Update Target' : 'Save Target'}
+        onSave={saveGatewayTarget}
+        onClear={hasTarget ? clearGatewayTarget : undefined}
+      />
+      {!targetHint ? (
+        <Text style={[styles.meta, { color: palette.textSecondary }]}>No env fallback. Set target manually.</Text>
+      ) : (
+        <Text style={[styles.meta, { color: palette.textSecondary }]}>Env fallback available: {runtimeConfig.gatewayUrl}</Text>
+      )}
+    </View>
+  );
+
+  const defaultsCard = (
+    <View style={[styles.card, { backgroundColor: palette.surface0, borderColor: palette.border }]}> 
+      <View style={styles.cardHeader}>
+        <SlidersHorizontal size={14} color={palette.accent} />
+        <Text style={[styles.cardTitle, { color: palette.text }]}>App Defaults & Help</Text>
+      </View>
+      <LabeledValueRow label="Theme" value={mode} />
+      <LabeledValueRow label="Provider" value="OpenAI Codex" />
+      <LabeledValueRow label="Model" value="gpt-5.2-codex" />
+      <LabeledValueRow label="Gateway path" value="/ws" mono last />
+      <View style={[styles.helpCard, { backgroundColor: palette.surface1, borderColor: palette.border }]}> 
+        <Text style={[styles.helpTitle, { color: palette.text }]}>Tips</Text>
+        <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Prefer `wss://` for remote access.</Text>
+        <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Include `/ws` at the end of your gateway URL.</Text>
+        <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Update target here any time to switch machines.</Text>
+      </View>
+    </View>
+  );
 
   return (
     <AppShell
@@ -51,7 +117,7 @@ export default function SettingsTabScreen() {
       error={error}
       statusBadge={statusBadge}
       renderDrawerContent={() => (
-        <View style={[styles.drawerCard, { borderColor: palette.border, backgroundColor: palette.surface1 }]}>
+        <View style={[styles.drawerCard, { borderColor: palette.border, backgroundColor: palette.surface1 }]}> 
           <Text style={[styles.drawerEyebrow, { color: palette.textSecondary }]}>Quick Links</Text>
           <View style={styles.drawerItem}>
             <Wifi size={13} color={palette.accent} />
@@ -65,72 +131,28 @@ export default function SettingsTabScreen() {
             <CircleHelp size={13} color={palette.accent} />
             <Text style={[styles.drawerItemLabel, { color: palette.text }]}>Defaults & Help</Text>
           </View>
-          <Text style={[styles.drawerNote, { color: palette.textSecondary }]}>
-            Configure once, then switch targets anytime from this screen.
-          </Text>
+          <Text style={[styles.drawerNote, { color: palette.textSecondary }]}>Configure once, then switch targets anytime from this screen.</Text>
         </View>
       )}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}>
-        <View style={[styles.heroCard, { backgroundColor: palette.surface1, borderColor: palette.border }]}>
-          <View style={styles.heroHeader}>
-            <Text style={[styles.heroEyebrow, { color: palette.textSecondary }]}>Connection</Text>
-            <StatusPill compact label={statusBadge.label} tone={statusBadge.tone} />
-          </View>
-          <Text style={[styles.heroTitle, { color: palette.text }]}>Gateway Status</Text>
-          <Text style={[styles.heroBody, { color: palette.textSecondary }]}>
-            {statusDetails(status, hasTarget, loadingTarget)}
-          </Text>
-          <LabeledValueRow label="Current target" value={activeTarget} mono />
-          <LabeledValueRow label="Transport state" value={status} mono last />
-          {targetError ? (
-            <View style={[styles.inlineAlert, { backgroundColor: palette.dangerDim, borderColor: palette.danger }]}>
-              <Text style={[styles.inlineAlertText, { color: palette.danger }]}>{targetError}</Text>
+        {wideLayout ? (
+          <View style={styles.columns}>
+            <View style={styles.primaryColumn}>
+              {connectionCard}
+              {targetCard}
             </View>
-          ) : null}
-        </View>
-
-        <View style={[styles.card, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
-          <View style={styles.cardHeader}>
-            <Server size={14} color={palette.accent} />
-            <Text style={[styles.cardTitle, { color: palette.text }]}>Gateway Target</Text>
+            <View style={styles.secondaryColumn}>{defaultsCard}</View>
           </View>
-          <Text style={[styles.cardBody, { color: palette.textSecondary }]}>
-            Set the URL used by mobile chat + terminal sessions.
-          </Text>
-          <GatewayTargetForm
-            initialValue={targetUrl ?? targetHint}
-            hintValue={targetHint}
-            saving={savingTarget || loadingTarget}
-            saveLabel={hasTarget ? 'Update Target' : 'Save Target'}
-            onSave={saveGatewayTarget}
-            onClear={hasTarget ? clearGatewayTarget : undefined}
-          />
-          {!targetHint ? (
-            <Text style={[styles.meta, { color: palette.textSecondary }]}>No env fallback. Set target manually.</Text>
-          ) : (
-            <Text style={[styles.meta, { color: palette.textSecondary }]}>Env fallback available: {runtimeConfig.gatewayUrl}</Text>
-          )}
-        </View>
-
-        <View style={[styles.card, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
-          <View style={styles.cardHeader}>
-            <SlidersHorizontal size={14} color={palette.accent} />
-            <Text style={[styles.cardTitle, { color: palette.text }]}>App Defaults & Help</Text>
-          </View>
-          <LabeledValueRow label="Theme" value={mode} />
-          <LabeledValueRow label="Provider" value="OpenAI Codex" />
-          <LabeledValueRow label="Model" value="gpt-5.2-codex" />
-          <LabeledValueRow label="Gateway path" value="/ws" mono last />
-          <View style={[styles.helpCard, { backgroundColor: palette.surface1, borderColor: palette.border }]}>
-            <Text style={[styles.helpTitle, { color: palette.text }]}>Tips</Text>
-            <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Prefer `wss://` for remote access.</Text>
-            <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Include `/ws` at the end of your gateway URL.</Text>
-            <Text style={[styles.helpItem, { color: palette.textSecondary }]}>- Update target here any time to switch machines.</Text>
-          </View>
-        </View>
+        ) : (
+          <>
+            {connectionCard}
+            {targetCard}
+            {defaultsCard}
+          </>
+        )}
       </ScrollView>
     </AppShell>
   );
@@ -143,6 +165,20 @@ const styles = StyleSheet.create({
   scrollContent: {
     gap: spacing.md,
     paddingBottom: spacing.xxxl,
+  },
+  columns: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.lg,
+  },
+  primaryColumn: {
+    flex: 1.4,
+    gap: spacing.md,
+    minWidth: 0,
+  },
+  secondaryColumn: {
+    flex: 1,
+    minWidth: 0,
   },
   heroCard: {
     borderRadius: radius.lg,

@@ -62,6 +62,9 @@ const SECTION_TITLES: Record<MobileSection, string> = {
   settings: 'Settings',
 };
 
+const PERSISTENT_DRAWER_MIN_SHORTEST_SIDE = 600;
+const LARGE_SCREEN_MIN_WIDTH = 1100;
+
 export function AppShell({
   section,
   hasTarget,
@@ -75,11 +78,17 @@ export function AppShell({
   const { palette } = useAppTheme();
   const reducedMotion = useReducedMotion();
   const drawerProgress = useSharedValue(0);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const isTablet = width >= 600;
-  const drawerWidth = isTablet ? 340 : Math.min(360, Math.round(width * 0.86));
+
+  const shortestSide = Math.min(width, height);
+  const persistentDrawer = shortestSide >= PERSISTENT_DRAWER_MIN_SHORTEST_SIDE;
+  const largeScreen = width >= LARGE_SCREEN_MIN_WIDTH;
+  const horizontalPadding = largeScreen ? spacing.xxl : spacing.lg;
+  const compactDrawerWidth = Math.min(380, Math.round(width * 0.86));
+  const persistentDrawerWidth = Math.max(300, Math.min(400, Math.round(width * 0.32)));
+  const drawerWidth = persistentDrawer ? persistentDrawerWidth : compactDrawerWidth;
   const edgeGestureWidth = 24;
 
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -121,25 +130,26 @@ export function AppShell({
   }, []);
 
   const closeDrawer = useCallback(() => {
-    if (isTablet) return;
+    if (persistentDrawer) return;
     triggerMobileHaptic(motion.haptics.navSelect);
     commitDrawer(false);
-  }, [commitDrawer, isTablet]);
+  }, [commitDrawer, persistentDrawer]);
 
   const toggleDrawer = useCallback(() => {
+    if (persistentDrawer) return;
     triggerMobileHaptic(motion.haptics.drawerToggle);
     setDrawerOpen((current) => !current);
-  }, []);
+  }, [persistentDrawer]);
 
   useEffect(() => {
     if (!hasTarget) {
       setDrawerOpen(false);
       return;
     }
-    if (isTablet) {
+    if (persistentDrawer) {
       setDrawerOpen(true);
     }
-  }, [hasTarget, isTablet]);
+  }, [hasTarget, persistentDrawer]);
 
   useEffect(() => {
     if (hasTarget || section === 'settings') return;
@@ -147,22 +157,27 @@ export function AppShell({
   }, [hasTarget, router, section]);
 
   useEffect(() => {
-    const target = isTablet || drawerOpen ? 1 : 0;
+    if (persistentDrawer) {
+      dragProgressRef.current = 1;
+      drawerProgress.value = withTiming(1, { duration: 0 });
+      return;
+    }
+    const target = drawerOpen ? 1 : 0;
     dragProgressRef.current = target;
     const velocity = drawerVelocityRef.current;
     drawerVelocityRef.current = 0;
     animateDrawer(target ? 1 : 0, velocity);
-  }, [animateDrawer, drawerOpen, isTablet]);
+  }, [animateDrawer, drawerOpen, drawerProgress, persistentDrawer]);
 
   const edgeSwipeResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: (_, gesture) => {
-          if (isTablet || drawerOpen) return false;
+          if (persistentDrawer || drawerOpen) return false;
           return gesture.x0 <= edgeGestureWidth;
         },
         onMoveShouldSetPanResponder: (_, gesture) => {
-          if (isTablet || drawerOpen) return false;
+          if (persistentDrawer || drawerOpen) return false;
           const horizontal = Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5;
           return horizontal && gesture.x0 <= edgeGestureWidth && Math.abs(gesture.dx) > 8;
         },
@@ -184,7 +199,7 @@ export function AppShell({
           commitDrawer(false);
         },
       }),
-    [commitDrawer, drawerOpen, drawerWidth, edgeGestureWidth, isTablet, setDrawerProgress],
+    [commitDrawer, drawerOpen, drawerWidth, edgeGestureWidth, persistentDrawer, setDrawerProgress],
   );
 
   const panelSwipeResponder = useMemo(
@@ -192,7 +207,7 @@ export function AppShell({
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_, gesture) => {
-          if (isTablet || !drawerOpen) return false;
+          if (persistentDrawer || !drawerOpen) return false;
           const horizontal = Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5;
           return horizontal && Math.abs(gesture.dx) > 8;
         },
@@ -214,7 +229,7 @@ export function AppShell({
           commitDrawer(true);
         },
       }),
-    [commitDrawer, drawerOpen, drawerWidth, isTablet, setDrawerProgress],
+    [commitDrawer, drawerOpen, drawerWidth, persistentDrawer, setDrawerProgress],
   );
 
   const backdropStyle = useAnimatedStyle(() => ({
@@ -234,6 +249,41 @@ export function AppShell({
   const drawerActions = renderDrawerActions?.(drawerHelpers);
   const statusLabel = hasTarget ? statusBadge.label : 'Setup';
   const statusTone = hasTarget ? statusBadge.tone : 'warning';
+  const drawerHeaderTopPadding = persistentDrawer ? spacing.xl : spacing.xxl;
+
+  const drawerPanelContent = (
+    <>
+      <View style={[styles.drawerHeader, { borderBottomColor: palette.border, paddingTop: drawerHeaderTopPadding }]}> 
+        <Text style={[styles.drawerTitle, { color: palette.text }]}>Homie</Text>
+        <StatusPill compact label={statusLabel} tone={statusTone} />
+        {!persistentDrawer ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close side panel"
+            onPress={closeDrawer}
+            style={({ pressed }) => [
+              styles.drawerClose,
+              {
+                borderColor: palette.border,
+                backgroundColor: palette.surface1,
+                opacity: pressed ? 0.86 : 1,
+              },
+            ]}>
+            <X size={14} color={palette.text} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={[styles.detailHeader, { borderTopColor: palette.border }]}> 
+        <Text style={[styles.detailLabel, { color: palette.textSecondary }]}> {DRAWER_DETAIL_LABELS[section]} </Text>
+        <Text style={[styles.detailHint, { color: palette.textSecondary }]}> {DRAWER_DETAIL_HINTS[section]} </Text>
+      </View>
+
+      {drawerActions ? <View style={styles.drawerActions}>{drawerActions}</View> : null}
+
+      <View style={styles.drawerContent}>{renderDrawerContent(drawerHelpers)}</View>
+    </>
+  );
 
   return (
     <ScreenSurface>
@@ -243,9 +293,10 @@ export function AppShell({
           {
             backgroundColor: palette.background,
             paddingTop: insets.top + spacing.sm,
+            paddingHorizontal: horizontalPadding,
           },
         ]}>
-        {!isTablet ? (
+        {!persistentDrawer ? (
           <View style={styles.topBar}>
             <Pressable
               accessibilityRole="button"
@@ -286,18 +337,31 @@ export function AppShell({
           </View>
         ) : null}
 
-        <View style={styles.contentRow}>
-          <View style={styles.mainContent}>{children}</View>
+        <View style={[styles.contentRow, persistentDrawer ? styles.contentRowPersistent : null]}>
+          {persistentDrawer ? (
+            <View style={[styles.persistentDrawerSlot, { width: drawerWidth }]}> 
+              <View
+                style={[
+                  styles.persistentDrawerPanel,
+                  {
+                    backgroundColor: palette.surface0,
+                    borderColor: palette.border,
+                  },
+                ]}>
+                {drawerPanelContent}
+              </View>
+            </View>
+          ) : null}
+
+          <View style={[styles.mainContent, persistentDrawer ? styles.mainContentPersistent : null]}>{children}</View>
         </View>
 
-        {!isTablet && !drawerOpen ? (
+        {!persistentDrawer && !drawerOpen ? (
           <View pointerEvents="box-only" style={styles.edgeSwipeArea} {...edgeSwipeResponder.panHandlers} />
         ) : null}
 
-        <View
-          pointerEvents={!isTablet && drawerOpen ? 'auto' : isTablet ? 'auto' : 'none'}
-          style={styles.drawerLayer}>
-          {!isTablet ? (
+        {!persistentDrawer ? (
+          <View pointerEvents={drawerOpen ? 'auto' : 'none'} style={styles.drawerLayer}>
             <Animated.View style={[styles.drawerBackdrop, { backgroundColor: palette.overlay }, backdropStyle]}>
               <Pressable
                 accessibilityRole="button"
@@ -306,51 +370,22 @@ export function AppShell({
                 style={styles.backdropHitbox}
               />
             </Animated.View>
-          ) : null}
 
-          <Animated.View
-            {...(!isTablet ? panelSwipeResponder.panHandlers : {})}
-            style={[
-              styles.drawerPanel,
-              isTablet ? styles.tabletDrawer : null,
-              {
-                backgroundColor: palette.surface0,
-                borderColor: palette.border,
-                width: isTablet ? 340 : '86%',
-              },
-              isTablet ? undefined : panelStyle,
-            ]}>
-            <View style={[styles.drawerHeader, { borderBottomColor: palette.border }]}> 
-              <Text style={[styles.drawerTitle, { color: palette.text }]}>Homie</Text>
-              <StatusPill compact label={statusLabel} tone={statusTone} />
-              {!isTablet ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Close side panel"
-                  onPress={closeDrawer}
-                  style={({ pressed }) => [
-                    styles.drawerClose,
-                    {
-                      borderColor: palette.border,
-                      backgroundColor: palette.surface1,
-                      opacity: pressed ? 0.86 : 1,
-                    },
-                  ]}>
-                  <X size={14} color={palette.text} />
-                </Pressable>
-              ) : null}
-            </View>
-
-            <View style={[styles.detailHeader, { borderTopColor: palette.border }]}> 
-              <Text style={[styles.detailLabel, { color: palette.textSecondary }]}> {DRAWER_DETAIL_LABELS[section]} </Text>
-              <Text style={[styles.detailHint, { color: palette.textSecondary }]}> {DRAWER_DETAIL_HINTS[section]} </Text>
-            </View>
-
-            {drawerActions ? <View style={styles.drawerActions}>{drawerActions}</View> : null}
-
-            <View style={styles.drawerContent}>{renderDrawerContent(drawerHelpers)}</View>
-          </Animated.View>
-        </View>
+            <Animated.View
+              {...panelSwipeResponder.panHandlers}
+              style={[
+                styles.overlayDrawerPanel,
+                {
+                  backgroundColor: palette.surface0,
+                  borderColor: palette.border,
+                  width: drawerWidth,
+                },
+                panelStyle,
+              ]}>
+              {drawerPanelContent}
+            </Animated.View>
+          </View>
+        ) : null}
       </View>
     </ScreenSurface>
   );
@@ -359,7 +394,6 @@ export function AppShell({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: spacing.lg,
     gap: spacing.lg,
   },
   topBar: {
@@ -400,9 +434,20 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
+  contentRowPersistent: {
+    flexDirection: 'row',
+    gap: spacing.lg,
+  },
+  persistentDrawerSlot: {
+    flexShrink: 0,
+    minHeight: 0,
+  },
   mainContent: {
     flex: 1,
     minHeight: 0,
+  },
+  mainContentPersistent: {
+    minWidth: 0,
   },
   errorCard: {
     borderRadius: radius.md,
@@ -432,19 +477,26 @@ const styles = StyleSheet.create({
   backdropHitbox: {
     flex: 1,
   },
-  drawerPanel: {
+  overlayDrawerPanel: {
     borderRightWidth: 1,
     bottom: 0,
     left: 0,
-    maxWidth: 360,
+    maxWidth: 420,
     position: 'absolute',
     top: 0,
     ...elevation.drawer,
   },
-  tabletDrawer: {
-    position: 'relative',
+  persistentDrawerPanel: {
+    flex: 1,
+    minHeight: 0,
+    width: '100%',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderRightWidth: 1,
+    maxWidth: 420,
     shadowOpacity: 0,
     elevation: 0,
+    overflow: 'hidden',
   },
   drawerHeader: {
     alignItems: 'center',
@@ -453,7 +505,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.xxl,
     paddingBottom: spacing.sm,
   },
   drawerTitle: {

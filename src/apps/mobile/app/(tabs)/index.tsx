@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatComposer } from '@/components/chat/ChatComposer';
@@ -12,6 +12,7 @@ import { ThreadActionSheet } from '@/components/shell/ThreadActionSheet';
 import { ActionButton } from '@/components/ui/ActionButton';
 
 export default function ChatTabScreen() {
+  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [actioningThreadId, setActioningThreadId] = useState<string | null>(null);
   const [busyThreadAction, setBusyThreadAction] = useState(false);
@@ -54,6 +55,7 @@ export default function ChatTabScreen() {
 
   const canCreateChat = hasTarget && status === 'connected' && !creatingChat;
   const canRefreshThreads = hasTarget && status === 'connected' && !loadingThreads;
+  const wideChatLayout = width >= 1100;
 
   return (
     <>
@@ -98,31 +100,33 @@ export default function ChatTabScreen() {
           />
         )}>
         <View style={styles.chatPane}>
-          <ChatTimeline
-            thread={hasTarget ? activeThread : null}
-            loading={loadingMessages && hasTarget}
-            status={status}
-            hasTarget={hasTarget}
-            error={error}
-            threadLastActivityAt={activeThreadSummary?.lastActivityAt}
-            onRetry={() => {
-              void refreshThreads();
-            }}
-            onApprovalDecision={respondApproval}
-          />
-          <KeyboardStickyView offset={{ closed: 0, opened: -insets.bottom }}>
-            <ChatComposer
-              disabled={status !== 'connected' || !activeThread || !hasTarget}
-              sending={sendingMessage}
-              bottomInset={insets.bottom}
-              models={models}
-              selectedModel={selectedModel}
-              selectedEffort={selectedEffort}
-              onSelectModel={setSelectedModel}
-              onSelectEffort={setSelectedEffort}
-              onSend={sendMessage}
+          <View style={[styles.chatFrame, wideChatLayout ? styles.chatFrameWide : null]}>
+            <ChatTimeline
+              thread={hasTarget ? activeThread : null}
+              loading={loadingMessages && hasTarget}
+              status={status}
+              hasTarget={hasTarget}
+              error={error}
+              threadLastActivityAt={activeThreadSummary?.lastActivityAt}
+              onRetry={() => {
+                void refreshThreads();
+              }}
+              onApprovalDecision={respondApproval}
             />
-          </KeyboardStickyView>
+            <KeyboardStickyView offset={{ closed: 0, opened: -insets.bottom }}>
+              <ChatComposer
+                disabled={status !== 'connected' || !activeThread || !hasTarget}
+                sending={sendingMessage}
+                bottomInset={insets.bottom}
+                models={models}
+                selectedModel={selectedModel}
+                selectedEffort={selectedEffort}
+                onSelectModel={setSelectedModel}
+                onSelectEffort={setSelectedEffort}
+                onSend={sendMessage}
+              />
+            </KeyboardStickyView>
+          </View>
         </View>
       </AppShell>
 
@@ -162,5 +166,14 @@ const styles = StyleSheet.create({
   chatPane: {
     flex: 1,
     minHeight: 0,
+  },
+  chatFrame: {
+    flex: 1,
+    minHeight: 0,
+    width: '100%',
+  },
+  chatFrameWide: {
+    alignSelf: 'center',
+    maxWidth: 980,
   },
 });
