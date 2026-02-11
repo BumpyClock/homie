@@ -8,6 +8,7 @@ import {
 } from 'lucide-react-native';
 import { memo } from 'react';
 import {
+  type AccessibilityActionEvent,
   Platform,
   Pressable,
   Text,
@@ -28,10 +29,10 @@ import type { ChatItem } from '@homie/shared';
 interface ChatTimelineMessageItemProps {
   item: ChatItem;
   palette: AppPalette;
-  copiedItemId: string | null;
-  activeActionItemId: string | null;
-  localApprovalStatus: Record<string, string>;
-  respondingItemId: string | null;
+  isCopied: boolean;
+  showActions: boolean;
+  approvalStatusForItem?: string;
+  approvalResponding?: boolean;
   hasApprovalHandler: boolean;
   onToggleActions: (itemId: string) => void;
   onOpenMenu: (itemId: string, body: string) => void;
@@ -45,10 +46,10 @@ interface ChatTimelineMessageItemProps {
 function ChatTimelineMessageItemBase({
   item,
   palette,
-  copiedItemId,
-  activeActionItemId,
-  localApprovalStatus,
-  respondingItemId,
+  isCopied,
+  showActions,
+  approvalStatusForItem,
+  approvalResponding = false,
   hasApprovalHandler,
   onToggleActions,
   onOpenMenu,
@@ -60,8 +61,8 @@ function ChatTimelineMessageItemBase({
       <ApprovalItem
         item={item}
         palette={palette}
-        localApprovalStatus={localApprovalStatus}
-        respondingItemId={respondingItemId}
+        statusValue={approvalStatusForItem}
+        responding={approvalResponding}
         hasApprovalHandler={hasApprovalHandler}
         onApprovalDecision={onApprovalDecision}
       />
@@ -71,13 +72,33 @@ function ChatTimelineMessageItemBase({
   const body = bodyForItem(item);
   if (!body.trim()) return null;
   const isUser = item.kind === 'user';
-  const showActions = activeActionItemId === item.id;
+  const bodySnippet = body.length > 120 ? `${body.slice(0, 120)}...` : body;
+
+  const onAccessibilityAction = (event: AccessibilityActionEvent) => {
+    if (event.nativeEvent.actionName === 'activate') {
+      onToggleActions(item.id);
+      return;
+    }
+    if (event.nativeEvent.actionName === 'longpress') {
+      onOpenMenu(item.id, body);
+      return;
+    }
+    if (event.nativeEvent.actionName === 'copy') {
+      onCopy(item.id, body);
+    }
+  };
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Message from ${labelForItem(item)}`}
-      accessibilityHint="Tap to reveal actions"
+      accessibilityLabel={`${labelForItem(item)}: ${bodySnippet}`}
+      accessibilityHint="Double tap to toggle actions. Long press for more message actions."
+      accessibilityActions={[
+        { name: 'activate', label: 'Toggle message actions' },
+        { name: 'longpress', label: 'Open message action menu' },
+        { name: 'copy', label: 'Copy message text' },
+      ]}
+      onAccessibilityAction={onAccessibilityAction}
       delayLongPress={260}
       onPress={() => {
         onToggleActions(item.id);
@@ -118,7 +139,7 @@ function ChatTimelineMessageItemBase({
           <View style={[styles.messageActions, { borderTopColor: palette.border }]}> 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={copiedItemId === item.id ? 'Message copied' : 'Copy message'}
+              accessibilityLabel={isCopied ? 'Message copied' : 'Copy message'}
               hitSlop={6}
               onPress={() => {
                 onCopy(item.id, body);
@@ -131,7 +152,7 @@ function ChatTimelineMessageItemBase({
                   opacity: pressed ? 0.82 : 1,
                 },
               ]}>
-              {copiedItemId === item.id ? (
+              {isCopied ? (
                 <Check size={13} color={palette.textSecondary} />
               ) : (
                 <Copy size={13} color={palette.textSecondary} />
@@ -167,8 +188,8 @@ function ChatTimelineMessageItemBase({
 interface ApprovalItemProps {
   item: ChatItem;
   palette: AppPalette;
-  localApprovalStatus: Record<string, string>;
-  respondingItemId: string | null;
+  statusValue?: string;
+  responding: boolean;
   hasApprovalHandler: boolean;
   onApprovalDecision: (
     item: ChatItem,
@@ -179,18 +200,20 @@ interface ApprovalItemProps {
 function ApprovalItem({
   item,
   palette,
-  localApprovalStatus,
-  respondingItemId,
+  statusValue: statusValueProp,
+  responding,
   hasApprovalHandler,
   onApprovalDecision,
 }: ApprovalItemProps) {
-  const statusValue = localApprovalStatus[item.id] ?? item.status ?? 'pending';
+  const statusValue = statusValueProp ?? item.status ?? 'pending';
   const resolved = statusValue !== 'pending';
-  const responding = respondingItemId === item.id;
   const canRespond = !resolved && !responding && item.requestId !== undefined && hasApprovalHandler;
 
   return (
     <View
+      accessible
+      accessibilityRole="summary"
+      accessibilityLabel={`Approval request ${approvalStatusLabel(statusValue)}${item.reason ? `. ${item.reason}` : ''}`}
       style={[
         styles.approvalCard,
         {

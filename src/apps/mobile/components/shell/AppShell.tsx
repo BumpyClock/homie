@@ -33,6 +33,7 @@ interface DrawerRenderHelpers {
 
 interface AppShellProps extends PropsWithChildren {
   section: MobileSection;
+  topBarTitle?: string;
   hasTarget: boolean;
   loadingTarget: boolean;
   error: string | null;
@@ -64,9 +65,12 @@ const SECTION_TITLES: Record<MobileSection, string> = {
 
 const PERSISTENT_DRAWER_MIN_SHORTEST_SIDE = 600;
 const LARGE_SCREEN_MIN_WIDTH = 1100;
+// TODO(remotely-8di.3.10): keep fixed pane in v1; future pass adds user-resizable width
+// with bounded min/max, persisted preference, and reduced-motion/a11y-compliant drag affordance.
 
 export function AppShell({
   section,
+  topBarTitle,
   hasTarget,
   loadingTarget,
   error,
@@ -245,7 +249,7 @@ export function AppShell({
   }));
 
   const drawerHelpers = useMemo(() => ({ closeDrawer }), [closeDrawer]);
-  const sectionTitle = SECTION_TITLES[section];
+  const sectionTitle = topBarTitle?.trim() || SECTION_TITLES[section];
   const drawerActions = renderDrawerActions?.(drawerHelpers);
   const statusLabel = hasTarget ? statusBadge.label : 'Setup';
   const statusTone = hasTarget ? statusBadge.tone : 'warning';
@@ -313,7 +317,6 @@ export function AppShell({
               <Menu size={16} color={palette.text} />
             </Pressable>
             <Text numberOfLines={1} style={[styles.topBarTitle, { color: palette.text }]}>{sectionTitle}</Text>
-            <View style={styles.topBarSpacer} />
           </View>
         ) : null}
 
@@ -399,7 +402,8 @@ const styles = StyleSheet.create({
   topBar: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    gap: spacing.sm,
   },
   menuButton: {
     alignItems: 'center',
@@ -412,9 +416,8 @@ const styles = StyleSheet.create({
   topBarTitle: {
     ...typography.label,
     fontSize: 14,
-  },
-  topBarSpacer: {
-    width: 40,
+    flex: 1,
+    textAlign: 'left',
   },
   setupCard: {
     borderRadius: radius.lg,

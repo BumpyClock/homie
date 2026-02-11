@@ -48,11 +48,6 @@ export default function ChatTabScreen() {
     () => threads.find((thread) => thread.chatId === actioningThreadId) ?? null,
     [actioningThreadId, threads],
   );
-  const activeThreadSummary = useMemo(
-    () => threads.find((thread) => thread.chatId === activeChatId) ?? null,
-    [activeChatId, threads],
-  );
-
   const canCreateChat = hasTarget && status === 'connected' && !creatingChat;
   const canRefreshThreads = hasTarget && status === 'connected' && !loadingThreads;
   const wideChatLayout = width >= 1100;
@@ -61,6 +56,7 @@ export default function ChatTabScreen() {
     <>
       <AppShell
         section="chat"
+        topBarTitle={hasTarget ? activeThread?.title ?? 'Chat' : 'Chat'}
         hasTarget={hasTarget}
         loadingTarget={loadingTarget}
         error={error}
@@ -107,7 +103,6 @@ export default function ChatTabScreen() {
               status={status}
               hasTarget={hasTarget}
               error={error}
-              threadLastActivityAt={activeThreadSummary?.lastActivityAt}
               onRetry={() => {
                 void refreshThreads();
               }}

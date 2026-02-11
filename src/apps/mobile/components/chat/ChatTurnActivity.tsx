@@ -121,7 +121,8 @@ function ChatTurnActivityCard({
       ]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={expanded ? 'Collapse agent activity' : 'Expand agent activity'}
+        accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} agent activity, ${callsLabel(toolItems.length)}${isTurnActive ? ', running' : ''}`}
+        accessibilityHint="Shows grouped tool calls for this turn."
         onPress={toggleExpanded}
         style={({ pressed }) => [styles.headerPressable, { opacity: pressed ? 0.9 : 1 }]}>
         <View style={styles.headerRow}>
@@ -164,6 +165,7 @@ function ChatTurnActivityCard({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={open ? `Hide ${label} payload` : `Show ${label} payload`}
+                  accessibilityHint="Opens request and result details for this tool call."
                   onPress={() => {
                     toggleToolDetail(item.id);
                   }}

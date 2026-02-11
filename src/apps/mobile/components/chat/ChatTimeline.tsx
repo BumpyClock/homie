@@ -2,7 +2,6 @@
 // ABOUTME: Provides robust loading/empty/error states and touch-friendly message actions for mobile chat UX.
 
 import {
-  formatRelativeTime,
   groupChatItemsByTurn,
   type ChatItem,
   type ChatTurnGroup,
@@ -23,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Platform,
   Pressable,
   Text,
   View,
@@ -39,10 +39,6 @@ import { motion } from '@/theme/motion';
 import { ChatTurnActivity } from './ChatTurnActivity';
 import { ChatTimelineMessageItem, triggerMessageHaptic } from './ChatTimelineMessageItem';
 import { ChatTimelineStateCard } from './ChatTimelineStateCard';
-import {
-  colorsForTone,
-  statusForConnection,
-} from './chat-timeline-helpers';
 import { styles } from './chat-timeline-styles';
 
 interface TimelineThread {
@@ -60,16 +56,11 @@ interface ChatTimelineProps {
   status?: ConnectionStatus;
   hasTarget?: boolean;
   error?: string | null;
-  threadLastActivityAt?: number;
   onRetry?: () => void;
   onApprovalDecision?: (
     requestId: number | string,
     decision: 'accept' | 'decline' | 'accept_for_session',
   ) => Promise<void> | void;
-}
-
-function callsLabel(count: number): string {
-  return count === 1 ? '1 message' : `${count} messages`;
 }
 
 function approvalStatusValue(item: ChatItem, localApprovalStatus: Record<string, string>): string {
@@ -83,7 +74,6 @@ export function ChatTimeline({
   status = 'disconnected',
   hasTarget = true,
   error = null,
-  threadLastActivityAt,
   onRetry,
   onApprovalDecision,
 }: ChatTimelineProps) {
@@ -104,24 +94,6 @@ export function ChatTimeline({
 
   const turnGroups = useMemo(() => (thread ? groupChatItemsByTurn(thread.items) : []), [thread?.items]);
   const reversedGroups = useMemo(() => [...turnGroups].reverse(), [turnGroups]);
-
-  const pendingApprovalCount = useMemo(() => {
-    if (!thread) return 0;
-    return thread.items.reduce((count, item) => {
-      if (item.kind !== 'approval') return count;
-      return approvalStatusValue(item, localApprovalStatus) === 'pending' ? count + 1 : count;
-    }, 0);
-  }, [localApprovalStatus, thread]);
-
-  const statusState = statusForConnection(status);
-  const statusColors = colorsForTone(palette, statusState.tone);
-
-  const threadSummary = useMemo(() => {
-    if (!thread) return '';
-    const countLabel = callsLabel(thread.items.length);
-    const updated = threadLastActivityAt ? formatRelativeTime(threadLastActivityAt) : '';
-    return updated ? `${countLabel} · updated ${updated}` : countLabel;
-  }, [thread, threadLastActivityAt]);
 
   const scrollToLatest = useCallback((animated: boolean) => {
     flatListRef.current?.scrollToOffset({ offset: 0, animated });
@@ -237,6 +209,21 @@ export function ChatTimeline({
     scrollToLatest(false);
   }, [scrollToLatest]);
 
+  const handleToggleActions = useCallback((itemId: string) => {
+    setActiveActionItemId((current) => (current === itemId ? null : itemId));
+  }, []);
+
+  const handleCopyAction = useCallback((itemId: string, body: string) => {
+    void handleCopy(itemId, body);
+  }, [handleCopy]);
+
+  const handleApprovalAction = useCallback(
+    (approvalItem: ChatItem, decision: 'accept' | 'decline' | 'accept_for_session') => {
+      void handleDecision(approvalItem, decision);
+    },
+    [handleDecision],
+  );
+
   const renderTurnGroup = useCallback(
     ({ item: turnGroup, index }: ListRenderItemInfo<ChatTurnGroup>) => {
       const toolItems = turnGroup.items.filter((entry) => entry.kind === 'tool');
@@ -272,21 +259,17 @@ export function ChatTimeline({
                 key={item.id}
                 item={item}
                 palette={palette}
-                copiedItemId={copiedItemId}
-                activeActionItemId={activeActionItemId}
-                localApprovalStatus={localApprovalStatus}
-                respondingItemId={respondingItemId}
+                isCopied={copiedItemId === item.id}
+                showActions={activeActionItemId === item.id}
+                approvalStatusForItem={
+                  item.kind === 'approval' ? approvalStatusValue(item, localApprovalStatus) : undefined
+                }
+                approvalResponding={item.kind === 'approval' && respondingItemId === item.id}
                 hasApprovalHandler={onApprovalDecision !== undefined}
-                onToggleActions={(itemId) => {
-                  setActiveActionItemId((current) => (current === itemId ? null : itemId));
-                }}
+                onToggleActions={handleToggleActions}
                 onOpenMenu={openMessageMenu}
-                onCopy={(itemId, body) => {
-                  void handleCopy(itemId, body);
-                }}
-                onApprovalDecision={(approvalItem, decision) => {
-                  void handleDecision(approvalItem, decision);
-                }}
+                onCopy={handleCopyAction}
+                onApprovalDecision={handleApprovalAction}
               />
             );
           })}
@@ -305,8 +288,9 @@ export function ChatTimeline({
       respondingItemId,
       onApprovalDecision,
       openMessageMenu,
-      handleCopy,
-      handleDecision,
+      handleCopyAction,
+      handleToggleActions,
+      handleApprovalAction,
     ],
   );
 
@@ -379,53 +363,6 @@ export function ChatTimeline({
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}> 
-      <View style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface0 }]}> 
-        <View style={styles.headerMain}> 
-          <Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text }]}>
-            {thread.title}
-          </Text>
-          <Text numberOfLines={1} style={[styles.headerMeta, { color: palette.textSecondary }]}>
-            {threadSummary}
-          </Text>
-        </View>
-
-        <View style={styles.headerPills}>
-          {pendingApprovalCount > 0 ? (
-            <View
-              style={[
-                styles.headerPill,
-                {
-                  backgroundColor: palette.warningDim,
-                  borderColor: palette.warning,
-                },
-              ]}>
-              <Text style={[styles.headerPillLabel, { color: palette.warning }]}> 
-                {pendingApprovalCount === 1 ? '1 approval' : `${pendingApprovalCount} approvals`}
-              </Text>
-            </View>
-          ) : null}
-
-          <View
-            style={[
-              styles.headerPill,
-              {
-                backgroundColor: thread.running ? palette.successDim : statusColors.background,
-                borderColor: thread.running ? palette.success : statusColors.foreground,
-              },
-            ]}>
-            <Text
-              style={[
-                styles.headerPillLabel,
-                {
-                  color: thread.running ? palette.success : statusColors.foreground,
-                },
-              ]}>
-              {thread.running ? 'Running' : statusState.label}
-            </Text>
-          </View>
-        </View>
-      </View>
-
       {error ? (
         <Animated.View
           entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.micro)}
@@ -459,6 +396,7 @@ export function ChatTimeline({
             keyExtractor={(group) => group.id}
             inverted
             accessibilityLabel="Chat timeline"
+            accessibilityHint="Newest messages are near the composer. Swipe up for older messages."
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -469,6 +407,11 @@ export function ChatTimeline({
               autoscrollToTopThreshold: 20,
             }}
             scrollEventThrottle={16}
+            initialNumToRender={8}
+            maxToRenderPerBatch={6}
+            updateCellsBatchingPeriod={32}
+            windowSize={7}
+            removeClippedSubviews={Platform.OS === 'android'}
             contentContainerStyle={styles.listContent}
             ListEmptyComponent={
               <View style={styles.emptyListWrap}>
