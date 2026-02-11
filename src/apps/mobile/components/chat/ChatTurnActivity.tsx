@@ -15,6 +15,7 @@ import {
 
 import { friendlyToolLabelFromItem, type ChatItem } from '@homie/shared';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { motion, triggerMobileHaptic } from '@/theme/motion';
 import { radius, spacing, type AppPalette, typography } from '@/theme/tokens';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -64,6 +65,24 @@ function ChatTurnActivityCard({
   const [expanded, setExpanded] = useState(false);
   const [openToolId, setOpenToolId] = useState<string | null>(null);
 
+  const runLayoutTransition = useCallback((duration: number) => {
+    const resolved = reducedMotion ? 0 : duration;
+    LayoutAnimation.configureNext({
+      duration: resolved,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+        duration: resolved,
+      },
+      update: { type: LayoutAnimation.Types.easeInEaseOut, duration: resolved },
+      delete: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+        duration: resolved,
+      },
+    });
+  }, [reducedMotion]);
+
   const isTurnActive =
     running &&
     ((turnId && activeTurnId === turnId) || (!turnId && !activeTurnId));
@@ -78,21 +97,24 @@ function ChatTurnActivityCard({
   }, [toolItems]);
 
   const toggleExpanded = useCallback(() => {
-    if (!reducedMotion) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    }
+    runLayoutTransition(expanded ? motion.duration.fast : motion.duration.standard);
+    triggerMobileHaptic(motion.haptics.activityToggle);
     setExpanded((current) => {
       if (current) setOpenToolId(null);
       return !current;
     });
-  }, [reducedMotion]);
+  }, [expanded, runLayoutTransition]);
 
   const toggleToolDetail = useCallback((itemId: string) => {
-    if (!reducedMotion) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    }
+    runLayoutTransition(motion.duration.fast);
+    const nextOpen = openToolId === itemId ? null : itemId;
+    triggerMobileHaptic(
+      nextOpen
+        ? motion.haptics.activityDetail
+        : motion.haptics.activityToggle,
+    );
     setOpenToolId((current) => (current === itemId ? null : itemId));
-  }, [reducedMotion]);
+  }, [openToolId, runLayoutTransition]);
 
   return (
     <View

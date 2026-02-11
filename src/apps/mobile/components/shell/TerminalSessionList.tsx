@@ -1,5 +1,6 @@
 import { formatRelativeTime, type SessionInfo } from '@homie/shared';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
@@ -41,42 +42,85 @@ export function TerminalSessionList({
     );
   }
 
+  const renderItem = useCallback(
+    ({ item }: { item: SessionInfo }) => (
+      <TerminalSessionRow
+        session={item}
+        selected={item.session_id === activeSessionId}
+        palette={palette}
+        onSelect={onSelect}
+      />
+    ),
+    [activeSessionId, onSelect, palette],
+  );
+
   return (
-    <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-      {sessions.map((session) => {
-        const selected = session.session_id === activeSessionId;
-        const numericStart = Number.parseInt(session.started_at, 10);
-        const startedAt = Number.isFinite(numericStart) ? numericStart * 1000 : new Date(session.started_at).getTime();
-        const updatedLabel = Number.isFinite(startedAt) ? formatRelativeTime(startedAt) || 'now' : 'now';
-        return (
-          <Pressable
-            key={session.session_id}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            onPress={() => onSelect(session.session_id)}
-            style={({ pressed }) => [
-              styles.sessionCard,
-              {
-                backgroundColor: selected ? palette.surface1 : palette.surface0,
-                borderColor: selected ? palette.accent : palette.border,
-                opacity: pressed ? 0.86 : 1,
-              },
-            ]}>
-            <View style={styles.row}>
-              <Text numberOfLines={1} style={[styles.shell, { color: palette.text }]}>
-                {session.name || session.shell}
-              </Text>
-              <Text style={[styles.updatedAt, { color: palette.textSecondary }]}>{updatedLabel}</Text>
-            </View>
-            <Text numberOfLines={1} style={[styles.detail, { color: palette.textSecondary }]}>
-              {session.cols}x{session.rows} • {session.status}
-            </Text>
-          </Pressable>
-        );
+    <FlatList
+      data={sessions}
+      keyExtractor={(session) => session.session_id}
+      renderItem={renderItem}
+      contentContainerStyle={styles.list}
+      showsVerticalScrollIndicator={false}
+      initialNumToRender={12}
+      maxToRenderPerBatch={16}
+      windowSize={8}
+      removeClippedSubviews
+      keyboardShouldPersistTaps="handled"
+      getItemLayout={(_, index) => ({
+        index,
+        length: 90,
+        offset: 90 * index,
       })}
-    </ScrollView>
+    />
   );
 }
+
+interface TerminalSessionRowProps {
+  session: SessionInfo;
+  selected: boolean;
+  palette: ReturnType<typeof useAppTheme>['palette'];
+  onSelect: (sessionId: string) => void;
+}
+
+const TerminalSessionRow = memo(function TerminalSessionRow({
+  session,
+  selected,
+  palette,
+  onSelect,
+}: TerminalSessionRowProps) {
+  const numericStart = Number.parseInt(session.started_at, 10);
+  const startedAt = Number.isFinite(numericStart)
+    ? numericStart * 1000
+    : new Date(session.started_at).getTime();
+  const updatedLabel = Number.isFinite(startedAt) ? formatRelativeTime(startedAt) || 'now' : 'now';
+  const sessionName = session.name || session.shell;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`Terminal ${sessionName}`}
+      accessibilityHint="Opens this terminal session view"
+      onPress={() => onSelect(session.session_id)}
+      style={({ pressed }) => [
+        styles.sessionCard,
+        {
+          backgroundColor: selected ? palette.surface1 : palette.surface0,
+          borderColor: selected ? palette.accent : palette.border,
+          opacity: pressed ? 0.86 : 1,
+        },
+      ]}>
+      <View style={styles.row}>
+        <Text numberOfLines={1} style={[styles.shell, { color: palette.text }]}>
+          {sessionName}
+        </Text>
+        <Text style={[styles.updatedAt, { color: palette.textSecondary }]}>{updatedLabel}</Text>
+      </View>
+      <Text numberOfLines={1} style={[styles.detail, { color: palette.textSecondary }]}>
+        {session.cols}x{session.rows} • {session.status}
+      </Text>
+    </Pressable>
+  );
+});
 
 const styles = StyleSheet.create({
   list: {

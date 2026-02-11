@@ -13,24 +13,22 @@ import Animated, {
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
 import { ScreenSurface } from '@/components/ui/ScreenSurface';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
-import { motion } from '@/theme/motion';
+import { motion, triggerMobileHaptic } from '@/theme/motion';
 import { elevation, radius, spacing, typography } from '@/theme/tokens';
-
 import {
   type MobileSection,
   MOBILE_SECTION_ROUTES,
   MOBILE_SECTION_TITLES,
   PrimarySectionMenu,
 } from './PrimarySectionMenu';
-
 interface DrawerRenderHelpers {
   closeDrawer: () => void;
 }
@@ -47,7 +45,6 @@ interface AppShellProps extends PropsWithChildren {
   renderDrawerContent: (helpers: DrawerRenderHelpers) => ReactNode;
   renderDrawerActions?: (helpers: DrawerRenderHelpers) => ReactNode;
 }
-
 export function AppShell({
   section,
   hasTarget,
@@ -70,6 +67,7 @@ export function AppShell({
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const dragProgressRef = useRef(0);
+  const drawerVelocityRef = useRef(0);
 
   const clampProgress = useCallback((value: number) => {
     if (value <= 0) return 0;
@@ -83,9 +81,27 @@ export function AppShell({
     drawerProgress.value = next;
   }, [clampProgress, drawerProgress]);
 
+  const animateDrawer = useCallback((target: 0 | 1, velocity = 0) => {
+    if (reducedMotion) {
+      drawerProgress.value = withTiming(target, { duration: 0 });
+      return;
+    }
+    drawerProgress.value = withSpring(target, {
+      ...motion.spring.drawer,
+      velocity,
+    });
+  }, [drawerProgress, reducedMotion]);
+
+  const commitDrawer = useCallback((open: boolean, velocity = 0) => {
+    drawerVelocityRef.current = velocity;
+    setDrawerOpen(open);
+  }, []);
+
   const closeDrawer = useCallback(() => {
-    if (!isTablet) setDrawerOpen(false);
-  }, [isTablet]);
+    if (isTablet) return;
+    triggerMobileHaptic(motion.haptics.navSelect);
+    commitDrawer(false);
+  }, [commitDrawer, isTablet]);
 
   useEffect(() => {
     if (!hasTarget) {
@@ -105,11 +121,10 @@ export function AppShell({
   useEffect(() => {
     const target = isTablet || drawerOpen ? 1 : 0;
     dragProgressRef.current = target;
-    drawerProgress.value = withTiming(target, {
-      duration: reducedMotion ? 0 : motion.duration.standard,
-      easing: motion.easing.enter,
-    });
-  }, [drawerOpen, drawerProgress, isTablet, reducedMotion]);
+    const velocity = drawerVelocityRef.current;
+    drawerVelocityRef.current = 0;
+    animateDrawer(target ? 1 : 0, velocity);
+  }, [animateDrawer, drawerOpen, isTablet]);
 
   const edgeSwipeResponder = useMemo(
     () =>
@@ -120,7 +135,7 @@ export function AppShell({
         },
         onMoveShouldSetPanResponder: (_, gesture) => {
           if (isTablet || drawerOpen) return false;
-          const horizontal = Math.abs(gesture.dx) > Math.abs(gesture.dy);
+          const horizontal = Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5;
           return horizontal && gesture.x0 <= edgeGestureWidth && Math.abs(gesture.dx) > 8;
         },
         onPanResponderGrant: () => {
@@ -130,14 +145,18 @@ export function AppShell({
           setDrawerProgress(gesture.dx / drawerWidth);
         },
         onPanResponderRelease: (_, gesture) => {
-          const open = gesture.vx > 0.12 || dragProgressRef.current > 0.35;
-          setDrawerOpen(open);
+          const open = gesture.vx > 0.3 || dragProgressRef.current > 0.35;
+          const velocity = (gesture.vx * 1000) / drawerWidth;
+          if (open !== drawerOpen) {
+            triggerMobileHaptic(motion.haptics.drawerSnap);
+          }
+          commitDrawer(open, velocity);
         },
         onPanResponderTerminate: () => {
-          setDrawerOpen(false);
+          commitDrawer(false);
         },
       }),
-    [drawerOpen, drawerWidth, edgeGestureWidth, isTablet, setDrawerProgress],
+    [commitDrawer, drawerOpen, drawerWidth, edgeGestureWidth, isTablet, setDrawerProgress],
   );
 
   const panelSwipeResponder = useMemo(
@@ -146,7 +165,7 @@ export function AppShell({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_, gesture) => {
           if (isTablet || !drawerOpen) return false;
-          const horizontal = Math.abs(gesture.dx) > Math.abs(gesture.dy);
+          const horizontal = Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5;
           return horizontal && Math.abs(gesture.dx) > 8;
         },
         onPanResponderGrant: () => {
@@ -156,18 +175,22 @@ export function AppShell({
           setDrawerProgress(1 + gesture.dx / drawerWidth);
         },
         onPanResponderRelease: (_, gesture) => {
-          const stayOpen = gesture.vx > -0.12 && dragProgressRef.current > 0.65;
-          setDrawerOpen(stayOpen);
+          const stayOpen = gesture.vx > -0.3 && dragProgressRef.current > 0.65;
+          const velocity = (gesture.vx * 1000) / drawerWidth;
+          if (stayOpen !== drawerOpen) {
+            triggerMobileHaptic(motion.haptics.drawerSnap);
+          }
+          commitDrawer(stayOpen, velocity);
         },
         onPanResponderTerminate: () => {
-          setDrawerOpen(true);
+          commitDrawer(true);
         },
       }),
-    [drawerOpen, drawerWidth, isTablet, setDrawerProgress],
+    [commitDrawer, drawerOpen, drawerWidth, isTablet, setDrawerProgress],
   );
 
   const backdropStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(drawerProgress.value, [0, 1], [0, 1]),
+    opacity: interpolate(drawerProgress.value, [0, 1], [0, 0.45]),
   }));
 
   const panelStyle = useAnimatedStyle(() => ({
@@ -198,7 +221,12 @@ export function AppShell({
                 accessibilityRole="button"
                 accessibilityLabel="Toggle app menu"
                 onPress={() => {
-                  setDrawerOpen((current) => !current);
+                  triggerMobileHaptic(motion.haptics.drawerToggle);
+                  setDrawerOpen((current) => {
+                    const next = !current;
+                    drawerVelocityRef.current = 0;
+                    return next;
+                  });
                 }}
                 style={({ pressed }) => [
                   styles.drawerToggle,

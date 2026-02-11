@@ -3,7 +3,8 @@
 
 import { formatRelativeTime, type ChatThreadSummary } from '@homie/shared';
 import * as Haptics from 'expo-haptics';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback } from 'react';
+import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
@@ -61,62 +62,101 @@ export function ThreadList({
     );
   }
 
+  const renderItem = useCallback(
+    ({ item: thread }: { item: ChatThreadSummary }) => (
+      <ThreadRow
+        thread={thread}
+        selected={thread.chatId === activeChatId}
+        palette={palette}
+        onLongPressThread={onLongPressThread}
+        onSelect={onSelect}
+      />
+    ),
+    [activeChatId, onLongPressThread, onSelect, palette],
+  );
+
   return (
-    <ScrollView
+    <FlatList
+      data={threads}
+      keyExtractor={(thread) => thread.chatId}
+      renderItem={renderItem}
+      contentContainerStyle={styles.list}
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.list}>
-      {threads.map((thread) => {
-        const selected = thread.chatId === activeChatId;
-        const updatedLabel = formatRelativeTime(thread.lastActivityAt) || 'now';
-        return (
-          <Pressable
-            key={thread.chatId}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            delayLongPress={300}
-            onLongPress={() => {
-              if (Platform.OS !== 'web') {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              }
-              onLongPressThread?.(thread);
-            }}
-            onPress={() => {
-              if (Platform.OS !== 'web') {
-                Haptics.selectionAsync();
-              }
-              onSelect(thread.chatId);
-            }}
-            style={({ pressed }) => [
-              styles.threadCard,
-              {
-                backgroundColor: selected ? palette.surface1 : palette.surface0,
-                borderColor: selected ? palette.accent : palette.border,
-                opacity: pressed ? 0.88 : 1,
-              },
-            ]}>
-            <View style={styles.headerRow}>
-              <Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>
-                {thread.title}
-              </Text>
-              <Text style={[styles.updatedAt, { color: palette.textSecondary }]}>
-                {updatedLabel}
-              </Text>
-            </View>
-            <Text numberOfLines={2} style={[styles.preview, { color: palette.textSecondary }]}>
-              {thread.preview || 'Tap to load conversation'}
-            </Text>
-            {thread.running ? (
-              <View style={styles.runningRow}>
-                <View style={[styles.runningDot, { backgroundColor: palette.success }]} />
-                <Text style={[styles.runningText, { color: palette.success }]}>Running</Text>
-              </View>
-            ) : null}
-          </Pressable>
-        );
+      initialNumToRender={10}
+      maxToRenderPerBatch={12}
+      windowSize={8}
+      removeClippedSubviews
+      keyboardShouldPersistTaps="handled"
+      getItemLayout={(_, index) => ({
+        index,
+        length: 100,
+        offset: 100 * index,
       })}
-    </ScrollView>
+    />
   );
 }
+
+interface ThreadRowProps {
+  thread: ChatThreadSummary;
+  selected: boolean;
+  palette: ReturnType<typeof useAppTheme>['palette'];
+  onSelect: (chatId: string) => void;
+  onLongPressThread?: (thread: ChatThreadSummary) => void;
+}
+
+const ThreadRow = memo(function ThreadRow({
+  thread,
+  selected,
+  palette,
+  onSelect,
+  onLongPressThread,
+}: ThreadRowProps) {
+  const updatedLabel = formatRelativeTime(thread.lastActivityAt) || 'now';
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`Conversation ${thread.title}`}
+      accessibilityHint="Opens this conversation"
+      delayLongPress={300}
+      onLongPress={() => {
+        if (Platform.OS !== 'web') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
+        onLongPressThread?.(thread);
+      }}
+      onPress={() => {
+        if (Platform.OS !== 'web') {
+          Haptics.selectionAsync();
+        }
+        onSelect(thread.chatId);
+      }}
+      style={({ pressed }) => [
+        styles.threadCard,
+        {
+          backgroundColor: selected ? palette.surface1 : palette.surface0,
+          borderColor: selected ? palette.accent : palette.border,
+          opacity: pressed ? 0.88 : 1,
+        },
+      ]}>
+      <View style={styles.headerRow}>
+        <Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>
+          {thread.title}
+        </Text>
+        <Text style={[styles.updatedAt, { color: palette.textSecondary }]}>{updatedLabel}</Text>
+      </View>
+      <Text numberOfLines={2} style={[styles.preview, { color: palette.textSecondary }]}>
+        {thread.preview || 'Tap to load conversation'}
+      </Text>
+      {thread.running ? (
+        <View style={styles.runningRow}>
+          <View style={[styles.runningDot, { backgroundColor: palette.success }]} />
+          <Text style={[styles.runningText, { color: palette.success }]}>Running</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+});
 
 const styles = StyleSheet.create({
   list: {

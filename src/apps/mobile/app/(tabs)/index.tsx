@@ -49,6 +49,10 @@ export default function ChatTabScreen() {
     () => threads.find((thread) => thread.chatId === actioningThreadId) ?? null,
     [actioningThreadId, threads],
   );
+  const activeThreadSummary = useMemo(
+    () => threads.find((thread) => thread.chatId === activeChatId) ?? null,
+    [activeChatId, threads],
+  );
 
   const canCreateChat = hasTarget && status === 'connected' && !creatingChat;
   const canRefreshThreads = hasTarget && status === 'connected' && !loadingThreads;
@@ -120,6 +124,13 @@ export default function ChatTabScreen() {
           <ChatTimeline
             thread={hasTarget ? activeThread : null}
             loading={loadingMessages && hasTarget}
+            status={status}
+            hasTarget={hasTarget}
+            error={error}
+            threadLastActivityAt={activeThreadSummary?.lastActivityAt}
+            onRetry={() => {
+              void refreshThreads();
+            }}
             onApprovalDecision={respondApproval}
           />
           <KeyboardStickyView offset={{ closed: 0, opened: -insets.bottom }}>
