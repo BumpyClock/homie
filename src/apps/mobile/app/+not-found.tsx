@@ -13,7 +13,7 @@ export default function NotFoundScreen() {
       <View style={[styles.container, { backgroundColor: palette.background }]}> 
         <Text style={[styles.title, { color: palette.text }]}>This route does not exist</Text>
         <Link href="/" asChild>
-          <Pressable style={[styles.link, { borderColor: palette.border, backgroundColor: palette.surface }]}> 
+          <Pressable style={[styles.link, { borderColor: palette.border, backgroundColor: palette.surface0 }]}> 
             <Text style={[styles.linkText, { color: palette.accent }]}>Go back to chat</Text>
           </Pressable>
         </Link>

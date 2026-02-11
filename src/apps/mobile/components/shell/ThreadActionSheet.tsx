@@ -37,9 +37,9 @@ export function ThreadActionSheet({
       transparent
       visible
       onRequestClose={onClose}>
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, { backgroundColor: palette.overlay }]}>
         <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
-        <View style={[styles.sheet, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={[styles.sheet, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
           <Text style={[styles.title, { color: palette.text }]}>Thread Actions</Text>
           <Text style={[styles.subtitle, { color: palette.textSecondary }]}>
             {thread.title}
@@ -52,7 +52,7 @@ export function ThreadActionSheet({
             placeholderTextColor={palette.textSecondary}
             style={[
               styles.input,
-              { color: palette.text, borderColor: palette.border, backgroundColor: palette.surfaceAlt },
+              { color: palette.text, borderColor: palette.border, backgroundColor: palette.surface1 },
             ]}
           />
           <View style={styles.row}>
@@ -71,7 +71,7 @@ export function ThreadActionSheet({
                   opacity: pressed ? 0.86 : busy || !title.trim() ? 0.58 : 1,
                 },
               ]}>
-              <Text style={[styles.buttonLabel, { color: palette.surface }]}>
+              <Text style={[styles.buttonLabel, { color: palette.surface0 }]}>
                 {busy ? 'Saving...' : 'Rename'}
               </Text>
             </Pressable>
@@ -88,12 +88,12 @@ export function ThreadActionSheet({
               style={({ pressed }) => [
                 styles.button,
                 {
-                  backgroundColor: confirmArchive ? palette.danger : palette.surface,
+                  backgroundColor: confirmArchive ? palette.danger : palette.surface0,
                   borderColor: palette.danger,
                   opacity: pressed ? 0.86 : busy ? 0.58 : 1,
                 },
               ]}>
-              <Text style={[styles.buttonLabel, { color: confirmArchive ? palette.surface : palette.danger }]}>
+              <Text style={[styles.buttonLabel, { color: confirmArchive ? palette.surface0 : palette.danger }]}>
                 {confirmArchive ? 'Confirm Archive' : 'Archive'}
               </Text>
             </Pressable>
@@ -110,7 +110,7 @@ export function ThreadActionSheet({
             style={({ pressed }) => [
               styles.cancelButton,
               {
-                backgroundColor: palette.surfaceAlt,
+                backgroundColor: palette.surface1,
                 borderColor: palette.border,
                 opacity: pressed ? 0.86 : busy ? 0.58 : 1,
               },
@@ -126,7 +126,6 @@ export function ThreadActionSheet({
 const styles = StyleSheet.create({
   overlay: {
     alignItems: 'center',
-    backgroundColor: 'rgba(8, 12, 18, 0.34)',
     flex: 1,
     justifyContent: 'flex-end',
     padding: spacing.lg,

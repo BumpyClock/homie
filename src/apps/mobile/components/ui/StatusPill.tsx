@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { radius, spacing, typography } from '@/theme/tokens';
+import { palettes, radius, spacing, typography } from '@/theme/tokens';
 
 type StatusPillProps = {
   label: string;
@@ -15,7 +15,7 @@ export function StatusPill({ label, tone = 'accent' }: StatusPillProps) {
 
   return (
     <View style={[styles.container, { backgroundColor: background }]}> 
-      <Text style={[styles.label, { color: palette.surface }]}>{label}</Text>
+      <Text style={[styles.label, { color: palettes.light.surface0 }]}>{label}</Text>
     </View>
   );
 }

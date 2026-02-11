@@ -21,7 +21,7 @@ export function TerminalSessionList({
 
   if (loading && sessions.length === 0) {
     return (
-      <View style={[styles.emptyCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+      <View style={[styles.emptyCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
         <Text style={[styles.emptyTitle, { color: palette.text }]}>Loading terminals</Text>
         <Text style={[styles.emptyBody, { color: palette.textSecondary }]}>
           Syncing running sessions...
@@ -32,7 +32,7 @@ export function TerminalSessionList({
 
   if (!loading && sessions.length === 0) {
     return (
-      <View style={[styles.emptyCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+      <View style={[styles.emptyCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
         <Text style={[styles.emptyTitle, { color: palette.text }]}>No running terminals</Text>
         <Text style={[styles.emptyBody, { color: palette.textSecondary }]}>
           Start a terminal session from desktop or web first.
@@ -57,7 +57,7 @@ export function TerminalSessionList({
             style={({ pressed }) => [
               styles.sessionCard,
               {
-                backgroundColor: selected ? palette.surfaceAlt : palette.surface,
+                backgroundColor: selected ? palette.surface1 : palette.surface0,
                 borderColor: selected ? palette.accent : palette.border,
                 opacity: pressed ? 0.86 : 1,
               },

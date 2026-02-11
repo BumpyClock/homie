@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { radius, spacing, typography } from '@/theme/tokens';
+import { palettes, radius, spacing, typography } from '@/theme/tokens';
 
 interface GatewayTargetFormProps {
   initialValue?: string;
@@ -70,7 +70,7 @@ export function GatewayTargetForm({
         style={[
           styles.input,
           {
-            backgroundColor: palette.surfaceAlt,
+            backgroundColor: palette.surface1,
             borderColor: palette.border,
             color: palette.text,
           },
@@ -93,7 +93,7 @@ export function GatewayTargetForm({
             styles.actionButton,
             styles.primaryAction,
             {
-              backgroundColor: saveDisabled ? palette.surfaceAlt : palette.accent,
+              backgroundColor: saveDisabled ? palette.surface1 : palette.accent,
               borderColor: saveDisabled ? palette.border : palette.accent,
               opacity: pressed ? 0.86 : 1,
             },
@@ -101,7 +101,7 @@ export function GatewayTargetForm({
           <Text
             style={[
               styles.actionLabel,
-              { color: saveDisabled ? palette.textSecondary : palette.surface },
+              { color: saveDisabled ? palette.textSecondary : palettes.light.surface0 },
             ]}>
             {saving ? 'Saving...' : saveLabel}
           </Text>
@@ -116,7 +116,7 @@ export function GatewayTargetForm({
             style={({ pressed }) => [
               styles.actionButton,
               {
-                backgroundColor: palette.surface,
+                backgroundColor: palette.surface0,
                 borderColor: palette.border,
                 opacity: pressed ? 0.86 : 1,
               },

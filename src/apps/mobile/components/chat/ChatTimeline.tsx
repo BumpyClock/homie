@@ -24,7 +24,8 @@ import Animated, {
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
-import { radius, spacing, typography } from '@/theme/tokens';
+import { motion } from '@/theme/motion';
+import { elevation, palettes, radius, spacing, typography } from '@/theme/tokens';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ChatTurnActivity } from './ChatTurnActivity';
 
@@ -231,7 +232,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
             style={[
               styles.approvalCard,
               {
-                backgroundColor: palette.surfaceAlt,
+                backgroundColor: palette.surface1,
                 borderColor: palette.warning,
               },
             ]}>
@@ -251,7 +252,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
                 style={[
                   styles.commandCard,
                   {
-                    backgroundColor: palette.surface,
+                    backgroundColor: palette.surface0,
                     borderColor: palette.border,
                   },
                 ]}>
@@ -277,7 +278,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
                       opacity: pressed ? 0.86 : canRespond ? 1 : 0.58,
                     },
                   ]}>
-                  <Text style={[styles.approvalLabel, { color: '#FFFFFF' }]}>
+                  <Text style={[styles.approvalLabel, { color: palettes.light.surface0 }]}>
                     {responding ? '...' : 'Accept'}
                   </Text>
                 </Pressable>
@@ -296,7 +297,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
                       opacity: pressed ? 0.86 : canRespond ? 1 : 0.58,
                     },
                   ]}>
-                  <Text style={[styles.approvalLabel, { color: '#FFFFFF' }]}>
+                  <Text style={[styles.approvalLabel, { color: palettes.light.surface0 }]}>
                     Always
                   </Text>
                 </Pressable>
@@ -310,7 +311,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
                   style={({ pressed }) => [
                     styles.approvalButton,
                     {
-                      backgroundColor: palette.surface,
+                      backgroundColor: palette.surface0,
                       borderColor: palette.danger,
                       opacity: pressed ? 0.86 : canRespond ? 1 : 0.58,
                     },
@@ -346,7 +347,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
           style={({ pressed }) => [
             styles.messageRow,
             {
-              backgroundColor: pressed ? palette.surfaceAlt : 'transparent',
+              backgroundColor: pressed ? palette.surface1 : 'transparent',
             },
           ]}>
           {/* Avatar */}
@@ -354,7 +355,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
             style={[
               styles.avatar,
               {
-                backgroundColor: isUser ? palette.accent : palette.surfaceAlt,
+                backgroundColor: isUser ? palette.accent : palette.surface1,
               },
             ]}>
             {isUser ? (
@@ -391,7 +392,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
                   style={({ pressed }) => [
                     styles.iconButton,
                     {
-                      backgroundColor: palette.surfaceAlt,
+                      backgroundColor: palette.surface1,
                       borderColor: palette.border,
                       opacity: pressed ? 0.82 : 1,
                     },
@@ -412,7 +413,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
                   style={({ pressed }) => [
                     styles.iconButton,
                     {
-                      backgroundColor: palette.surfaceAlt,
+                      backgroundColor: palette.surface1,
                       borderColor: palette.border,
                       opacity: pressed ? 0.82 : 1,
                     },
@@ -447,9 +448,15 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
       const toolItems = turnGroup.items.filter((entry) => entry.kind === 'tool');
       const firstToolIndex = turnGroup.items.findIndex((entry) => entry.kind === 'tool');
 
-      // Stagger animation: cap at 10 items, then flat delay
-      const staggerDelay = reducedMotion ? 0 : index < 10 ? index * 30 : 300;
-      const entering = reducedMotion ? undefined : FadeInUp.delay(staggerDelay).duration(180);
+      // Stagger animation: cap at 10 items, then flat delay.
+      const staggerDelay = reducedMotion
+        ? 0
+        : index < 10
+          ? index * motion.stagger.tight
+          : 10 * motion.stagger.tight;
+      const entering = reducedMotion
+        ? undefined
+        : FadeInUp.delay(staggerDelay).duration(motion.duration.fast);
 
       return (
         <Animated.View entering={entering} style={styles.turnGroup}>
@@ -496,7 +503,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}>
       {/* Thread header bar */}
-      <View style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
+      <View style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface0 }]}>
         <Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text }]}>
           {thread.title}
         </Text>
@@ -544,7 +551,7 @@ export function ChatTimeline({ thread, loading, onApprovalDecision }: ChatTimeli
                 style={({ pressed }) => [
                   styles.jumpButton,
                   {
-                    backgroundColor: palette.surface,
+                    backgroundColor: palette.surface0,
                     borderColor: palette.border,
                     opacity: pressed ? 0.86 : 1,
                   },
@@ -633,7 +640,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: palettes.light.surface0,
   },
   messageContent: {
     flex: 1,
@@ -765,10 +772,6 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
-    shadowColor: '#000000',
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
+    ...elevation.fab,
   },
 });

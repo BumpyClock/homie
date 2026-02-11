@@ -31,7 +31,7 @@ export function ThreadList({
         style={[
           styles.emptyCard,
           {
-            backgroundColor: palette.surface,
+            backgroundColor: palette.surface0,
             borderColor: palette.border,
           },
         ]}>
@@ -49,7 +49,7 @@ export function ThreadList({
         style={[
           styles.emptyCard,
           {
-            backgroundColor: palette.surface,
+            backgroundColor: palette.surface0,
             borderColor: palette.border,
           },
         ]}>
@@ -89,7 +89,7 @@ export function ThreadList({
             style={({ pressed }) => [
               styles.threadCard,
               {
-                backgroundColor: selected ? palette.surfaceAlt : palette.surface,
+                backgroundColor: selected ? palette.surface1 : palette.surface0,
                 borderColor: selected ? palette.accent : palette.border,
                 opacity: pressed ? 0.88 : 1,
               },

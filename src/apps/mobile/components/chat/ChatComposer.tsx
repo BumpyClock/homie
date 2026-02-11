@@ -24,7 +24,7 @@ import { EffortPickerSheet } from '@/components/chat/EffortPickerSheet';
 import { ModelPickerSheet } from '@/components/chat/ModelPickerSheet';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
-import { radius, spacing, typography } from '@/theme/tokens';
+import { palettes, radius, spacing, typography } from '@/theme/tokens';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -54,7 +54,7 @@ export function ChatComposer({
   onSelectEffort,
   onSend,
 }: ChatComposerProps) {
-  const { palette, mode } = useAppTheme();
+  const { palette } = useAppTheme();
   const reducedMotion = useReducedMotion();
   const [value, setValue] = useState('');
   const [focused, setFocused] = useState(false);
@@ -122,14 +122,11 @@ export function ChatComposer({
   const safeBottomPadding = Math.max(bottomInset, spacing.sm);
 
   /* ── Derived palette values ──────────────────────────────── */
-  const containerBg = mode === 'dark'
-    ? 'rgba(18, 28, 39, 0.96)'
-    : 'rgba(255, 255, 255, 0.96)';
-  const inputBg = palette.surfaceAlt;
+  const containerBg = palette.tabBar;
   const focusedBorderColor = palette.accent;
-  const restBorderColor = mode === 'dark'
-    ? 'rgba(233, 239, 247, 0.10)'
-    : 'rgba(16, 26, 39, 0.08)';
+  const restBorderColor = palette.border;
+  const pillBackground = palette.surface1;
+  const disabledSendBackground = palette.surface2;
 
   return (
     <View
@@ -157,9 +154,7 @@ export function ChatComposer({
               style={({ pressed }) => [
                 styles.pill,
                 {
-                  backgroundColor: mode === 'dark'
-                    ? 'rgba(233, 239, 247, 0.07)'
-                    : 'rgba(16, 26, 39, 0.05)',
+                  backgroundColor: pillBackground,
                   opacity: pressed ? 0.7 : disabled ? 0.45 : 1,
                 },
               ]}>
@@ -180,9 +175,7 @@ export function ChatComposer({
                 style={({ pressed }) => [
                   styles.pill,
                   {
-                    backgroundColor: mode === 'dark'
-                      ? 'rgba(233, 239, 247, 0.07)'
-                      : 'rgba(16, 26, 39, 0.05)',
+                    backgroundColor: pillBackground,
                     opacity: pressed ? 0.7 : disabled ? 0.45 : 1,
                   },
                 ]}>
@@ -224,17 +217,13 @@ export function ChatComposer({
               styles.sendButton,
               sendButtonStyle,
               {
-                backgroundColor: canSend ? palette.accent : (
-                  mode === 'dark'
-                    ? 'rgba(233, 239, 247, 0.08)'
-                    : 'rgba(16, 26, 39, 0.06)'
-                ),
+                backgroundColor: canSend ? palette.accent : disabledSendBackground,
               },
             ]}>
             <Feather
               name="arrow-up"
               size={16}
-              color={canSend ? '#FFFFFF' : palette.textSecondary}
+              color={canSend ? palettes.light.surface0 : palette.textSecondary}
               style={canSend ? undefined : { opacity: 0.5 }}
             />
           </AnimatedPressable>

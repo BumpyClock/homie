@@ -99,7 +99,7 @@ function ChatTurnActivityCard({
       style={[
         styles.card,
         {
-          backgroundColor: palette.surfaceAlt,
+          backgroundColor: palette.surface1,
           borderColor: palette.border,
         },
       ]}>
@@ -141,7 +141,7 @@ function ChatTurnActivityCard({
                 style={[
                   styles.toolRow,
                   {
-                    backgroundColor: palette.surface,
+                    backgroundColor: palette.surface0,
                     borderColor: palette.border,
                   },
                 ]}>

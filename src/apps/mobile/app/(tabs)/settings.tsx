@@ -64,7 +64,7 @@ export default function SettingsTabScreen() {
           <StatusPill label={mode} />
         </View>
 
-        <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <View style={[styles.card, { backgroundColor: palette.surface0, borderColor: palette.border }]}>
           <Text style={[styles.cardTitle, { color: palette.text }]}>Gateway</Text>
           <SettingRow label="Target" value={targetUrl ?? 'Not set'} />
           <SettingRow label="Provider" value="OpenAI Codex" />

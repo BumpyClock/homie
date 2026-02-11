@@ -1,4 +1,5 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { useRouter } from 'expo-router';
 import type { ComponentProps } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -6,26 +7,41 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 import { radius, spacing, typography } from '@/theme/tokens';
 
 export type MobileSection = 'chat' | 'terminals' | 'settings';
+export type MobileSectionRoute = '/(tabs)' | '/(tabs)/terminals' | '/(tabs)/settings';
 
 interface MenuItem {
   id: MobileSection;
   label: string;
   icon: ComponentProps<typeof FontAwesome>['name'];
+  route: MobileSectionRoute;
 }
 
 const MENU_ITEMS: MenuItem[] = [
-  { id: 'chat', label: 'Chat', icon: 'comments' },
-  { id: 'terminals', label: 'Terminals', icon: 'terminal' },
-  { id: 'settings', label: 'Settings', icon: 'sliders' },
+  { id: 'chat', label: 'Chat', icon: 'comments', route: '/(tabs)' },
+  { id: 'terminals', label: 'Terminals', icon: 'terminal', route: '/(tabs)/terminals' },
+  { id: 'settings', label: 'Settings', icon: 'sliders', route: '/(tabs)/settings' },
 ];
 
 interface PrimarySectionMenuProps {
   activeSection: MobileSection;
-  onSelect: (section: MobileSection) => void;
+  onNavigate?: () => void;
 }
 
-export function PrimarySectionMenu({ activeSection, onSelect }: PrimarySectionMenuProps) {
+export const MOBILE_SECTION_TITLES: Record<MobileSection, string> = {
+  chat: 'Chat',
+  terminals: 'Terminals',
+  settings: 'Settings',
+};
+
+export const MOBILE_SECTION_ROUTES: Record<MobileSection, MobileSectionRoute> = {
+  chat: '/(tabs)',
+  terminals: '/(tabs)/terminals',
+  settings: '/(tabs)/settings',
+};
+
+export function PrimarySectionMenu({ activeSection, onNavigate }: PrimarySectionMenuProps) {
   const { palette } = useAppTheme();
+  const router = useRouter();
 
   return (
     <View style={styles.container}>
@@ -36,11 +52,16 @@ export function PrimarySectionMenu({ activeSection, onSelect }: PrimarySectionMe
             key={item.id}
             accessibilityRole="button"
             accessibilityState={{ selected }}
-            onPress={() => onSelect(item.id)}
+            onPress={() => {
+              if (!selected) {
+                router.replace(item.route);
+              }
+              onNavigate?.();
+            }}
             style={({ pressed }) => [
               styles.item,
               {
-                backgroundColor: selected ? palette.surfaceAlt : palette.surface,
+                backgroundColor: selected ? palette.surface1 : palette.surface0,
                 borderColor: selected ? palette.accent : palette.border,
                 opacity: pressed ? 0.86 : 1,
               },

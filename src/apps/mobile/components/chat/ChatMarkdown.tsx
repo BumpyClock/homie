@@ -61,7 +61,7 @@ const MarkdownImage = React.memo(function MarkdownImage({ uri, alt, palette }: {
 
   if (failed) {
     return (
-      <View style={[styles.imageFallback, { borderColor: palette.border, backgroundColor: palette.surface }]}> 
+      <View style={[styles.imageFallback, { borderColor: palette.border, backgroundColor: palette.surface0 }]}> 
         <Text style={[styles.imageFallbackLabel, { color: palette.textSecondary }]}>Image unavailable</Text>
         <Text numberOfLines={2} style={[styles.imageFallbackAlt, { color: palette.text }]}>
           {alt}
@@ -71,13 +71,13 @@ const MarkdownImage = React.memo(function MarkdownImage({ uri, alt, palette }: {
   }
 
   return (
-    <View style={[styles.imageWrap, { borderColor: palette.border, backgroundColor: palette.surface }]}> 
+    <View style={[styles.imageWrap, { borderColor: palette.border, backgroundColor: palette.surface0 }]}> 
       <View
         accessibilityRole="image"
         accessibilityLabel={alt}
         style={[styles.imageInner, { aspectRatio }]}
       >
-        <View style={[styles.imageFill, { backgroundColor: palette.surface }]}>
+        <View style={[styles.imageFill, { backgroundColor: palette.surface0 }]}>
           <MarkdownImageNative
             uri={uri}
             alt={alt}
@@ -149,7 +149,7 @@ export function ChatMarkdown({ content, itemKind, palette }: ChatMarkdownProps) 
         marginBottom: spacing.xs,
       },
       code: {
-        backgroundColor: palette.surface,
+        backgroundColor: palette.surface0,
         borderColor: palette.border,
         borderRadius: radius.sm,
         borderWidth: 1,
@@ -157,7 +157,7 @@ export function ChatMarkdown({ content, itemKind, palette }: ChatMarkdownProps) 
       },
       codespan: {
         ...styles.commandText,
-        backgroundColor: palette.surface,
+        backgroundColor: palette.surface0,
         color: palette.text,
       },
       link: {

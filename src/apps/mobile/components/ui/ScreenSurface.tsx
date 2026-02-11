@@ -12,12 +12,12 @@ export function ScreenSurface({ children }: PropsWithChildren) {
 
   useEffect(() => {
     opacity.value = withTiming(1, {
-      duration: reducedMotion ? 0 : motion.duration.regular,
-      easing: motion.easing.enterExit,
+      duration: reducedMotion ? 0 : motion.duration.standard,
+      easing: motion.easing.enter,
     });
     translateY.value = withTiming(0, {
-      duration: reducedMotion ? 0 : motion.duration.regular,
-      easing: motion.easing.enterExit,
+      duration: reducedMotion ? 0 : motion.duration.standard,
+      easing: motion.easing.enter,
     });
   }, [opacity, reducedMotion, translateY]);
 

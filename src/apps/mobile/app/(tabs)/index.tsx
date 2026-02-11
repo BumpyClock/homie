@@ -34,7 +34,7 @@ import { useGatewayChat } from '@/hooks/useGatewayChat';
 import { useGatewayTarget } from '@/hooks/useGatewayTarget';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { motion } from '@/theme/motion';
-import { radius, spacing, typography } from '@/theme/tokens';
+import { elevation, radius, spacing, typography } from '@/theme/tokens';
 
 type SettingRowProps = {
   label: string;
@@ -190,8 +190,8 @@ export default function ChatTabScreen() {
     const target = isTablet || drawerOpen ? 1 : 0;
     dragProgressRef.current = target;
     drawerProgress.value = withTiming(target, {
-      duration: reducedMotion ? 0 : motion.duration.regular,
-      easing: motion.easing.enterExit,
+      duration: reducedMotion ? 0 : motion.duration.standard,
+      easing: motion.easing.enter,
     });
   }, [drawerOpen, drawerProgress, isTablet, reducedMotion]);
 
@@ -293,7 +293,7 @@ export default function ChatTabScreen() {
 
     if (section === 'terminals') {
       return (
-        <View style={[styles.sectionCard, { backgroundColor: palette.surface, borderColor: palette.border }]}> 
+        <View style={[styles.sectionCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}> 
           <Text style={[styles.sectionTitle, { color: palette.text }]}>Terminal Session</Text>
           {activeTerminalSession ? (
             <>
@@ -313,7 +313,7 @@ export default function ChatTabScreen() {
     }
 
     return (
-      <View style={[styles.sectionCard, { backgroundColor: palette.surface, borderColor: palette.border }]}> 
+      <View style={[styles.sectionCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}> 
         <Text style={[styles.sectionTitle, { color: palette.text }]}>Gateway Settings</Text>
         <SettingRow label="Target" value={targetUrl ?? 'Not set'} />
         <SettingRow label="Theme" value={mode} />
@@ -349,7 +349,7 @@ export default function ChatTabScreen() {
                 style={({ pressed }) => [
                   styles.drawerToggle,
                   {
-                    backgroundColor: palette.surface,
+                    backgroundColor: palette.surface0,
                     borderColor: palette.border,
                     opacity: pressed ? 0.86 : 1,
                   },
@@ -370,21 +370,21 @@ export default function ChatTabScreen() {
         </View>
 
         {loadingTarget ? (
-          <View style={[styles.setupCard, { backgroundColor: palette.surface, borderColor: palette.border }]}> 
+          <View style={[styles.setupCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}> 
             <Text style={[styles.setupTitle, { color: palette.text }]}>Loading target</Text>
             <Text style={[styles.setupBody, { color: palette.textSecondary }]}>Checking saved gateway configuration...</Text>
           </View>
         ) : null}
 
         {!loadingTarget && !hasTarget && section !== 'settings' ? (
-          <View style={[styles.setupCard, { backgroundColor: palette.surface, borderColor: palette.border }]}> 
+          <View style={[styles.setupCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}> 
             <Text style={[styles.setupTitle, { color: palette.text }]}>Connect your gateway</Text>
             <Text style={[styles.setupBody, { color: palette.textSecondary }]}>Open Settings from the left menu to configure target URL.</Text>
           </View>
         ) : null}
 
         {error ? (
-          <View style={[styles.errorCard, { backgroundColor: palette.surface, borderColor: palette.border }]}> 
+          <View style={[styles.errorCard, { backgroundColor: palette.surface0, borderColor: palette.border }]}> 
             <Text style={[styles.errorText, { color: palette.danger }]}>{error}</Text>
           </View>
         ) : null}
@@ -404,7 +404,7 @@ export default function ChatTabScreen() {
         <View pointerEvents={!isTablet && drawerOpen ? 'auto' : isTablet ? 'auto' : 'none'} style={styles.drawerLayer}>
           {!isTablet ? (
             <Animated.View
-              style={[styles.drawerBackdrop, { backgroundColor: 'rgba(8, 12, 18, 0.38)' }, backdropStyle]}>
+              style={[styles.drawerBackdrop, { backgroundColor: palette.overlay }, backdropStyle]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Close menu"
@@ -420,7 +420,7 @@ export default function ChatTabScreen() {
               styles.drawerPanel,
               isTablet ? styles.tabletDrawer : null,
               {
-                backgroundColor: palette.surface,
+                backgroundColor: palette.surface0,
                 borderColor: palette.border,
                 width: isTablet ? 340 : '86%',
               },
@@ -437,7 +437,7 @@ export default function ChatTabScreen() {
                     styles.drawerClose,
                     {
                       borderColor: palette.border,
-                      backgroundColor: palette.surfaceAlt,
+                      backgroundColor: palette.surface1,
                       opacity: pressed ? 0.86 : 1,
                     },
                   ]}>
@@ -476,7 +476,7 @@ export default function ChatTabScreen() {
                         opacity: pressed ? 0.86 : canCreateChat ? 1 : 0.58,
                       },
                     ]}>
-                    <Text style={[styles.actionLabel, { color: palette.surface }]}>
+                    <Text style={[styles.actionLabel, { color: palette.surface0 }]}>
                       {creatingChat ? 'Creating...' : 'New Chat'}
                     </Text>
                   </Pressable>
@@ -489,7 +489,7 @@ export default function ChatTabScreen() {
                     style={({ pressed }) => [
                       styles.actionButton,
                       {
-                        backgroundColor: palette.surfaceAlt,
+                        backgroundColor: palette.surface1,
                         borderColor: palette.border,
                         opacity: pressed ? 0.86 : canRefreshThreads ? 1 : 0.58,
                       },
@@ -509,7 +509,7 @@ export default function ChatTabScreen() {
                   style={({ pressed }) => [
                     styles.actionButton,
                     {
-                      backgroundColor: palette.surfaceAlt,
+                      backgroundColor: palette.surface1,
                       borderColor: palette.border,
                       opacity: pressed ? 0.86 : canRefreshTerminals ? 1 : 0.58,
                     },
@@ -546,7 +546,7 @@ export default function ChatTabScreen() {
                   }}
                 />
               ) : (
-                <View style={[styles.emptySection, { borderColor: palette.border, backgroundColor: palette.surfaceAlt }]}> 
+                <View style={[styles.emptySection, { borderColor: palette.border, backgroundColor: palette.surface1 }]}> 
                   <Text style={[styles.emptySectionText, { color: palette.textSecondary }]}>No nested items for Settings.</Text>
                 </View>
               )}
@@ -686,14 +686,7 @@ const styles = StyleSheet.create({
     maxWidth: 360,
     position: 'absolute',
     top: 0,
-    shadowColor: '#000000',
-    shadowOpacity: 0.16,
-    shadowRadius: 16,
-    shadowOffset: {
-      width: 2,
-      height: 0,
-    },
-    elevation: 18,
+    ...elevation.drawer,
   },
   tabletDrawer: {
     position: 'relative',

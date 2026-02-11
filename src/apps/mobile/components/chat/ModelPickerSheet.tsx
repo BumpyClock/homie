@@ -47,7 +47,7 @@ export function ModelPickerSheet({
         style={({ pressed }) => [
           styles.modelRow,
           {
-            backgroundColor: isActive ? palette.surfaceAlt : 'transparent',
+            backgroundColor: isActive ? palette.surface1 : 'transparent',
             opacity: pressed ? 0.8 : 1,
           },
         ]}>
@@ -78,14 +78,14 @@ export function ModelPickerSheet({
       transparent
       animationType="slide"
       onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <Pressable style={[styles.backdrop, { backgroundColor: palette.overlay }]} onPress={onClose}>
         <View />
       </Pressable>
       <View
         style={[
           styles.sheet,
           {
-            backgroundColor: palette.surface,
+            backgroundColor: palette.surface0,
             paddingBottom: Math.max(insets.bottom, spacing.md),
           },
         ]}>
@@ -117,7 +117,6 @@ export function ModelPickerSheet({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   sheet: {
     borderTopLeftRadius: radius.lg,
