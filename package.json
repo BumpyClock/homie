@@ -12,7 +12,8 @@
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm --filter @homie/shared build && pnpm --filter web build",
     "dev": "concurrently -n shared,web -c blue,green \"pnpm --filter @homie/shared dev\" \"pnpm --filter web dev\"",
-    "dev:mobile": "concurrently -n shared,mobile -c blue,yellow \"pnpm --filter @homie/shared dev\" \"pnpm --filter mobile start\""
+    "dev:mobile": "concurrently -n shared,mobile -c blue,yellow \"pnpm --filter @homie/shared dev\" \"pnpm --filter mobile start\"",
+    "dev:all": "concurrently -n shared,web,mobile -c blue,green,yellow \"pnpm --filter @homie/shared dev\" \"pnpm --filter web dev\" \"pnpm --filter mobile start\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
