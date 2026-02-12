@@ -809,6 +809,7 @@ where
 pub struct ProvidersConfig {
     pub openai_codex: OpenAiCodexProviderConfig,
     pub github_copilot: GithubCopilotProviderConfig,
+    pub openai_compatible: OpenAiCompatibleProviderConfig,
     pub claude_code: ClaudeCodeProviderConfig,
 }
 
@@ -817,6 +818,7 @@ impl Default for ProvidersConfig {
         Self {
             openai_codex: OpenAiCodexProviderConfig::default(),
             github_copilot: GithubCopilotProviderConfig::default(),
+            openai_compatible: OpenAiCompatibleProviderConfig::default(),
             claude_code: ClaudeCodeProviderConfig::default(),
         }
     }
@@ -858,6 +860,26 @@ impl Default for GithubCopilotProviderConfig {
             device_code_url: "https://github.com/login/device/code".to_string(),
             token_url: "https://github.com/login/oauth/access_token".to_string(),
             copilot_token_url: "https://api.github.com/copilot_internal/v2/token".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct OpenAiCompatibleProviderConfig {
+    pub enabled: bool,
+    pub base_url: String,
+    pub api_key: String,
+    pub models: Vec<String>,
+}
+
+impl Default for OpenAiCompatibleProviderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            base_url: String::new(),
+            api_key: String::new(),
+            models: Vec::new(),
         }
     }
 }

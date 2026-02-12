@@ -5,3 +5,4 @@ target/
 .ai_agents/
 plans/
 node_modules/
+dist/

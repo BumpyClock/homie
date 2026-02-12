@@ -77,6 +77,7 @@ export interface ReasoningEffortOption {
 export interface ModelOption {
   id: string;
   model: string;
+  provider: string;
   displayName: string;
   description: string;
   supportedReasoningEfforts: ReasoningEffortOption[];

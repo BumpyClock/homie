@@ -164,6 +164,25 @@ Stop when `authorized`, then refresh with:
 - `claude-code`:
   - Uses CLI credential import (`providers.claude_code.import_from_cli = true`).
 
+## Local vLLM / OpenAI-compatible models
+To surface local models (vLLM, LM Studio proxy, other OpenAI-compatible endpoints) in chat model pickers:
+
+1. Configure in `~/.homie/config.toml`:
+   - `[providers.openai_compatible]`
+   - `enabled = true`
+   - `base_url = "http://<host>:<port>/v1"`
+   - optional `api_key = "..."`
+   - optional `models = ["model-a","model-b"]` (fallback list)
+2. Optional env overrides:
+   - `OPENAI_COMPAT_BASE_URL`
+   - `OPENAI_COMPAT_API_KEY`
+   - `OPENAI_COMPAT_MODELS` (comma-separated fallback)
+3. Restart gateway.
+
+Behavior:
+- `chat.model.list` queries `<base_url>/models` from config/env and adds entries as `openai-compatible:<model-id>`.
+- Web and mobile composer model pickers group these under `OpenAI-Compatible / Local`.
+
 ## Paths
 - `paths.credentials_dir` default: `~/.homie/credentials`.
 - `paths.execpolicy_path` default: `~/.homie/execpolicy.toml`.

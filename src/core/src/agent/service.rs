@@ -1,8 +1,9 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde_json::{json, Map, Value};
@@ -20,7 +21,7 @@ use roci::models::LanguageModel;
 use super::process::{CodexEvent, CodexProcess, CodexRequestId, CodexResponseSender};
 use super::roci_backend::{ChatBackend, RociBackend};
 use super::tools::{list_tools, ToolContext, DEFAULT_TOOL_CHANNEL};
-use crate::homie_config::ProvidersConfig;
+use crate::homie_config::{OpenAiCompatibleProviderConfig, ProvidersConfig};
 use crate::outbound::OutboundMessage;
 use crate::paths::homie_skills_dir;
 use crate::router::{ReapEvent, ServiceHandler};
@@ -1142,6 +1143,24 @@ impl CodexChatCore {
         if cfg.claude_code.enabled && cfg.claude_code.import_from_cli {
             self.import_claude_cli_credentials(&store);
         }
+        if cfg.openai_compatible.enabled {
+            if config.get_base_url("openai-compatible").is_none()
+                && !cfg.openai_compatible.base_url.trim().is_empty()
+            {
+                config.set_base_url(
+                    "openai-compatible",
+                    cfg.openai_compatible.base_url.trim().to_string(),
+                );
+            }
+            if config.get_api_key("openai-compatible").is_none()
+                && !cfg.openai_compatible.api_key.trim().is_empty()
+            {
+                config.set_api_key(
+                    "openai-compatible",
+                    cfg.openai_compatible.api_key.trim().to_string(),
+                );
+            }
+        }
 
         match model.provider_name() {
             "openai" => {
@@ -1325,7 +1344,17 @@ impl CodexChatCore {
 
     async fn chat_model_list(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
         if self.use_roci() {
-            let models = roci_model_catalog(&self.homie_config.providers);
+            let mut models = roci_model_catalog(&self.homie_config.providers);
+            match discover_openai_compatible_models(&self.homie_config.providers.openai_compatible)
+                .await
+            {
+                Ok(compat_models) => {
+                    append_openai_compatible_models(&mut models, compat_models);
+                }
+                Err(err) => {
+                    tracing::debug!("openai-compatible model discovery skipped: {err}");
+                }
+            }
             return Response::success(req_id, json!({ "data": models }));
         }
 
@@ -2113,6 +2142,12 @@ fn normalize_model_selector(raw: &str, providers: &ProvidersConfig) -> String {
     if !providers.github_copilot.enabled {
         return trimmed.to_string();
     }
+    let has_local_openai_compat = providers.openai_compatible.enabled
+        && (!providers.openai_compatible.base_url.trim().is_empty()
+            || !providers.openai_compatible.models.is_empty());
+    if has_local_openai_compat {
+        return trimmed.to_string();
+    }
     if let Some(model_id) = trimmed.strip_prefix("openai-compatible:") {
         if is_known_copilot_model(model_id) {
             return format!("github-copilot:{model_id}");
@@ -2527,6 +2562,142 @@ fn list_homie_skills() -> Result<Vec<Value>, String> {
     Ok(skills)
 }
 
+fn parse_openai_compat_models_csv(raw: &str) -> Vec<String> {
+    if raw.trim().is_empty() {
+        return Vec::new();
+    }
+    raw.split(',')
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
+fn append_openai_compatible_models(models: &mut Vec<Value>, compat_models: Vec<String>) {
+    if compat_models.is_empty() {
+        return;
+    }
+
+    let mut seen = HashSet::new();
+    let mut has_default = false;
+    for entry in models.iter() {
+        if let Some(model_id) = entry.get("model").and_then(|value| value.as_str()) {
+            seen.insert(model_id.to_string());
+        }
+        if entry
+            .get("is_default")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            has_default = true;
+        }
+    }
+
+    for model_id in compat_models {
+        let selector = format!("openai-compatible:{model_id}");
+        if !seen.insert(selector.clone()) {
+            continue;
+        }
+        let is_default = !has_default;
+        if is_default {
+            has_default = true;
+        }
+        models.push(json!({
+            "id": selector,
+            "model": selector,
+            "provider": "openai-compatible",
+            "display_name": format!("{model_id} (Local)"),
+            "is_default": is_default,
+        }));
+    }
+}
+
+async fn discover_openai_compatible_models(
+    provider_cfg: &OpenAiCompatibleProviderConfig,
+) -> Result<Vec<String>, String> {
+    let mut fallback = if let Ok(value) = std::env::var("OPENAI_COMPAT_MODELS") {
+        parse_openai_compat_models_csv(&value)
+    } else {
+        provider_cfg
+            .models
+            .iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+    };
+    if !fallback.is_empty() {
+        let mut unique = HashSet::new();
+        fallback.retain(|value| unique.insert(value.clone()));
+    }
+
+    let config = RociConfig::from_env();
+    let base_url = if let Some(url) = config.get_base_url("openai-compatible") {
+        url
+    } else {
+        provider_cfg.base_url.clone()
+    };
+    if base_url.trim().is_empty() {
+        return Ok(fallback);
+    }
+
+    let endpoint = format!("{}/models", base_url.trim().trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(4))
+        .build()
+        .map_err(|err| format!("build openai-compatible http client: {err}"))?;
+
+    let mut request = client.get(endpoint.as_str());
+    let api_key = config
+        .get_api_key("openai-compatible")
+        .unwrap_or_else(|| provider_cfg.api_key.clone());
+    if !api_key.trim().is_empty() {
+        request = request.bearer_auth(api_key);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|err| format!("request openai-compatible models: {err}"))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        if fallback.is_empty() {
+            return Err(format!(
+                "openai-compatible models request returned status {status}"
+            ));
+        }
+        tracing::warn!(
+            "openai-compatible model discovery returned status {status}; using OPENAI_COMPAT_MODELS fallback"
+        );
+        return Ok(fallback);
+    }
+
+    let payload = response
+        .json::<Value>()
+        .await
+        .map_err(|err| format!("decode openai-compatible models payload: {err}"))?;
+    let mut discovered = Vec::new();
+    if let Some(items) = payload.get("data").and_then(|value| value.as_array()) {
+        for item in items {
+            if let Some(model_id) = item.get("id").and_then(|value| value.as_str()) {
+                let normalized = model_id.trim();
+                if !normalized.is_empty() {
+                    discovered.push(normalized.to_string());
+                }
+            }
+        }
+    }
+
+    if discovered.is_empty() {
+        if fallback.is_empty() {
+            return Err("openai-compatible models response did not include model ids".to_string());
+        }
+        return Ok(fallback);
+    }
+
+    let mut unique = HashSet::new();
+    discovered.retain(|value| unique.insert(value.clone()));
+    Ok(discovered)
+}
+
 fn roci_model_catalog(providers: &ProvidersConfig) -> Vec<Value> {
     let mut models = Vec::new();
     let mut default_set = false;
@@ -2562,6 +2733,7 @@ fn roci_model_catalog(providers: &ProvidersConfig) -> Vec<Value> {
             models.push(json!({
                 "id": model,
                 "model": model,
+                "provider": "openai",
                 "display_name": model_id,
                 "is_default": is_default,
             }));
@@ -2587,6 +2759,7 @@ fn roci_model_catalog(providers: &ProvidersConfig) -> Vec<Value> {
             models.push(json!({
                 "id": model,
                 "model": model,
+                "provider": "openai-codex",
                 "display_name": format!("{model_id} (Codex)"),
                 "is_default": is_default,
             }));
@@ -2627,6 +2800,7 @@ fn roci_model_catalog(providers: &ProvidersConfig) -> Vec<Value> {
             models.push(json!({
                 "id": model,
                 "model": model,
+                "provider": "github-copilot",
                 "display_name": format!("{model_id} (Copilot)"),
                 "is_default": false,
             }));
@@ -2648,6 +2822,7 @@ fn roci_model_catalog(providers: &ProvidersConfig) -> Vec<Value> {
             models.push(json!({
                 "id": model,
                 "model": model,
+                "provider": "anthropic",
                 "display_name": model_id,
                 "is_default": false,
             }));

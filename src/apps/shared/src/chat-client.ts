@@ -516,6 +516,8 @@ export function normalizeModelOptions(raw: unknown): ModelOption[] {
     const item = asObject(entry) ?? {};
     const model = asString(item.model || item.id);
     const id = asString(item.id || model);
+    const providerFromSelector = model.includes(":") ? model.split(":", 1)[0] : "";
+    const provider = asString(item.provider) || providerFromSelector || "unknown";
     const displayName = asString(item.displayName || item.display_name || model);
 
     const supported = Array.isArray(item.supportedReasoningEfforts)
@@ -527,6 +529,7 @@ export function normalizeModelOptions(raw: unknown): ModelOption[] {
     return {
       id,
       model,
+      provider,
       displayName,
       description: asString(item.description),
       supportedReasoningEfforts: supported

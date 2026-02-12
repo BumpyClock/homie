@@ -102,6 +102,14 @@ copilot_token_url = "https://api.github.com/copilot_internal/v2/token"
 # - poll chat.account.login.poll until status="authorized"
 # Note: gh auth login alone does not populate ~/.homie/credentials for this provider.
 
+[providers.openai_compatible]
+enabled = true
+# Example: local vLLM, LM Studio, or any OpenAI-compatible server.
+base_url = ""
+api_key = ""
+# Optional static fallback list used when /models is unavailable.
+models = []
+
 [providers.claude_code]
 enabled = true
 import_from_cli = true

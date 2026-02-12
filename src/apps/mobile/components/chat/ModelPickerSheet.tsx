@@ -4,9 +4,9 @@
 import { Check, X } from 'lucide-react-native';
 import type { ModelOption } from '@homie/shared';
 import {
-  FlatList,
   Modal,
   Pressable,
+  SectionList,
   StyleSheet,
   Text,
   View,
@@ -24,6 +24,36 @@ interface ModelPickerSheetProps {
   onClose: () => void;
 }
 
+interface ModelSection {
+  title: string;
+  data: ModelOption[];
+}
+
+function providerLabel(provider: string): string {
+  const raw = provider.trim().toLowerCase();
+  switch (raw) {
+    case 'openai-codex':
+      return 'OpenAI Codex';
+    case 'github-copilot':
+      return 'GitHub Copilot';
+    case 'openai-compatible':
+    case 'openai_compatible':
+      return 'OpenAI-Compatible / Local';
+    case 'openai':
+      return 'OpenAI';
+    case 'anthropic':
+    case 'claude-code':
+    case 'claude_code':
+      return 'Claude';
+    case 'ollama':
+      return 'Ollama';
+    case 'lmstudio':
+      return 'LM Studio';
+    default:
+      return 'Other';
+  }
+}
+
 export function ModelPickerSheet({
   visible,
   models,
@@ -33,6 +63,20 @@ export function ModelPickerSheet({
 }: ModelPickerSheetProps) {
   const { palette } = useAppTheme();
   const insets = useSafeAreaInsets();
+  const sections = models.reduce<ModelSection[]>((acc, model) => {
+    const providerFromItem = (model as { provider?: string }).provider;
+    const inferredProvider =
+      providerFromItem ||
+      (model.model.includes(':') ? model.model.split(':', 1)[0] : 'other');
+    const title = providerLabel(inferredProvider);
+    const existing = acc.find((section) => section.title === title);
+    if (existing) {
+      existing.data.push(model);
+    } else {
+      acc.push({ title, data: [model] });
+    }
+    return acc;
+  }, []);
 
   const renderItem = ({ item }: { item: ModelOption }) => {
     const isActive = item.model === selectedModelId || item.id === selectedModelId;
@@ -72,6 +116,14 @@ export function ModelPickerSheet({
     );
   };
 
+  const renderSectionHeader = ({ section }: { section: ModelSection }) => (
+    <View style={styles.sectionHeader}>
+      <Text style={[styles.sectionHeaderText, { color: palette.textSecondary }]}>
+        {section.title}
+      </Text>
+    </View>
+  );
+
   return (
     <Modal
       visible={visible}
@@ -102,12 +154,14 @@ export function ModelPickerSheet({
             <X size={20} color={palette.textSecondary} />
           </Pressable>
         </View>
-        <FlatList
-          data={models}
+        <SectionList
+          sections={sections}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
+          renderSectionHeader={renderSectionHeader}
           style={styles.list}
           contentContainerStyle={styles.listContent}
+          stickySectionHeadersEnabled
         />
       </View>
     </Modal>
@@ -148,6 +202,18 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  sectionHeader: {
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  sectionHeaderText: {
+    ...typography.caption,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    fontWeight: '600',
   },
   modelRow: {
     flexDirection: 'row',
