@@ -5,6 +5,7 @@ Location: `~/.homie/config.toml` (or `HOMIE_HOME` override).
 Example: `config.toml.example` (repo root).
 
 Provider auth runbook: `docs/provider-auth.md`.
+Quick start: `docs/quick-start.md`.
 
 ## System prompt
 - Default prompt stored in repo: `src/core/system_prompt.md`.
@@ -190,3 +191,7 @@ Behavior:
 ## Debug
 - `debug.persist_raw_provider_events` stores raw provider events in sqlite when enabled.
 - Runtime env flags: `HOMIE_DEBUG=1` or `HOME_DEBUG=1`.
+
+## Client env vars
+- Web: `VITE_GATEWAY_URL=ws://<host>:9800/ws`
+- Mobile: `EXPO_PUBLIC_HOMIE_GATEWAY_URL=ws://<host>:9800/ws` (prefill hint only)
