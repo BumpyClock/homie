@@ -20,6 +20,11 @@ import {
   getReasoningPreview,
   getActivityPreview,
 } from "@/lib/chat-turns-utils";
+import {
+  friendlyToolLabelFromItem,
+  normalizeChatToolName,
+  rawToolNameFromItem,
+} from "@/lib/chat-utils";
 
 interface ChatTurnsProps {
   items: ChatItem[];
@@ -33,6 +38,25 @@ interface TurnGroup {
   id: string;
   turnId?: string;
   items: ChatItem[];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function pickString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function summarizeResult(value: unknown, maxLength = 720): string | null {
+  if (value === null || value === undefined) return null;
+  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  if (!text) return null;
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
 function statusBadge(status?: string) {
@@ -222,6 +246,7 @@ function ActivityRow({
   }
 
   if (item.kind === "tool") {
+    const toolLabel = friendlyToolLabelFromItem(item);
     const status = item.status?.toLowerCase();
     const statusIcon =
       status === "running" ? (
@@ -241,7 +266,7 @@ function ActivityRow({
           Tool
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-sm">{item.text || "Tool call"}</div>
+          <div className="text-sm">{toolLabel}</div>
           {intent && (
             <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
               {intent}
@@ -293,14 +318,78 @@ function extractToolIntent(item: ChatItem) {
   return null;
 }
 
+function renderOpenClawBrowserDetail(
+  input: Record<string, unknown> | null,
+  result: Record<string, unknown> | null,
+) {
+  const data = asRecord(result?.data) ?? result;
+  const action = pickString(input?.action, data?.action);
+  const target = pickString(input?.target, data?.target);
+  const targetUrl = pickString(input?.targetUrl, data?.url, data?.targetUrl);
+  const message = pickString(data?.message, result?.message);
+
+  const tabs = Array.isArray(data?.tabs) ? data.tabs.length : undefined;
+  const profiles = Array.isArray(data?.profiles) ? data.profiles.length : undefined;
+  const excerptSource = data ?? result;
+  const excerpt = summarizeResult(excerptSource);
+
+  return (
+    <div className="mt-2 rounded-md border border-border bg-card/40 px-3 py-2 text-xs space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        {action && (
+          <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 uppercase tracking-wide">
+            {action}
+          </span>
+        )}
+        {target && (
+          <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 uppercase tracking-wide">
+            {target}
+          </span>
+        )}
+        {targetUrl && (
+          <a
+            href={targetUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 truncate text-foreground/80 hover:text-foreground"
+          >
+            <span className="truncate">{targetUrl}</span>
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
+      {message && <div className="text-muted-foreground">{message}</div>}
+      {(tabs !== undefined || profiles !== undefined) && (
+        <div className="text-muted-foreground">
+          {tabs !== undefined ? `${tabs} tab${tabs === 1 ? "" : "s"}` : ""}
+          {tabs !== undefined && profiles !== undefined ? " • " : ""}
+          {profiles !== undefined ? `${profiles} profile${profiles === 1 ? "" : "s"}` : ""}
+        </div>
+      )}
+      {excerpt && (
+        <pre className="max-h-52 overflow-auto whitespace-pre-wrap rounded border border-border bg-black/5 dark:bg-white/5 p-2 text-[11px] text-muted-foreground">
+          {excerpt}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function renderToolDetail(item: ChatItem) {
   if (item.kind !== "tool") return null;
-  const raw = item.raw as Record<string, unknown> | undefined;
+  const raw = asRecord(item.raw);
   if (!raw) return null;
-  const tool = typeof raw.tool === "string" ? raw.tool : item.text;
-  const result = raw.result as Record<string, unknown> | undefined;
-  const isError = Boolean(raw.error) || item.status?.toLowerCase() === "failed";
-  const errorMessage = result?.message || result?.error;
+  const rawToolName = rawToolNameFromItem(item);
+  const normalizedTool = normalizeChatToolName(rawToolName);
+  const tool = normalizedTool ?? rawToolName ?? item.text ?? "";
+  const input = asRecord(raw.input);
+  const result = asRecord(raw.result);
+  const isError =
+    Boolean(raw.error) ||
+    item.status?.toLowerCase() === "failed" ||
+    result?.ok === false;
+  const errorRecord = asRecord(result?.error);
+  const errorMessage = pickString(errorRecord?.message, result?.message, result?.error);
   if (isError && typeof errorMessage === "string" && errorMessage.trim()) {
     return (
       <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
@@ -309,11 +398,17 @@ function renderToolDetail(item: ChatItem) {
     );
   }
 
-  if (tool === "web_search" && result && typeof result === "object") {
-    const query = typeof result.query === "string" ? result.query : "";
-    const provider = typeof result.provider === "string" ? result.provider : "";
-    const count = typeof result.count === "number" ? result.count : undefined;
-    const items = Array.isArray(result.results) ? result.results : [];
+  if (tool === "openclaw_browser") {
+    return renderOpenClawBrowserDetail(input, result);
+  }
+
+  const payload = asRecord(result?.data) ?? result;
+
+  if (tool === "web_search" && payload && typeof payload === "object") {
+    const query = typeof payload.query === "string" ? payload.query : "";
+    const provider = typeof payload.provider === "string" ? payload.provider : "";
+    const count = typeof payload.count === "number" ? payload.count : undefined;
+    const items = Array.isArray(payload.results) ? payload.results : [];
     const rows = items.slice(0, 5).filter((entry) => entry && typeof entry === "object");
     return (
       <div className="mt-2 space-y-2">
@@ -364,11 +459,11 @@ function renderToolDetail(item: ChatItem) {
     );
   }
 
-  if (tool === "web_fetch" && result && typeof result === "object") {
-    const title = typeof result.title === "string" ? result.title : "";
-    const url = typeof result.finalUrl === "string" ? result.finalUrl : "";
-    const text = typeof result.text === "string" ? result.text : "";
-    const truncated = result.truncated === true;
+  if (tool === "web_fetch" && payload && typeof payload === "object") {
+    const title = typeof payload.title === "string" ? payload.title : "";
+    const url = typeof payload.finalUrl === "string" ? payload.finalUrl : "";
+    const text = typeof payload.text === "string" ? payload.text : "";
+    const truncated = payload.truncated === true;
     const excerpt = text ? text.slice(0, 420) : "";
     return (
       <div className="mt-2 rounded-md border border-border bg-card/40 px-3 py-2 text-xs space-y-2">

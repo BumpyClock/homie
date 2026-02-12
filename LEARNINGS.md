@@ -68,3 +68,6 @@
 - 2026-02-11: Mobile chat composer now loads live `chat.skills.list` data and supports slash insertion (`/` -> tap suggestion -> `$skill `) with bounded, scrollable suggestion panel above the input.
 - 2026-02-11: Web build breakages fixed: TerminalScreen session menu now receives required refs from App (trigger/menu/first item) with escape/outside-close handling; chat delta handler now assigns stable fallback assistant item IDs when provider omits itemId.
 - 2026-02-12: Added `providers.openai_compatible` config support (`base_url`, optional `api_key`, optional `models` fallback) and wired `chat.model.list` to discover local OpenAI-compatible `/models`, so vLLM/local proxies can populate model pickers without requiring env exports.
+- 2026-02-12: Implemented openclaw_browser tool execution against OpenClaw browser control endpoint with request mapping + tests; added docs/learned/openclaw-browser.md.
+- 2026-02-12: Web chat timeline now renders `openclaw_browser` tool calls with friendly labels plus robust action/result/error detail cards (including safe JSON fallback).
+- 2026-02-12: ROCI runner coverage now includes mixed text+parallel tool batches, duplicate tool-call delta dedupe by id, and stream-end-without-Done fallback semantics.

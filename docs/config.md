@@ -11,6 +11,9 @@ Quick start: `docs/quick-start.md`.
 - Default prompt stored in repo: `src/core/system_prompt.md`.
 - On first run, Homie writes `~/.homie/system_prompt.md` if missing.
 - Override path: `chat.system_prompt_path`.
+- Resolution behavior:
+  - `chat.system_prompt_path` unset/blank -> load `~/.homie/system_prompt.md` (auto-created from repo default on first run).
+  - `chat.system_prompt_path` set -> load only that file path (no auto-copy).
 
 ## Web tools
 Both tools are disabled by default.
@@ -43,7 +46,7 @@ SearXNG:
 ## Tool providers
 - `tools.providers.<provider_id>` controls per-provider tool loading.
 - Built-in `core` provider exists by default.
-- Built-in `openclaw_browser` provider is dynamic scaffold (disabled by default).
+- Built-in `openclaw_browser` provider is dynamic (disabled by default).
 - Dynamic providers are disabled by default until `enabled = true`.
 - `tools.providers.<provider_id>.channels` is an optional channel allowlist.
   - omitted or `[]` -> all channels
@@ -54,11 +57,12 @@ SearXNG:
   - duplicate tool name across enabled providers -> config error
   - unknown tool names in `allow_tools`/`deny_tools` -> config error
 
-### OpenClaw browser scaffold
+### OpenClaw browser tool
 - Enable provider: `tools.providers.openclaw_browser.enabled = true`
 - Configure endpoint: `tools.openclaw_browser.endpoint = "https://..."`
 - Optional auth: `tools.openclaw_browser.api_key = "..."`.
-- Current status: tool schema + registration exist; execution returns structured `not_configured` or `not_implemented`.
+- Requests map to the OpenClaw browser control server (status/start/stop/profiles/tabs/open/focus/close/snapshot/screenshot/navigate/console/pdf/upload/dialog/act).
+- If `api_key` is set, Homie sends `Authorization: Bearer <api_key>`.
 
 Example:
 ```toml
