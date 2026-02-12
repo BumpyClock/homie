@@ -2,7 +2,7 @@
 // ABOUTME: Shows each model's display name and description, highlights the active choice, and dismisses on tap.
 
 import { Check, X } from 'lucide-react-native';
-import type { ModelOption } from '@homie/shared';
+import { modelProviderLabel, type ModelOption } from '@homie/shared';
 import {
   Modal,
   Pressable,
@@ -29,31 +29,6 @@ interface ModelSection {
   data: ModelOption[];
 }
 
-function providerLabel(provider: string): string {
-  const raw = provider.trim().toLowerCase();
-  switch (raw) {
-    case 'openai-codex':
-      return 'OpenAI Codex';
-    case 'github-copilot':
-      return 'GitHub Copilot';
-    case 'openai-compatible':
-    case 'openai_compatible':
-      return 'OpenAI-Compatible / Local';
-    case 'openai':
-      return 'OpenAI';
-    case 'anthropic':
-    case 'claude-code':
-    case 'claude_code':
-      return 'Claude';
-    case 'ollama':
-      return 'Ollama';
-    case 'lmstudio':
-      return 'LM Studio';
-    default:
-      return 'Other';
-  }
-}
-
 export function ModelPickerSheet({
   visible,
   models,
@@ -64,11 +39,10 @@ export function ModelPickerSheet({
   const { palette } = useAppTheme();
   const insets = useSafeAreaInsets();
   const sections = models.reduce<ModelSection[]>((acc, model) => {
-    const providerFromItem = (model as { provider?: string }).provider;
-    const inferredProvider =
-      providerFromItem ||
-      (model.model.includes(':') ? model.model.split(':', 1)[0] : 'other');
-    const title = providerLabel(inferredProvider);
+    const title = modelProviderLabel({
+      model: model.model,
+      provider: (model as { provider?: string }).provider,
+    });
     const existing = acc.find((section) => section.title === title);
     if (existing) {
       existing.data.push(model);

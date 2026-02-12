@@ -6,5 +6,6 @@ export * from "./chat-client";
 export * from "./chat-events";
 export * from "./chat-turns";
 export * from "./terminal-sessions";
+export * from "./model-providers";
 
 export const SHARED_PACKAGE_VERSION = "0.1.3";

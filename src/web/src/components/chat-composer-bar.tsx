@@ -13,6 +13,7 @@ import {
   ShieldQuestion,
   Zap,
 } from "lucide-react";
+import { modelProviderLabel } from "@homie/shared";
 import type {
   ChatSettings,
   ChatWebToolName,
@@ -181,34 +182,6 @@ interface ChatComposerBarProps {
   queuedHint?: boolean;
   disabled?: boolean;
   onChangeSettings: (updates: Partial<ChatSettings>) => void;
-}
-
-function modelProviderLabel(model: ModelOption): string {
-  const raw =
-    (model.provider || (model.model.includes(":") ? model.model.split(":", 1)[0] : "other"))
-      .trim()
-      .toLowerCase();
-  switch (raw) {
-    case "openai-codex":
-      return "OpenAI Codex";
-    case "github-copilot":
-      return "GitHub Copilot";
-    case "openai-compatible":
-    case "openai_compatible":
-      return "OpenAI-Compatible / Local";
-    case "openai":
-      return "OpenAI";
-    case "anthropic":
-    case "claude-code":
-    case "claude_code":
-      return "Claude";
-    case "ollama":
-      return "Ollama";
-    case "lmstudio":
-      return "LM Studio";
-    default:
-      return "Other";
-  }
 }
 
 function ContextRing({ usage }: { usage: ThreadTokenUsage }) {
