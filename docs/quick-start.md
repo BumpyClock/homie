@@ -33,7 +33,13 @@ Default bind: `127.0.0.1:9800`.
 
 Allow LAN (optional):
 ```bash
-HOMIE_ALLOW_LAN=1 cargo run -p homie-gateway
+HOMIE_BIND=0.0.0.0:9800 HOMIE_ALLOW_LAN=1 cargo run -p homie-gateway
+```
+Use your machine's LAN IP in `VITE_GATEWAY_URL` / `EXPO_PUBLIC_HOMIE_GATEWAY_URL`.
+
+Tailscale Serve (optional):
+```bash
+HOMIE_TAILSCALE_SERVE=1 cargo run -p homie-gateway
 ```
 
 ## Run web

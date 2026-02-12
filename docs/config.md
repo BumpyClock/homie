@@ -195,3 +195,11 @@ Behavior:
 ## Client env vars
 - Web: `VITE_GATEWAY_URL=ws://<host>:9800/ws`
 - Mobile: `EXPO_PUBLIC_HOMIE_GATEWAY_URL=ws://<host>:9800/ws` (prefill hint only)
+
+## Gateway env vars
+- `HOMIE_BIND` (default `127.0.0.1:9800`)
+- `HOMIE_TAILNET_BIND` (optional second bind)
+- `HOMIE_ALLOW_LAN=1` (allow private LAN clients)
+- `HOMIE_TAILSCALE_SERVE=1` (auto `tailscale serve https /` for the bind port)
+- `HOMIE_DB_PATH` (override sqlite path; default `homie.db`)
+- `HOMIE_LOG` / `RUST_LOG` (logging filter)
