@@ -4,12 +4,12 @@
 import { ChevronDown, ChevronUp } from 'lucide-react-native';
 import { memo, useCallback, useMemo, useState } from 'react';
 import {
-  LayoutAnimation,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 
 import { friendlyToolLabelFromItem, type ChatItem } from '@homie/shared';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -58,24 +58,14 @@ function ChatTurnActivityCard({
   const reducedMotion = useReducedMotion();
   const [expanded, setExpanded] = useState(false);
   const [openToolId, setOpenToolId] = useState<string | null>(null);
-
-  const runLayoutTransition = useCallback((duration: number) => {
-    const resolved = reducedMotion ? 0 : duration;
-    LayoutAnimation.configureNext({
-      duration: resolved,
-      create: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-        duration: resolved,
-      },
-      update: { type: LayoutAnimation.Types.easeInEaseOut, duration: resolved },
-      delete: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-        duration: resolved,
-      },
-    });
-  }, [reducedMotion]);
+  const standardLayoutTransition = useMemo(
+    () => (reducedMotion ? undefined : LinearTransition.duration(motion.duration.standard)),
+    [reducedMotion],
+  );
+  const fastLayoutTransition = useMemo(
+    () => (reducedMotion ? undefined : LinearTransition.duration(motion.duration.fast)),
+    [reducedMotion],
+  );
 
   const isTurnActive =
     running &&
@@ -91,16 +81,14 @@ function ChatTurnActivityCard({
   }, [toolItems]);
 
   const toggleExpanded = useCallback(() => {
-    runLayoutTransition(expanded ? motion.duration.fast : motion.duration.standard);
     triggerMobileHaptic(motion.haptics.activityToggle);
     setExpanded((current) => {
       if (current) setOpenToolId(null);
       return !current;
     });
-  }, [expanded, runLayoutTransition]);
+  }, []);
 
   const toggleToolDetail = useCallback((itemId: string) => {
-    runLayoutTransition(motion.duration.fast);
     const nextOpen = openToolId === itemId ? null : itemId;
     triggerMobileHaptic(
       nextOpen
@@ -108,10 +96,11 @@ function ChatTurnActivityCard({
         : motion.haptics.activityToggle,
     );
     setOpenToolId((current) => (current === itemId ? null : itemId));
-  }, [openToolId, runLayoutTransition]);
+  }, [openToolId]);
 
   return (
-    <View
+    <Animated.View
+      layout={standardLayoutTransition}
       style={[
         styles.card,
         {
@@ -147,13 +136,16 @@ function ChatTurnActivityCard({
         </View>
       </Pressable>
       {expanded ? (
-        <View style={[styles.list, { borderTopColor: palette.border }]}>
+        <Animated.View
+          layout={standardLayoutTransition}
+          style={[styles.list, { borderTopColor: palette.border }]}>
           {toolItems.map((item, index) => {
             const open = openToolId === item.id;
             const status = statusLabel(item.status);
             const label = friendlyToolLabelFromItem(item, 'Tool call');
             return (
-              <View
+              <Animated.View
+                layout={fastLayoutTransition}
                 key={item.id}
                 style={[
                   styles.toolRow,
@@ -187,12 +179,12 @@ function ChatTurnActivityCard({
                     {payloadForToolItem(item)}
                   </Text>
                 ) : null}
-              </View>
+              </Animated.View>
             );
           })}
-        </View>
+        </Animated.View>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }
 

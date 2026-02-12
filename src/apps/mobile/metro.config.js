@@ -9,8 +9,10 @@ const monorepoRoot = path.resolve(projectRoot, "../../..");
 
 const config = getDefaultConfig(projectRoot);
 
-// Watch all files in the monorepo (shared package source, etc.)
-config.watchFolders = [monorepoRoot];
+// Preserve Expo defaults, then add monorepo root (shared package source, etc.)
+config.watchFolders = Array.from(
+  new Set([...(config.watchFolders || []), monorepoRoot]),
+);
 
 // Tell Metro where to find hoisted node_modules
 config.resolver.nodeModulesPaths = [
