@@ -29,7 +29,7 @@ models = []
 ```bash
 cargo run -p homie-gateway
 ```
-Default bind: `127.0.0.1:9800`.
+Default bind: `127.0.0.1:9800` (sqlite at `homie.db` in repo root).
 
 Allow LAN (optional):
 ```bash
@@ -46,6 +46,7 @@ HOMIE_TAILSCALE_SERVE=1 cargo run -p homie-gateway
 ```bash
 VITE_GATEWAY_URL=ws://127.0.0.1:9800/ws pnpm dev
 ```
+If unset in dev, web defaults to `ws://127.0.0.1:9800/ws`.
 
 ## Run mobile
 ```bash
@@ -54,6 +55,7 @@ EXPO_PUBLIC_HOMIE_GATEWAY_URL=ws://127.0.0.1:9800/ws pnpm dev:mobile
 Notes:
 - First launch requires saving a gateway target in Settings.
 - `EXPO_PUBLIC_HOMIE_GATEWAY_URL` is a prefill hint only.
+- On a physical device, use your LAN IP (not `127.0.0.1`).
 
 ## Provider auth
 Device-code flow for `openai-codex` and `github-copilot`.

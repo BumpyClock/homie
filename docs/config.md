@@ -200,6 +200,7 @@ Behavior:
 - `HOMIE_BIND` (default `127.0.0.1:9800`)
 - `HOMIE_TAILNET_BIND` (optional second bind)
 - `HOMIE_ALLOW_LAN=1` (allow private LAN clients)
+- `HOMIE_TAILSCALE=1` (enables Tailscale Serve behavior)
 - `HOMIE_TAILSCALE_SERVE=1` (auto `tailscale serve https /` for the bind port)
 - `HOMIE_DB_PATH` (override sqlite path; default `homie.db`)
 - `HOMIE_LOG` / `RUST_LOG` (logging filter)
