@@ -1,0 +1,16 @@
+{
+  "name": "remotely",
+  "private": true,
+  "scripts": {
+    "shared:build": "pnpm --filter @homie/shared build",
+    "shared:watch": "pnpm --filter @homie/shared dev",
+    "web:dev": "pnpm --filter web dev",
+    "web:build": "pnpm --filter web build",
+    "web:typecheck": "pnpm --filter web typecheck",
+    "mobile:start": "pnpm --filter mobile start",
+    "mobile:typecheck": "pnpm --filter mobile typecheck",
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm --filter @homie/shared build && pnpm --filter web build",
+    "dev": "pnpm --filter @homie/shared dev & pnpm --filter web dev"
+  }
+}

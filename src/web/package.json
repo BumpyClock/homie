@@ -13,7 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@homie/shared": "file:../apps/shared",
+    "@homie/shared": "workspace:*",
     "@radix-ui/react-select": "^2.2.6",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
