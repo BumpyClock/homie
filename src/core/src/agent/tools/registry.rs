@@ -389,7 +389,7 @@ mod tests {
             .expect("list");
         let openclaw = listed
             .into_iter()
-            .find(|tool: &ListedTool| tool.name == "openclaw_browser")
+            .find(|tool: &ListedTool| tool.name == "browser")
             .expect("openclaw browser tool");
         assert_eq!(openclaw.provider_id, "openclaw_browser");
         assert!(openclaw.provider_dynamic);
