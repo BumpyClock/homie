@@ -174,7 +174,6 @@ const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../system_prompt.md");
 #[serde(default)]
 pub struct ToolsConfig {
     pub web: WebToolsConfig,
-    pub openclaw_browser: OpenClawBrowserToolsConfig,
     pub providers: HashMap<String, ToolProviderConfig>,
 }
 
@@ -182,24 +181,7 @@ impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
             web: WebToolsConfig::default(),
-            openclaw_browser: OpenClawBrowserToolsConfig::default(),
             providers: HashMap::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct OpenClawBrowserToolsConfig {
-    pub endpoint: String,
-    pub api_key: String,
-}
-
-impl Default for OpenClawBrowserToolsConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: String::new(),
-            api_key: String::new(),
         }
     }
 }

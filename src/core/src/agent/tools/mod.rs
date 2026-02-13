@@ -3,14 +3,13 @@ use std::sync::Arc;
 
 use roci::tools::Tool;
 
-use crate::homie_config::{OpenClawBrowserToolsConfig, WebToolsConfig};
+use crate::homie_config::WebToolsConfig;
 use crate::HomieConfig;
 
 mod apply_patch;
 mod args;
 mod exec;
 mod fs;
-mod openclaw_browser;
 mod process;
 mod process_registry;
 mod registry;
@@ -27,7 +26,6 @@ pub struct ToolContext {
     pub channel: String,
     pub processes: Arc<ProcessRegistry>,
     pub web: WebToolsConfig,
-    pub openclaw_browser: OpenClawBrowserToolsConfig,
 }
 
 impl ToolContext {
@@ -52,14 +50,12 @@ impl ToolContext {
     ) -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let web = homie_config.tools.web.clone();
-        let openclaw_browser = homie_config.tools.openclaw_browser.clone();
         let channel = normalize_channel(channel);
         Self {
             cwd,
             channel,
             processes,
             web,
-            openclaw_browser,
         }
     }
 }

@@ -13,7 +13,7 @@ export type ChatToolName =
   | "apply_patch"
   | "web_search"
   | "web_fetch"
-  | "openclaw_browser";
+  | "browser";
 
 /**
  * Friendly tool labels for tool chips/cards in chat UIs.
@@ -28,7 +28,7 @@ export const FRIENDLY_CHAT_TOOL_LABELS: Record<ChatToolName, string> = {
   apply_patch: "Apply patch",
   web_search: "Search web",
   web_fetch: "Fetch page",
-  openclaw_browser: "Browser",
+  browser: "Browser",
 };
 
 export const FRIENDLY_TOOL_LABELS = FRIENDLY_CHAT_TOOL_LABELS;
@@ -44,8 +44,9 @@ const CHAT_TOOL_ALIASES: Readonly<Record<string, ChatToolName>> = {
   applypatch: "apply_patch",
   websearch: "web_search",
   webfetch: "web_fetch",
-  openclawbrowser: "openclaw_browser",
-  browser: "openclaw_browser",
+  openclawbrowser: "browser",
+  openclaw_browser: "browser",
+  browser: "browser",
 };
 
 /**

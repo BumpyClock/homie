@@ -3244,9 +3244,6 @@ mod tests {
         assert_eq!(read["provider"], "core");
         assert_eq!(read["provider_dynamic"], false);
         assert!(read["input_schema"].is_object());
-        assert!(!data
-            .iter()
-            .any(|tool| tool.get("provider").and_then(|v| v.as_str()) == Some("openclaw_browser")));
     }
 
     #[tokio::test]
@@ -3254,7 +3251,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
         let mut config = HomieConfig::default();
         config.tools.providers.insert(
-            "openclaw_browser".to_string(),
+            "core".to_string(),
             crate::homie_config::ToolProviderConfig {
                 enabled: Some(true),
                 channels: vec!["discord".to_string()],
@@ -3277,9 +3274,7 @@ mod tests {
             .as_array()
             .expect("web data")
             .clone();
-        assert!(!web_tools.iter().any(|tool| {
-            tool.get("provider").and_then(|v| v.as_str()) == Some("openclaw_browser")
-        }));
+        assert!(web_tools.is_empty());
 
         let discord_resp = svc
             .handle_request(
@@ -3293,9 +3288,9 @@ mod tests {
             .as_array()
             .expect("discord data")
             .clone();
-        assert!(discord_tools.iter().any(|tool| {
-            tool.get("provider").and_then(|v| v.as_str()) == Some("openclaw_browser")
-        }));
+        assert!(discord_tools
+            .iter()
+            .any(|tool| tool.get("provider").and_then(|v| v.as_str()) == Some("core")));
     }
 
     #[tokio::test]

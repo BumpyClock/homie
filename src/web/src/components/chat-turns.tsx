@@ -318,7 +318,7 @@ function extractToolIntent(item: ChatItem) {
   return null;
 }
 
-function renderOpenClawBrowserDetail(
+function renderBrowserToolDetail(
   input: Record<string, unknown> | null,
   result: Record<string, unknown> | null,
 ) {
@@ -398,8 +398,8 @@ function renderToolDetail(item: ChatItem) {
     );
   }
 
-  if (tool === "openclaw_browser") {
-    return renderOpenClawBrowserDetail(input, result);
+  if (tool === "browser") {
+    return renderBrowserToolDetail(input, result);
   }
 
   const payload = asRecord(result?.data) ?? result;

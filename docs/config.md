@@ -46,8 +46,6 @@ SearXNG:
 ## Tool providers
 - `tools.providers.<provider_id>` controls per-provider tool loading.
 - Built-in `core` provider exists by default.
-- Built-in `openclaw_browser` provider is dynamic (disabled by default).
-- Dynamic providers are disabled by default until `enabled = true`.
 - `tools.providers.<provider_id>.channels` is an optional channel allowlist.
   - omitted or `[]` -> all channels
   - set -> provider loads only when current channel matches one of the listed values
@@ -57,12 +55,10 @@ SearXNG:
   - duplicate tool name across enabled providers -> config error
   - unknown tool names in `allow_tools`/`deny_tools` -> config error
 
-### OpenClaw browser tool
-- Enable provider: `tools.providers.openclaw_browser.enabled = true`
-- Configure endpoint: `tools.openclaw_browser.endpoint = "https://..."`
-- Optional auth: `tools.openclaw_browser.api_key = "..."`.
-- Requests map to the OpenClaw browser control server (status/start/stop/profiles/tabs/open/focus/close/snapshot/screenshot/navigate/console/pdf/upload/dialog/act).
-- If `api_key` is set, Homie sends `Authorization: Bearer <api_key>`.
+### Browser automation direction
+- `openclaw_browser` provider path has been removed.
+- Planned replacement: `agent-browser` (`vercel-labs/agent-browser`) as the browser runtime.
+- Keep browser integration behind a dedicated provider id (for example `browser`) and map tool name to `browser` in UI.
 
 Example:
 ```toml
@@ -71,10 +67,6 @@ enabled = true
 channels = ["web", "discord"]
 allow_tools = ["read", "ls", "find", "grep"]
 deny_tools = ["exec"]
-
-[tools.providers.openclaw_browser]
-enabled = true
-channels = ["web"]
 ```
 
 ## Provider auth flow (Homie)

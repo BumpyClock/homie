@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::homie_config::{ToolProviderConfig, ToolsConfig};
 
-use super::{apply_patch, exec, fs, openclaw_browser, process, web, ToolContext};
+use super::{apply_patch, exec, fs, process, web, ToolContext};
 
 pub trait ToolProvider: Send + Sync {
     fn id(&self) -> &'static str;
@@ -65,10 +65,7 @@ pub struct ToolRegistry {
 impl ToolRegistry {
     pub fn new() -> Self {
         Self {
-            providers: vec![
-                Arc::new(CoreToolProvider),
-                Arc::new(openclaw_browser::OpenClawBrowserProvider),
-            ],
+            providers: vec![Arc::new(CoreToolProvider)],
         }
     }
 
@@ -249,7 +246,7 @@ mod tests {
 
     use crate::homie_config::ToolsConfig;
 
-    use super::{ListedTool, ToolContext, ToolProvider, ToolRegistry};
+    use super::{ToolContext, ToolProvider, ToolRegistry};
 
     struct StaticProvider {
         id: &'static str,
@@ -359,41 +356,6 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.contains("tool name conflict"));
-    }
-
-    #[test]
-    fn openclaw_provider_disabled_by_default() {
-        let config = ToolsConfig::default();
-        let listed = ToolRegistry::new()
-            .list_tools(dummy_ctx(), &config)
-            .expect("list");
-        assert!(!listed
-            .iter()
-            .any(|tool| tool.provider_id == "openclaw_browser"));
-    }
-
-    #[test]
-    fn openclaw_provider_enabled_when_overridden() {
-        let mut config = ToolsConfig::default();
-        config.providers.insert(
-            "openclaw_browser".into(),
-            crate::homie_config::ToolProviderConfig {
-                enabled: Some(true),
-                channels: Vec::new(),
-                allow_tools: Vec::new(),
-                deny_tools: Vec::new(),
-            },
-        );
-        let listed = ToolRegistry::new()
-            .list_tools(dummy_ctx(), &config)
-            .expect("list");
-        let openclaw = listed
-            .into_iter()
-            .find(|tool: &ListedTool| tool.name == "browser")
-            .expect("openclaw browser tool");
-        assert_eq!(openclaw.provider_id, "openclaw_browser");
-        assert!(openclaw.provider_dynamic);
-        assert!(openclaw.input_schema.is_object());
     }
 
     #[test]

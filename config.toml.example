@@ -54,12 +54,6 @@ api_key_header = "X-API-Key"
 # Optional extra headers.
 # headers = { "User-Agent" = "Homie" }
 
-[tools.openclaw_browser]
-# Optional endpoint for future OpenClaw browser automation provider.
-endpoint = ""
-# Optional bearer token / API key for endpoint auth.
-api_key = ""
-
 [tools.providers.core]
 # Core provider is enabled by default; explicit override optional.
 enabled = true
@@ -69,17 +63,6 @@ channels = ["web", "discord"]
 # Optional allow/deny lists by tool name.
 # allow_tools = ["read", "ls", "find", "grep", "apply_patch", "exec", "process", "web_fetch", "web_search"]
 # deny_tools = []
-
-[tools.providers.channel_discord]
-# Dynamic providers are disabled by default until explicitly enabled.
-enabled = false
-
-[tools.providers.openclaw_browser]
-# Dynamic provider scaffold (default disabled; enabled here as channel-gated example).
-enabled = true
-# Enable only on selected channels.
-# Omit (or set to []) for all channels.
-channels = ["web"]
 
 [providers.openai_codex]
 enabled = true
