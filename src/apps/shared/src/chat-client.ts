@@ -425,6 +425,9 @@ function normalizeWebToolName(value: unknown): ChatWebToolName | null {
   if (normalized === "web_search" || normalized === "web-search" || normalized === "websearch") {
     return "web_search";
   }
+  if (normalized === "browser" || normalized === "browse") {
+    return "browser";
+  }
   return null;
 }
 
@@ -455,6 +458,9 @@ export function normalizeEnabledWebTools(raw: unknown): ChatWebToolName[] {
 
     const directSearch = asBoolean(record.web_search ?? record.webSearch);
     if (directSearch !== null) apply("web_search", directSearch);
+
+    const directBrowser = asBoolean(record.browser ?? record.browse);
+    if (directBrowser !== null) apply("browser", directBrowser);
 
     const name = normalizeWebToolName(record.name ?? record.tool ?? record.id ?? record.slug);
     if (!name) return;
@@ -499,7 +505,9 @@ export function normalizeEnabledWebTools(raw: unknown): ChatWebToolName[] {
     }
   }
 
-  return ["web_fetch", "web_search"].filter((name) => enabled.has(name as ChatWebToolName)) as ChatWebToolName[];
+  return ["web_fetch", "web_search", "browser"].filter((name) =>
+    enabled.has(name as ChatWebToolName),
+  ) as ChatWebToolName[];
 }
 
 export function normalizeModelOptions(raw: unknown): ModelOption[] {

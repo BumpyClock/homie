@@ -72,3 +72,4 @@
 - 2026-02-12: Web chat timeline now renders `openclaw_browser` tool calls with friendly labels plus robust action/result/error detail cards (including safe JSON fallback).
 - 2026-02-12: ROCI runner coverage now includes mixed text+parallel tool batches, duplicate tool-call delta dedupe by id, and stream-end-without-Done fallback semantics.
 - 2026-02-13: Removed deprecated `openclaw_browser` provider/config path from core + docs; normalized UI/browser tool naming to `browser` and documented `agent-browser` evaluation in `docs/learned/agent-browser-2026-02-13.md`.
+- 2026-02-16: Added core `browser` tool backed by `agent-browser` CLI with `npx` fallback, structured `{ok,tool,data|error}` envelopes, and UI/docs updates so browser appears in tool availability alongside web_fetch/web_search.

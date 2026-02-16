@@ -61,7 +61,7 @@ enabled = true
 # Omit (or set to []) to make provider available in all channels.
 channels = ["web", "discord"]
 # Optional allow/deny lists by tool name.
-# allow_tools = ["read", "ls", "find", "grep", "apply_patch", "exec", "process", "web_fetch", "web_search"]
+# allow_tools = ["read", "ls", "find", "grep", "apply_patch", "exec", "process", "web_fetch", "web_search", "browser"]
 # deny_tools = []
 
 [providers.openai_codex]

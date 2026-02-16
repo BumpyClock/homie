@@ -222,8 +222,10 @@ function WebToolsIndicator({
         Web
       </div>
       <div className="flex items-center gap-1.5">
-        {(["web_fetch", "web_search"] as const).map((toolName) => {
+        {(["web_fetch", "web_search", "browser"] as const).map((toolName) => {
           const enabled = available && enabledSet.has(toolName);
+          const label =
+            toolName === "web_fetch" ? "Fetch" : toolName === "web_search" ? "Search" : "Browser";
           return (
             <span
               key={toolName}
@@ -234,7 +236,7 @@ function WebToolsIndicator({
               }`}
               title={available ? `${toolName} ${enabled ? "enabled" : "disabled"}` : "Web tools unavailable"}
             >
-              {toolName === "web_fetch" ? "Fetch" : "Search"}
+              {label}
             </span>
           );
         })}

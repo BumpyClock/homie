@@ -8,6 +8,7 @@ use crate::HomieConfig;
 
 mod apply_patch;
 mod args;
+mod browser;
 mod exec;
 mod fs;
 mod process;

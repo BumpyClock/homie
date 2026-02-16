@@ -19,3 +19,15 @@ Date: 2026-02-13
   - provider id: `browser`
   - tool name: `browser`
 - Keep provider dynamic and disabled by default until auth/session model is implemented.
+
+## Update (2026-02-16)
+- Implemented first-class core tool `browser` in Homie backend.
+- Runtime execution path:
+  - primary: `agent-browser ...`
+  - fallback: `npx --yes agent-browser ...`
+- Default tool behavior:
+  - JSON mode enabled by default (`--json`) for model-readable outputs.
+  - Tool response normalized to Homie envelope: `{ok, tool, data|error}`.
+  - Default timeout: 90s.
+- Optional binary override:
+  - `HOMIE_AGENT_BROWSER_BIN=/path/to/agent-browser`

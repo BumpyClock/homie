@@ -17,7 +17,7 @@ Pi lists the standard tools above. This runtime enables:
 - apply_patch: apply multi-file patches
 - exec: run shell commands (supports background via yieldMs/background)
 - process: manage background exec sessions
-- browser: control openclaw's dedicated browser
+- browser: control a headless browser via agent-browser CLI
 - canvas: present/eval/snapshot the Canvas
 - nodes: list/describe/notify/camera/screen on paired nodes
 - cron: manage cron jobs and wake events (use for reminders; when scheduling a reminder, write the mEvent text as something that will read like a reminder when it fires, and mention that it is a reminder depending on the time gap between setting and firing; include recent context in reminder text if appropriate)

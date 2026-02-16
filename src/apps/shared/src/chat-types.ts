@@ -15,7 +15,7 @@ export type ChatItemKind =
 export type ChatPermissionMode = "explore" | "ask" | "execute";
 export type ChatAgentMode = "code" | "plan";
 export type ChatEffort = "auto" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-export type ChatWebToolName = "web_fetch" | "web_search";
+export type ChatWebToolName = "web_fetch" | "web_search" | "browser";
 
 export interface ChatSettings {
   model?: string;

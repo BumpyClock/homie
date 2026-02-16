@@ -55,17 +55,22 @@ SearXNG:
   - duplicate tool name across enabled providers -> config error
   - unknown tool names in `allow_tools`/`deny_tools` -> config error
 
-### Browser automation direction
-- `openclaw_browser` provider path has been removed.
-- Planned replacement: `agent-browser` (`vercel-labs/agent-browser`) as the browser runtime.
-- Keep browser integration behind a dedicated provider id (for example `browser`) and map tool name to `browser` in UI.
+### Browser automation (`browser` tool)
+- Core provider now includes `browser`, backed by `agent-browser` (`vercel-labs/agent-browser`).
+- Install locally:
+  - `npm i -g agent-browser && agent-browser install`
+  - or `brew install agent-browser && agent-browser install`
+- Runtime fallback: if `agent-browser` binary is unavailable, Homie tries `npx --yes agent-browser`.
+- Optional override for binary path:
+  - `HOMIE_AGENT_BROWSER_BIN=/path/to/agent-browser`
+- Tool can be gated using core allow/deny lists like any other core tool.
 
 Example:
 ```toml
 [tools.providers.core]
 enabled = true
 channels = ["web", "discord"]
-allow_tools = ["read", "ls", "find", "grep"]
+allow_tools = ["read", "ls", "find", "grep", "browser"]
 deny_tools = ["exec"]
 ```
 
