@@ -11,7 +11,8 @@ use tokio::net::lookup_host;
 use url::{Host, Url};
 
 use crate::homie_config::{
-    BraveSearchConfig, FirecrawlConfig, SearxngSearchConfig, WebFetchConfig, WebSearchConfig,
+    BraveSearchConfig, FirecrawlConfig, SearxngSearchConfig, WebFetchBackend, WebFetchConfig,
+    WebSearchConfig,
 };
 
 use super::{debug_tools_enabled, ToolContext};
@@ -25,6 +26,8 @@ const WEB_SEARCH_TOOL_NAME: &str = "web_search";
 
 static FETCH_CACHE: OnceLock<Mutex<HashMap<String, CacheEntry>>> = OnceLock::new();
 static SEARCH_CACHE: OnceLock<Mutex<HashMap<String, CacheEntry>>> = OnceLock::new();
+static FIRECRAWL_AVAILABLE: OnceLock<Mutex<Option<(bool, Instant)>>> = OnceLock::new();
+const FIRECRAWL_HEALTH_CACHE_TTL_SECS: u64 = 60;
 
 #[derive(Clone)]
 struct CacheEntry {
@@ -71,6 +74,101 @@ struct FirecrawlResult {
     final_url: Option<String>,
     status: Option<u16>,
     warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolvedBackend {
+    Native,
+    Firecrawl,
+}
+
+async fn resolve_backend(
+    config_backend: WebFetchBackend,
+    base_url: &str,
+    api_key: Option<&str>,
+    timeout: u64,
+) -> ResolvedBackend {
+    match config_backend {
+        WebFetchBackend::Native => ResolvedBackend::Native,
+        WebFetchBackend::Firecrawl => {
+            if base_url.trim().is_empty() {
+                ResolvedBackend::Native
+            } else {
+                ResolvedBackend::Firecrawl
+            }
+        }
+        WebFetchBackend::Auto => {
+            if !base_url.trim().is_empty()
+                && check_firecrawl_available(base_url, api_key, timeout).await
+            {
+                ResolvedBackend::Firecrawl
+            } else {
+                ResolvedBackend::Native
+            }
+        }
+    }
+}
+
+async fn check_firecrawl_available(base_url: &str, api_key: Option<&str>, timeout: u64) -> bool {
+    let cache = FIRECRAWL_AVAILABLE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some((available, ts)) = *guard {
+            if ts.elapsed().as_secs() < FIRECRAWL_HEALTH_CACHE_TTL_SECS {
+                return available;
+            }
+        }
+    }
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(5.min(timeout.max(1))))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return cache_firecrawl_result(false),
+    };
+
+    // Try /health endpoint
+    let health_url = if let Ok(mut url) = Url::parse(base_url) {
+        url.set_path("/health");
+        url.to_string()
+    } else {
+        return cache_firecrawl_result(false);
+    };
+
+    if let Ok(resp) = client.get(&health_url).send().await {
+        if resp.status().is_success() {
+            return cache_firecrawl_result(true);
+        }
+    }
+
+    // Fallback: probe scrape of example.com
+    let endpoint = resolve_firecrawl_endpoint(base_url);
+    let body = serde_json::json!({
+        "url": "https://example.com",
+        "formats": ["markdown"],
+        "timeout": 5000,
+    });
+    let mut req = client
+        .post(&endpoint)
+        .header("Content-Type", "application/json");
+    if let Some(key) = api_key.filter(|k| !k.trim().is_empty()) {
+        req = req.header("Authorization", format!("Bearer {key}"));
+    }
+    let available = if let Ok(resp) = req.json(&body).send().await {
+        resp.status().is_success()
+    } else {
+        false
+    };
+
+    cache_firecrawl_result(available)
+}
+
+fn cache_firecrawl_result(available: bool) -> bool {
+    let cache = FIRECRAWL_AVAILABLE.get_or_init(|| Mutex::new(None));
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((available, Instant::now()));
+    }
+    available
 }
 
 #[derive(Debug, Deserialize)]
@@ -254,6 +352,64 @@ async fn web_fetch_inner(
     }
 
     let start = Instant::now();
+
+    let firecrawl_cfg = &cfg.firecrawl;
+    let firecrawl_enabled = resolve_firecrawl_enabled(firecrawl_cfg);
+    let firecrawl_api_key = resolve_firecrawl_api_key(firecrawl_cfg);
+    let firecrawl_base_url = resolve_firecrawl_base_url(firecrawl_cfg);
+
+    let resolved_backend = resolve_backend(
+        cfg.backend,
+        &firecrawl_base_url,
+        firecrawl_api_key.as_deref(),
+        firecrawl_cfg.timeout_seconds,
+    )
+    .await;
+
+    // Firecrawl-first path: try Firecrawl before native fetch
+    if resolved_backend == ResolvedBackend::Firecrawl {
+        // SSRF check before sending URL to Firecrawl
+        let parsed_url = Url::parse(url)
+            .map_err(|_| RociError::InvalidArgument("invalid url".into()))?;
+        if !matches!(parsed_url.scheme(), "http" | "https") {
+            return Err(RociError::InvalidArgument("invalid url scheme".into()));
+        }
+        ensure_url_safe(&parsed_url).await?;
+
+        match fetch_firecrawl_content(
+            url,
+            extract_mode,
+            firecrawl_cfg,
+            firecrawl_api_key.as_deref(),
+            &firecrawl_base_url,
+        )
+        .await
+        {
+            Ok(firecrawl) => {
+                let payload = build_fetch_payload(
+                    url,
+                    firecrawl.final_url.as_deref().unwrap_or(url),
+                    firecrawl.status.unwrap_or(200),
+                    "text/markdown",
+                    firecrawl.title.as_deref(),
+                    extract_mode,
+                    "firecrawl",
+                    "firecrawl",
+                    &firecrawl.text,
+                    max_chars,
+                    start,
+                    firecrawl.warning.as_deref(),
+                );
+                write_cache(fetch_cache(), &cache_key, payload.clone(), cache_ttl_ms);
+                return Ok(payload);
+            }
+            Err(e) => {
+                tracing::warn!("firecrawl primary fetch failed, falling back to native: {e}");
+            }
+        }
+    }
+
+    // Native fetch path (primary for Native, fallback for Firecrawl)
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_seconds))
         .redirect(reqwest::redirect::Policy::none())
@@ -265,10 +421,9 @@ async fn web_fetch_inner(
 
     let fetch_result = fetch_with_redirects(&client, url, max_redirects, &user_agent).await;
 
-    let firecrawl_cfg = &cfg.firecrawl;
-    let firecrawl_enabled = resolve_firecrawl_enabled(firecrawl_cfg);
-    let firecrawl_api_key = resolve_firecrawl_api_key(firecrawl_cfg);
-    let firecrawl_base_url = resolve_firecrawl_base_url(firecrawl_cfg);
+    // Only allow Firecrawl fallback when resolved to Native (haven't already tried Firecrawl)
+    let allow_firecrawl_fallback =
+        resolved_backend == ResolvedBackend::Native && firecrawl_enabled;
 
     let (response, final_url) = match fetch_result {
         Ok(res) => res,
@@ -276,7 +431,7 @@ async fn web_fetch_inner(
             if matches!(err, RociError::InvalidArgument(_)) {
                 return Err(err);
             }
-            if firecrawl_enabled {
+            if allow_firecrawl_fallback {
                 let firecrawl = fetch_firecrawl_content(
                     url,
                     extract_mode,
@@ -293,6 +448,7 @@ async fn web_fetch_inner(
                     firecrawl.title.as_deref(),
                     extract_mode,
                     "firecrawl",
+                    "firecrawl",
                     &firecrawl.text,
                     max_chars,
                     start,
@@ -306,7 +462,7 @@ async fn web_fetch_inner(
     };
 
     if !response.status().is_success() {
-        if firecrawl_enabled {
+        if allow_firecrawl_fallback {
             let firecrawl = fetch_firecrawl_content(
                 url,
                 extract_mode,
@@ -322,6 +478,7 @@ async fn web_fetch_inner(
                 "text/markdown",
                 firecrawl.title.as_deref(),
                 extract_mode,
+                "firecrawl",
                 "firecrawl",
                 &firecrawl.text,
                 max_chars,
@@ -366,7 +523,7 @@ async fn web_fetch_inner(
                 text = content;
                 title = extracted_title;
                 extractor = "readability";
-            } else if firecrawl_enabled {
+            } else if allow_firecrawl_fallback {
                 let firecrawl = fetch_firecrawl_content(
                     url,
                     extract_mode,
@@ -382,6 +539,7 @@ async fn web_fetch_inner(
                     "text/markdown",
                     firecrawl.title.as_deref(),
                     extract_mode,
+                    "firecrawl",
                     "firecrawl",
                     &firecrawl.text,
                     max_chars,
@@ -419,6 +577,7 @@ async fn web_fetch_inner(
         title.as_deref(),
         extract_mode,
         extractor,
+        "native",
         &text,
         max_chars,
         start,
@@ -1038,6 +1197,7 @@ fn build_fetch_payload(
     title: Option<&str>,
     extract_mode: ExtractMode,
     extractor: &str,
+    backend: &str,
     text: &str,
     max_chars: usize,
     start: Instant,
@@ -1055,6 +1215,7 @@ fn build_fetch_payload(
         "contentType": content_type,
         "extractMode": mode,
         "extractor": extractor,
+        "backend": backend,
         "truncated": truncated.1,
         "length": truncated.0.chars().count(),
         "fetchedAt": chrono::Utc::now().to_rfc3339(),
@@ -1315,9 +1476,14 @@ mod tests {
 
     use crate::homie_config::HomieConfig;
 
+    use std::time::Instant;
+
+    use crate::homie_config::WebFetchBackend;
+
     use super::{
-        fetch_cache, normalize_cache_key, search_cache, web_fetch_impl, web_search_impl,
-        write_cache, ExtractMode, ToolContext, WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME,
+        build_fetch_payload, fetch_cache, normalize_cache_key, resolve_backend, search_cache,
+        web_fetch_impl, web_search_impl, write_cache, ExtractMode, ResolvedBackend, ToolContext,
+        WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME,
     };
 
     static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -1457,5 +1623,116 @@ mod tests {
         assert_eq!(payload["ok"], json!(true));
         assert_eq!(payload["tool"], json!(WEB_SEARCH_TOOL_NAME));
         assert_eq!(payload["data"]["cached"], json!(true));
+    }
+
+    #[test]
+    fn web_fetch_backend_default_is_auto() {
+        assert_eq!(WebFetchBackend::default(), WebFetchBackend::Auto);
+    }
+
+    #[test]
+    fn web_fetch_backend_deserialize_variants() {
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            backend: WebFetchBackend,
+        }
+        let native: Wrapper = toml::from_str(r#"backend = "native""#).expect("native");
+        assert_eq!(native.backend, WebFetchBackend::Native);
+
+        let firecrawl: Wrapper = toml::from_str(r#"backend = "firecrawl""#).expect("firecrawl");
+        assert_eq!(firecrawl.backend, WebFetchBackend::Firecrawl);
+
+        let auto: Wrapper = toml::from_str(r#"backend = "auto""#).expect("auto");
+        assert_eq!(auto.backend, WebFetchBackend::Auto);
+    }
+
+    #[test]
+    fn web_fetch_backend_unknown_falls_back_to_auto() {
+        // Unknown variant should fail to deserialize; config uses #[serde(default)]
+        // so a missing field falls back to Auto.
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            #[serde(default)]
+            backend: WebFetchBackend,
+        }
+        let missing: Wrapper = toml::from_str("").expect("missing field uses default");
+        assert_eq!(missing.backend, WebFetchBackend::Auto);
+
+        // Explicit unknown string should be a parse error
+        let unknown = toml::from_str::<Wrapper>(r#"backend = "banana""#);
+        assert!(unknown.is_err(), "unknown variant should fail to parse");
+    }
+
+    #[test]
+    fn web_fetch_payload_includes_backend_field() {
+        let start = Instant::now();
+        let payload = build_fetch_payload(
+            "https://example.com",
+            "https://example.com",
+            200,
+            "text/html",
+            Some("Example"),
+            ExtractMode::Markdown,
+            "readability",
+            "native",
+            "hello world",
+            50_000,
+            start,
+            None,
+        );
+        assert_eq!(payload["backend"], json!("native"));
+
+        let payload_fc = build_fetch_payload(
+            "https://example.com",
+            "https://example.com",
+            200,
+            "text/markdown",
+            None,
+            ExtractMode::Markdown,
+            "firecrawl",
+            "firecrawl",
+            "hello world",
+            50_000,
+            start,
+            None,
+        );
+        assert_eq!(payload_fc["backend"], json!("firecrawl"));
+    }
+
+    #[tokio::test]
+    async fn web_fetch_backend_resolve_logic() {
+        // Native always returns Native regardless of base_url
+        assert_eq!(
+            resolve_backend(WebFetchBackend::Native, "https://fc.local", None, 30).await,
+            ResolvedBackend::Native
+        );
+
+        // Firecrawl with empty base_url falls back to Native
+        assert_eq!(
+            resolve_backend(WebFetchBackend::Firecrawl, "", None, 30).await,
+            ResolvedBackend::Native
+        );
+        assert_eq!(
+            resolve_backend(WebFetchBackend::Firecrawl, "   ", None, 30).await,
+            ResolvedBackend::Native
+        );
+
+        // Firecrawl with non-empty base_url returns Firecrawl
+        assert_eq!(
+            resolve_backend(
+                WebFetchBackend::Firecrawl,
+                "https://fc.local",
+                None,
+                30
+            )
+            .await,
+            ResolvedBackend::Firecrawl
+        );
+
+        // Auto with no base_url returns Native (health check skipped)
+        assert_eq!(
+            resolve_backend(WebFetchBackend::Auto, "", None, 30).await,
+            ResolvedBackend::Native
+        );
     }
 }

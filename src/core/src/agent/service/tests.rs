@@ -1,7 +1,22 @@
 mod tests {
-    use super::*;
+    use crate::agent::process::CodexRequestId;
+    use crate::agent::service::events::codex_method_to_topics;
+    use crate::agent::service::models::{chrono_now, roci_model_catalog};
+    use crate::agent::service::params::{
+        normalize_model_selector, parse_approval_params, parse_cancel_params, parse_message_params,
+        parse_tool_channel,
+    };
+    use crate::agent::service::dispatch::{AgentService, ChatService};
+    use crate::execpolicy::ExecPolicy;
+    use crate::homie_config::{HomieConfig, ProvidersConfig};
     use crate::outbound::OutboundMessage;
-    use crate::storage::SqliteStore;
+    use crate::ServiceHandler;
+    use crate::storage::{ChatRecord, SessionStatus, SqliteStore, Store};
+    use homie_protocol::error_codes;
+    use serde_json::json;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+    use uuid::Uuid;
 
     fn make_store() -> Arc<dyn Store> {
         Arc::new(SqliteStore::open_memory().unwrap())
@@ -487,3 +502,7 @@ mod tests {
         let tmp_dir = std::env::temp_dir().join(format!("homie-auth-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&tmp_dir).unwrap();
         config.paths.credentials_dir = Some(tmp_dir.to_string_lossy().to_string());
+        // TODO: implement this test
+        let _ = (tx, config, tmp_dir);
+    }
+}
