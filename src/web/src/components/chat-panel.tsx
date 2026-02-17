@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Folder, MessageCircleDashed } from "lucide-react";
+import { ArrowDown, ArrowUp, Folder, MessageCircleDashed, Square } from "lucide-react";
+import { shouldShowStop, groupTurns } from "@homie/shared";
 import { ChatTurns } from "@/components/chat-turns";
-import { groupTurns } from "@/lib/chat-turns-utils";
 import { ChatComposerBar } from "@/components/chat-composer-bar";
 import { ChatInlineMenu } from "@/components/chat-inline-menu";
 import { ChatThreadList } from "@/components/chat-thread-list";
@@ -57,6 +57,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   const [authErrorByProvider, setAuthErrorByProvider] = useState<Record<string, string | undefined>>({});
 
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
   const [showThreadList, setShowThreadList] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.innerWidth >= 640;
@@ -106,6 +107,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
   const isMobileViewport = typeof window !== "undefined" ? window.innerWidth < 640 : false;
   const canSend = status === "connected" && !!activeThread;
   const canEditSettings = status === "connected" && !!activeThread;
+  const showStop = shouldShowStop(!!activeThread?.running, sending);
   const attachedFolder = activeSettings.attachedFolder;
 
   useEffect(() => {
@@ -172,7 +174,12 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     if (!draft.trim()) return;
     stickToBottomRef.current = true;
     setStickToBottom(true);
-    await sendMessage(draft);
+    setSending(true);
+    try {
+      await sendMessage(draft);
+    } finally {
+      setSending(false);
+    }
     setDraft("");
     setTrigger(null);
     setMenuVisible(false);
@@ -675,14 +682,25 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
               disabled={!canSend}
               placeholder={canSend ? "Send a message…" : "Connect to a gateway to chat."}
               action={
-                <button
-                  type="submit"
-                  disabled={!canSend || !draft.trim()}
-                  className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors motion-reduce:transition-none disabled:opacity-40"
-                  aria-label="Send message"
-                >
-                  <ArrowUp className="h-4 w-4" />
-                </button>
+                showStop ? (
+                  <button
+                    type="button"
+                    onClick={cancelActive}
+                    className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors motion-reduce:transition-none"
+                    aria-label="Stop generation"
+                  >
+                    <Square className="h-3 w-3 fill-current" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!canSend || !draft.trim()}
+                    className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors motion-reduce:transition-none disabled:opacity-40"
+                    aria-label="Send message"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </button>
+                )
               }
               onChange={(value, cursor) => {
                 setDraft(value);
@@ -747,14 +765,25 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
                 updateTrigger(value, cursor);
               }}
             />
-            <button
-              type="submit"
-              disabled={!canSend || !draft.trim()}
-              className="w-full sm:hidden inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] rounded-full bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors motion-reduce:transition-none disabled:opacity-50"
-            >
-              <ArrowUp className="h-4 w-4" />
-              Send
-            </button>
+            {showStop ? (
+              <button
+                type="button"
+                onClick={cancelActive}
+                className="w-full sm:hidden inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] rounded-full bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 transition-colors motion-reduce:transition-none"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+                Stop
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!canSend || !draft.trim()}
+                className="w-full sm:hidden inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] rounded-full bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors motion-reduce:transition-none disabled:opacity-50"
+              >
+                <ArrowUp className="h-4 w-4" />
+                Send
+              </button>
+            )}
           </form>
           <div className="hidden sm:block mt-2 text-[11px] text-muted-foreground/80">
             Enter to send · Shift+Enter for newline

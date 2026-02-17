@@ -15,16 +15,16 @@ import {
 import type { ChatItem } from "@/lib/chat-utils";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import {
+  friendlyToolLabelFromItem,
+  normalizeChatToolName,
+  rawToolNameFromItem,
+  formatToolTypeSummary,
   groupTurns,
   previewFromTurn,
   getReasoningPreview,
   getActivityPreview,
-} from "@/lib/chat-turns-utils";
-import {
-  friendlyToolLabelFromItem,
-  normalizeChatToolName,
-  rawToolNameFromItem,
 } from "@/lib/chat-utils";
+import { useStreamingDebounce } from "@homie/shared";
 
 interface ChatTurnsProps {
   items: ChatItem[];
@@ -504,11 +504,20 @@ function AssistantTurn({
 }) {
   const assistant = turn.items.filter((item) => item.kind === "assistant");
   const response = assistant[assistant.length - 1]?.text ?? "";
+  const usePlainText = useStreamingDebounce(isStreaming, response);
   const activities = turn.items.filter((item) => item.kind !== "user" && item.kind !== "assistant");
   const approvalItems = activities.filter((item) => item.kind === "approval");
   const nonApprovalActivities = activities.filter((item) => item.kind !== "approval");
   const hasActivities = nonApprovalActivities.length > 0 || approvalItems.length > 0;
   const preview = previewFromTurn(turn, isStreaming);
+  const toolItems = useMemo(
+    () => activities.filter((item) => item.kind === "tool"),
+    [activities],
+  );
+  const toolSummary = useMemo(
+    () => (toolItems.length > 0 ? formatToolTypeSummary(toolItems) : null),
+    [toolItems],
+  );
   const [expanded, setExpanded] = useState(false);
   const lastActivity = nonApprovalActivities[nonApprovalActivities.length - 1] ?? approvalItems[approvalItems.length - 1];
   const reasoningItem = [...activities].reverse().find((item) => item.kind === "reasoning");
@@ -526,8 +535,8 @@ function AssistantTurn({
           >
             <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
             <span className="truncate">{preview}</span>
-            <span className="shrink-0 text-[10px] uppercase tracking-wide opacity-70">
-              {activities.length} steps
+            <span className="shrink-0 text-[10px] tracking-wide opacity-70">
+              {toolSummary ?? `${activities.length} steps`}
             </span>
           </button>
         )}
@@ -593,7 +602,11 @@ function AssistantTurn({
           <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-primary/30" />
           {response ? (
             <div className="homie-fade-in">
-              <ChatMarkdown content={response} />
+              {usePlainText ? (
+                <p className="whitespace-pre-wrap">{response}</p>
+              ) : (
+                <ChatMarkdown content={response} />
+              )}
             </div>
           ) : (
             <div className="text-sm text-muted-foreground inline-flex items-center gap-1.5">

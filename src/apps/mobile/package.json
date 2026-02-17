@@ -3,9 +3,9 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "expo start --port 8081",
-    "android": "expo start --android --port 8081",
-    "ios": "expo start --ios --port 8081",
+    "start": "node ./scripts/expo-start.mjs --port 8081",
+    "android": "node ./scripts/expo-start.mjs --android --port 8081",
+    "ios": "node ./scripts/expo-start.mjs --ios --port 8081",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit"
   },

@@ -76,6 +76,7 @@ deny_tools = ["exec"]
 
 ## Provider auth flow (Homie)
 Detailed step-by-step flow: `docs/provider-auth.md`.
+Manual CLI usage (`wscat`) requires a handshake frame before any RPC request.
 
 Homie uses device-code auth for providers that support it.
 
@@ -90,6 +91,11 @@ Not supported via device-code:
 Call:
 - `chat.account.list`
 
+Example request envelope:
+```json
+{"type":"request","id":"11e08ef8-2764-48af-8ef1-6b64f6eb2d86","method":"chat.account.list"}
+```
+
 Response shape:
 - `providers[]` with:
   - `id` (`openai-codex`, `github-copilot`, `claude-code`)
@@ -101,11 +107,16 @@ Response shape:
 Call:
 - `chat.account.login.start`
 
-Params:
+Example request envelope:
 ```json
 {
-  "provider": "github-copilot",
-  "profile": "default"
+  "type":"request",
+  "id":"9f77a4e4-bf3f-4a28-a553-6c6d4afddf2f",
+  "method":"chat.account.login.start",
+  "params": {
+    "provider":"github-copilot",
+    "profile":"default"
+  }
 }
 ```
 
@@ -127,17 +138,22 @@ Returns:
 After user completes browser verification, call:
 - `chat.account.login.poll`
 
-Params:
+Example request envelope:
 ```json
 {
-  "provider": "github-copilot",
-  "profile": "default",
-  "session": {
-    "verification_url": "...",
-    "user_code": "...",
-    "device_code": "...",
-    "interval_secs": 5,
-    "expires_at": "2026-02-11T22:10:00Z"
+  "type":"request",
+  "id":"6be8a772-8d3f-4a20-8ab4-2bc41a8bd873",
+  "method":"chat.account.login.poll",
+  "params": {
+    "provider":"github-copilot",
+    "profile":"default",
+    "session": {
+      "verification_url":"...",
+      "user_code":"...",
+      "device_code":"...",
+      "interval_secs": 5,
+      "expires_at":"2026-02-11T22:10:00Z"
+    }
   }
 }
 ```
@@ -159,12 +175,14 @@ Stop when `authorized`, then refresh with:
 
 ### Provider-specific notes
 - `openai-codex`:
-  - Homie can import Codex CLI credentials when available.
+  - Supports device-code flow via `chat.account.login.start/poll` with `provider:"openai-codex"`.
+  - Homie can also import Codex CLI credentials when available.
 - `github-copilot`:
   - Requires Homie device-code flow above.
   - `gh auth login` alone does not create Homie provider credentials.
 - `claude-code`:
-  - Uses CLI credential import (`providers.claude_code.import_from_cli = true`).
+  - Device-code endpoints are not supported.
+  - Uses CLI credential import (`providers.claude_code.import_from_cli = true`), triggered when calling `chat.account.list` or `chat.account.read`.
 
 ## Local vLLM / OpenAI-compatible models
 To surface local models (vLLM, LM Studio proxy, other OpenAI-compatible endpoints) in chat model pickers:

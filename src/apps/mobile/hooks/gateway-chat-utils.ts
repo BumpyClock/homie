@@ -1,15 +1,11 @@
 import {
-  extractLastMessage,
   shortId,
-  truncateText,
   type ChatApprovalDecision,
   type ChatItem,
   type ChatMappedEvent,
   type ChatThreadSummary,
   type ConnectionStatus,
 } from '@homie/shared';
-
-const PREVIEW_LIMIT = 96;
 
 export type StatusTone = 'accent' | 'success' | 'warning';
 
@@ -65,18 +61,7 @@ export function threadLastActivityAt(
   return fallback;
 }
 
-export function sortThreads(threads: ChatThreadSummary[]): ChatThreadSummary[] {
-  return [...threads].sort((left, right) => {
-    const leftValue = left.lastActivityAt ?? 0;
-    const rightValue = right.lastActivityAt ?? 0;
-    return rightValue - leftValue;
-  });
-}
-
-export function previewFromItems(items: ChatItem[]): string {
-  const text = extractLastMessage(items);
-  return text ? truncateText(text, PREVIEW_LIMIT) : '';
-}
+export { previewFromItems, sortThreads } from '@homie/shared';
 
 export function statusBadgeFor(status: ConnectionStatus): StatusBadgeState {
   if (status === 'connected') return { label: 'Connected', tone: 'success' };

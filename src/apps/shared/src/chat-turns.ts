@@ -196,3 +196,79 @@ export function groupChatItemsByTurn(items: readonly ChatItem[]): ChatTurnGroup[
 export function groupTurns(items: readonly ChatItem[]): ChatTurnGroup[] {
   return groupChatItemsByTurn(items);
 }
+
+/** Structured count of tool calls by type. */
+export interface ToolTypeCount {
+  label: string;
+  count: number;
+}
+
+/** Build structured tool type counts for display. */
+export function toolTypeSummary(items: ChatItem[]): ToolTypeCount[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const label = friendlyToolLabelFromItem(item, "Tool call");
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
+}
+
+/** Format tool type counts as a human-readable string. */
+export function formatToolTypeSummary(items: ChatItem[]): string {
+  return toolTypeSummary(items)
+    .map(({ label, count }) => (count > 1 ? `${label} ×${count}` : label))
+    .join(" • ") || "Tool calls";
+}
+
+function stripMarkdown(text: string): string {
+  return text.replace(/[#_*`>~-]/g, "").replace(/\s+/g, " ").trim();
+}
+
+/** Short preview string for a collapsed assistant turn. */
+export function previewFromTurn(
+  turn: { items: readonly ChatItem[] },
+  isStreaming: boolean,
+): string {
+  const assistant = turn.items.find((item) => item.kind === "assistant");
+  if (assistant?.text) return stripMarkdown(assistant.text).slice(0, 140);
+  const reasoning = turn.items.find((item) => item.kind === "reasoning");
+  if (reasoning?.summary?.length) return stripMarkdown(reasoning.summary[0]).slice(0, 140);
+  const command = turn.items.find((item) => item.kind === "command");
+  if (command?.command) return `Command: ${stripMarkdown(command.command).slice(0, 100)}`;
+  if (isStreaming) return "Thinking\u2026";
+  return "Steps completed";
+}
+
+/** Short preview for a reasoning item. */
+export function getReasoningPreview(item?: ChatItem): string {
+  if (!item) return "";
+  const summary = item.summary?.filter(Boolean) ?? [];
+  if (summary.length > 0) return summary[0];
+  const content = item.content?.filter(Boolean) ?? [];
+  if (content.length > 0) return content[0];
+  return "";
+}
+
+/** Short preview for any activity item. */
+export function getActivityPreview(item: ChatItem): string {
+  switch (item.kind) {
+    case "approval":
+      return item.reason || item.command || "Approval required";
+    case "reasoning":
+      return getReasoningPreview(item) || "Reasoning update";
+    case "command":
+      return item.command ? `Command: ${item.command}` : "Command execution";
+    case "file":
+      return item.changes?.[0]?.path ? `File: ${item.changes[0].path}` : "File changes";
+    case "plan":
+      return item.text ? stripMarkdown(item.text).slice(0, 120) : "Plan update";
+    case "diff":
+      return item.text ? stripMarkdown(item.text).slice(0, 120) : "Diff update";
+    case "tool":
+      return item.text || "Tool call";
+    case "system":
+      return item.text || "System update";
+    default:
+      return item.text || "Update";
+  }
+}

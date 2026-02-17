@@ -14,7 +14,7 @@ import {
   TriangleAlert,
   XCircle,
 } from 'lucide-react-native';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo } from 'react';
 import {
   type AccessibilityActionEvent,
   Platform,
@@ -32,52 +32,14 @@ import {
   bodyForItem,
 } from './chat-timeline-helpers';
 import { styles } from './chat-timeline-styles';
-import type { ChatItem } from '@homie/shared';
+import { type ChatItem } from '@homie/shared';
+import { useStreamingDebounce } from '@/hooks/useStreamingDebounce';
 
 /* ── shared card prop type ─────────────────────────────── */
 
 interface CardProps {
   item: ChatItem;
   palette: AppPalette;
-}
-
-/* ── streaming debounce hook ──────────────────────────── */
-
-const STREAMING_IDLE_MS = 300;
-
-/**
- * During active streaming, returns true so callers can render cheap plain text.
- * After STREAMING_IDLE_MS of no content changes *or* when streaming ends,
- * returns false so callers switch to full ChatMarkdown rendering.
- */
-function useStreamingDebounce(isStreaming: boolean, content: string): boolean {
-  const [usePlainText, setUsePlainText] = useState(isStreaming);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!isStreaming) {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = null;
-      setUsePlainText(false);
-      return;
-    }
-    // Streaming: show plain text, schedule markdown switch on idle
-    setUsePlainText(true);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      setUsePlainText(false);
-      timerRef.current = null;
-    }, STREAMING_IDLE_MS);
-  }, [isStreaming, content]);
-
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    [],
-  );
-
-  return usePlainText;
 }
 
 /* ── per-kind card components ──────────────────────────── */

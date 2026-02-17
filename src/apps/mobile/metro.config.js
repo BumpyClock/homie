@@ -19,5 +19,14 @@ config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
   path.resolve(monorepoRoot, "node_modules"),
 ];
+config.resolver.disableHierarchicalLookup = true;
+
+// Force all workspace packages to share the same React runtime instance
+config.resolver.extraNodeModules = {
+  ...(config.resolver.extraNodeModules || {}),
+  react: path.resolve(monorepoRoot, "node_modules/react"),
+  "react/jsx-runtime": path.resolve(monorepoRoot, "node_modules/react/jsx-runtime.js"),
+  "react/jsx-dev-runtime": path.resolve(monorepoRoot, "node_modules/react/jsx-dev-runtime.js"),
+};
 
 module.exports = config;

@@ -16,7 +16,9 @@ import {
   friendlyToolLabelFromItem,
   normalizeChatToolName,
   rawToolNameFromItem,
+  toolTypeSummary,
   type ChatItem,
+  type ToolTypeCount,
 } from '@homie/shared';
 import { ToolDetailSheet } from '@/components/chat/ToolDetailSheet';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -42,21 +44,6 @@ function statusLabel(value: string | undefined): string | null {
 
 function callsLabel(count: number): string {
   return count === 1 ? '1 call' : `${count} calls`;
-}
-
-/** Build structured tool type counts for pill display. */
-interface ToolTypeCount {
-  label: string;
-  count: number;
-}
-
-function toolTypeCounts(items: ChatItem[]): ToolTypeCount[] {
-  const counts = new Map<string, number>();
-  for (const item of items) {
-    const label = friendlyToolLabelFromItem(item, 'Tool call');
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  }
-  return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
 }
 
 /** Last completed tool step preview for collapsed state. */
@@ -133,7 +120,7 @@ function ChatTurnActivityCard({
     running &&
     ((turnId && activeTurnId === turnId) || (!turnId && !activeTurnId));
 
-  const counts = useMemo(() => toolTypeCounts(toolItems), [toolItems]);
+  const counts = useMemo(() => toolTypeSummary(toolItems), [toolItems]);
   const collapsedPreview = useMemo(
     () => (expanded ? null : lastStepPreview(toolItems)),
     [expanded, toolItems],

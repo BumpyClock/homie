@@ -13,8 +13,8 @@ use roci::agent_loop::{
 use roci::config::RociConfig;
 use roci::models::LanguageModel;
 use roci::tools::Tool;
-use roci::types::{GenerationSettings, ReasoningEffort};
 use roci::types::{AgentToolCall, ContentPart, ModelMessage, Role};
+use roci::types::{GenerationSettings, ReasoningEffort};
 
 use crate::agent::tools::{build_tools, ToolContext};
 use crate::outbound::OutboundMessage;
@@ -744,7 +744,11 @@ impl RociBackend {
                         }
                         backend.persist_thread_state(&thread_id).await;
                         if raw_events_enabled {
-                            let status = if result.is_error { "failed" } else { "completed" };
+                            let status = if result.is_error {
+                                "failed"
+                            } else {
+                                "completed"
+                            };
                             persist_roci_raw_event(
                                 &store,
                                 &turn_id_clone,
@@ -1442,13 +1446,8 @@ fn apply_raw_event_to_thread(
                         .cloned()
                         .unwrap_or(serde_json::Value::Null);
                     let result = item.get("result").cloned();
-                    let is_error = item
-                        .get("error")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    upsert_tool_item(
-                        turn, item_id, tool, status, input, result, is_error,
-                    );
+                    let is_error = item.get("error").and_then(|v| v.as_bool()).unwrap_or(false);
+                    upsert_tool_item(turn, item_id, tool, status, input, result, is_error);
                 }
                 _ => {}
             }
@@ -2190,7 +2189,10 @@ mod tests {
                     )
                 })
         });
-        assert!(has_tool_call, "expected tool call message in rehydrated context");
+        assert!(
+            has_tool_call,
+            "expected tool call message in rehydrated context"
+        );
         assert!(
             has_tool_result,
             "expected tool result message in rehydrated context"
