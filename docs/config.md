@@ -16,10 +16,11 @@ Quick start: `docs/quick-start.md`.
   - `chat.system_prompt_path` set -> load only that file path (no auto-copy).
 
 ## Web tools
-Both tools are disabled by default.
+`web_fetch` is enabled by default. `web_search` is disabled by default.
 
 ### web_fetch
-Enable: `tools.web.fetch.enabled = true`
+- Enabled by default.
+- Disable with: `tools.web.fetch.enabled = false`
 - SSRF guard blocks localhost/private IPs.
 - Readability extraction for HTML, JSON pretty-print, optional Firecrawl fallback.
 - Cache with TTL.

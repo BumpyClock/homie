@@ -1,194 +1,128 @@
-# Provider auth runbook
+# Provider auth
 
-This runbook describes how to log providers in via Homie RPC.
+Provider authentication is managed from the **Settings** panel in both web and mobile clients.
+Homie supports three providers; two use OAuth device-code flow and one imports credentials from an existing CLI.
 
 ## Supported providers
-- `openai-codex` (device-code)
-- `github-copilot` (device-code)
-- `claude-code` (no device-code; CLI import only)
 
-## Manual CLI flow (`wscat`)
-If you are authenticating from terminal (outside web/mobile clients), use this exact order.
+| Provider | Auth method | Notes |
+|----------|-------------|-------|
+| `openai-codex` | Device code (OAuth) | RFC 8628 device authorization grant |
+| `github-copilot` | Device code (OAuth) | RFC 8628 device authorization grant |
+| `claude-code` | CLI import only | Reads existing Claude Code CLI credentials |
 
-1) Start gateway:
+## Settings UI flow
+
+### Web
+
+1. Click the **gear icon** in the gateway header (top right).
+2. Select the **Provider Accounts** tab in the settings panel.
+3. Find the provider and click **Connect**.
+4. A device-code card expands inline with a verification URL and user code.
+5. Open the URL, enter the code, and approve access.
+6. The status pill updates to **Connected** once authorized.
+
+### Mobile
+
+1. Open the **Settings** tab.
+2. Switch to the **Providers** segment.
+3. Tap **Connect** on the provider row.
+4. A device-code card appears with a verification URL and code.
+5. Tap the URL to open it in your browser, enter the code, and approve.
+6. The provider status updates to **Connected**.
+
+## How it works
+
+Provider login uses the **RFC 8628 device authorization grant**:
+
+1. Client calls `chat.account.login.start` with the provider ID.
+2. Server returns a `verification_url`, `user_code`, `device_code`, and polling interval.
+3. User opens the URL, enters the code, and authorizes.
+4. Client polls `chat.account.login.poll` at the given interval.
+5. Server responds with `pending`, `slow_down`, `authorized`, `denied`, or `expired`.
+6. On `authorized`, credentials are stored and `onAuthorized` is called.
+
+The shared `useProviderAuth` hook (`src/apps/shared/src/hooks/useProviderAuth.ts`) implements the state machine used by both web and mobile. See `docs/design/shared-auth-architecture.md` for details.
+
+## Credential storage
+
+Default location:
+- `~/.homie/credentials`
+
+Override via config:
+- `[paths].credentials_dir` in `~/.homie/config.toml`
+
+## Important notes
+
+- `gh auth login` does **not** populate Homie provider credentials. You must use the Homie device-code flow for `github-copilot`.
+- Provider IDs accept both dash and underscore forms: `openai-codex` / `openai_codex`, `github-copilot` / `github_copilot`.
+- Providers must be enabled in `~/.homie/config.toml` (e.g., `[providers.openai_codex].enabled = true`).
+
+## Claude-code (CLI import)
+
+`claude-code` does not support device-code login. It imports credentials from the Claude Code CLI.
+
+1. Ensure config:
+   - `[providers.claude_code].enabled = true`
+   - `[providers.claude_code].import_from_cli = true`
+
+2. Complete login in the Claude Code CLI.
+
+3. Trigger import by calling `chat.account.list` or `chat.account.read` (Settings does this automatically).
+
+4. The provider status updates to **Imported** in Settings.
+
+If you call device-code endpoints for `claude-code`, the server returns:
+- `claude-code does not support device-code login`
+
+## Troubleshooting
+
+### Advanced: manual CLI flow (wscat)
+
+For debugging auth outside of web/mobile clients, you can drive the flow manually via `wscat`.
+
+1. Start gateway:
 ```bash
 cargo run -p homie-gateway
 ```
 
-2) Connect:
+2. Connect:
 ```bash
 npx wscat -c ws://127.0.0.1:9800/ws
 ```
 
-3) Send handshake as the first frame:
+3. Send handshake (must be the first frame):
 ```json
 {"protocol":{"min":1,"max":1},"client_id":"manual-cli/0.1.0","capabilities":["chat"]}
 ```
 
-Expected response:
+Expected response: `{"type":"hello","protocol_version":1,...}`
+
+4. Check auth status:
 ```json
-{"type":"hello","protocol_version":1,"server_id":"homie-gateway/...","services":[...]}
+{"type":"request","id":"1","method":"chat.account.list"}
 ```
 
-4) Only after `type:"hello"`, send RPC frames with `type:"request"`:
+5. Start device-code login:
 ```json
-{"type":"request","id":"9f9eaa20-28e8-4a53-afbe-f914af6c1f3b","method":"chat.account.list"}
+{"type":"request","id":"2","method":"chat.account.login.start","params":{"provider":"github-copilot","profile":"default"}}
 ```
 
-If you send RPC before handshake, server rejects with:
-- `invalid handshake: missing field 'protocol'`
+Response includes `session` with `verification_url`, `user_code`, `device_code`, `interval_secs`, `expires_at`. Open the URL and enter the code.
 
-## 0) Verify provider is enabled
-Check `~/.homie/config.toml`:
-- `[providers.openai_codex].enabled = true`
-- `[providers.github_copilot].enabled = true`
-
-## 1) Inspect auth status
-RPC call:
+6. Poll until authorized:
 ```json
-{"type":"request","id":"e0932682-31eb-4d80-915d-d4d3276f7688","method":"chat.account.list"}
+{"type":"request","id":"3","method":"chat.account.login.poll","params":{"provider":"github-copilot","profile":"default","session":{"verification_url":"...","user_code":"...","device_code":"...","interval_secs":5,"expires_at":"..."}}}
 ```
 
-Expected response:
-- `providers[]` with `id`, `enabled`, `logged_in`
-- optional: `expires_at`, `scopes`, `has_refresh_token`
+Poll statuses: `pending`, `slow_down`, `authorized`, `denied`, `expired`. Stop on `authorized`.
 
-## 2) Start device-code login
-RPC call:
+7. Confirm login:
 ```json
-{
-  "type":"request",
-  "id":"e4dbf68d-1046-4d42-8fd3-e7ecf7d413c9",
-  "method":"chat.account.login.start",
-  "params": {
-    "provider": "github-copilot",
-    "profile": "default"
-  }
-}
+{"type":"request","id":"4","method":"chat.account.list"}
+{"type":"request","id":"5","method":"chat.model.list"}
 ```
 
-OpenAI Codex example:
-```json
-{
-  "type":"request",
-  "id":"e4dbf68d-1046-4d42-8fd3-e7ecf7d413ca",
-  "method":"chat.account.login.start",
-  "params": {
-    "provider": "openai-codex",
-    "profile": "default"
-  }
-}
-```
+Provider should show `logged_in: true` and models should include provider-prefixed IDs.
 
-Provider aliases accepted:
-- `openai-codex` / `openai_codex`
-- `github-copilot` / `github_copilot`
-
-Response includes `session`:
-- `verification_url`
-- `user_code`
-- `device_code`
-- `interval_secs`
-- `expires_at`
-
-Open `verification_url`, enter `user_code`, approve.
-
-## 3) Poll until authorized
-RPC call:
-```json
-{
-  "type":"request",
-  "id":"2a22f414-a79f-4897-9f68-9a3b674f5bd6",
-  "method":"chat.account.login.poll",
-  "params": {
-    "provider": "github-copilot",
-    "profile": "default",
-    "session": {
-      "verification_url": "...",
-      "user_code": "...",
-      "device_code": "...",
-      "interval_secs": 5,
-      "expires_at": "2026-02-11T22:10:00Z"
-    }
-  }
-}
-```
-
-OpenAI Codex poll example:
-```json
-{
-  "type":"request",
-  "id":"2a22f414-a79f-4897-9f68-9a3b674f5bd7",
-  "method":"chat.account.login.poll",
-  "params": {
-    "provider": "openai-codex",
-    "profile": "default",
-    "session": {
-      "verification_url": "...",
-      "user_code": "...",
-      "device_code": "...",
-      "interval_secs": 5,
-      "expires_at": "2026-02-11T22:10:00Z"
-    }
-  }
-}
-```
-
-Poll statuses:
-- `pending`
-- `slow_down`
-- `authorized`
-- `denied`
-- `expired`
-
-Stop when `authorized`.
-
-## 4) Confirm login and model availability
-RPC calls:
-```json
-{"type":"request","id":"2728f40e-bd79-4d90-ae7f-11b62f77939a","method":"chat.account.list"}
-{"type":"request","id":"bb95a7be-058f-42fd-b767-8f0d1d5f55b7","method":"chat.model.list"}
-```
-
-Expect:
-- provider shows `logged_in: true`
-- models include provider-prefixed ids (for Copilot: `github-copilot:<model>`)
-
-## Credential storage
-Default:
-- `~/.homie/credentials`
-
-Override:
-- `[paths].credentials_dir` in `~/.homie/config.toml`
-
-## Important notes
-- `gh auth login` alone does **not** populate Homie provider credentials.
-- You must run Homie device-code flow (`chat.account.login.start` + `chat.account.login.poll`) for `github-copilot`.
-- `claude-code` login is imported from CLI creds (`providers.claude_code.import_from_cli = true`).
-- For `claude-code`, complete login in Claude Code CLI, then restart gateway and re-check `chat.account.list`.
-
-## Claude-code trigger flow (CLI import)
-`claude-code` does not support device-code RPC login.
-
-1) Ensure config:
-- `[providers.claude_code].enabled = true`
-- `[providers.claude_code].import_from_cli = true`
-
-2) Complete login in Claude Code CLI.
-
-3) Trigger import by calling either:
-```json
-{"type":"request","id":"cd0618d2-fd1c-47a9-a212-fefb43db602e","method":"chat.account.list"}
-```
-or
-```json
-{"type":"request","id":"f6d9f48e-29d4-4336-a26f-e95dd71fa6f4","method":"chat.account.read"}
-```
-
-4) Verify provider status is logged in:
-```json
-{"type":"request","id":"f9c3f8e0-f1b7-4bc0-b2f4-2c67f6da3f5e","method":"chat.account.list"}
-```
-
-If you call device-code endpoints for `claude-code`, expected error:
-- `claude-code does not support device-code login`
+> **Note**: If you send RPC before the handshake, the server rejects with `invalid handshake: missing field 'protocol'`.

@@ -67,6 +67,8 @@ export interface UseGatewayChatResult {
   skills: SkillOption[];
   collaborationModes: CollaborationModeOption[];
   accountProviders: ChatAccountProviderStatus[];
+  /** True if all enabled providers are logged in */
+  providerAuthOk: boolean;
   selectedModel: string | null;
   selectedEffort: ChatEffort;
   selectedPermission: ChatPermissionMode;
@@ -998,6 +1000,11 @@ export function useGatewayChat(
     ? countPendingApprovals(activeThreadState.items)
     : 0;
 
+  // Derive provider auth status: true if all enabled providers are logged in
+  const providerAuthOk =
+    accountProviders.length === 0 ||
+    accountProviders.every((p) => !p.enabled || p.loggedIn);
+
   return {
     status,
     statusBadge: statusBadgeFor(status),
@@ -1021,6 +1028,7 @@ export function useGatewayChat(
     skills,
     collaborationModes,
     accountProviders,
+    providerAuthOk,
     selectedModel,
     selectedEffort,
     selectedPermission,

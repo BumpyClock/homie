@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Folder, MessageCircleDashed, Square } from "lucide-react";
-import { shouldShowStop, groupTurns } from "@homie/shared";
+import { AUTH_COPY, shouldShowStop, groupTurns } from "@homie/shared";
 import { ChatTurns } from "@/components/chat-turns";
 import { ChatComposerBar } from "@/components/chat-composer-bar";
 import { ChatInlineMenu } from "@/components/chat-inline-menu";
 import { ChatThreadList } from "@/components/chat-thread-list";
 import { ChatThreadHeader } from "@/components/chat-thread-header";
 import { ChatComposerInput } from "@/components/chat-composer-input";
+import { AuthRedirectBanner } from "@/components/AuthRedirectBanner";
 import { useChat } from "@/hooks/use-chat";
 import type { ConnectionStatus } from "@/hooks/use-gateway";
-import type { ChatDeviceCodeSession, FileOption, SkillOption } from "@/lib/chat-utils";
+import type { FileOption, SkillOption } from "@/lib/chat-utils";
 import { getTextareaCaretPosition } from "@/lib/caret";
 
 interface ChatPanelProps {
@@ -18,9 +19,11 @@ interface ChatPanelProps {
   onEvent: (callback: (event: { topic: string; params?: unknown }) => void) => () => void;
   enabled: boolean;
   namespace: string;
+  /** Callback to open the settings panel to a specific section */
+  onOpenSettings?: (section?: "connection" | "providers" | "preferences" | "about") => void;
 }
 
-export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPanelProps) {
+export function ChatPanel({ status, call, onEvent, enabled, namespace, onOpenSettings }: ChatPanelProps) {
   const {
     threads,
     activeChatId,
@@ -35,10 +38,6 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     renameChat,
     respondApproval,
     accountStatus,
-    accountProviders,
-    refreshAccountProviders,
-    startAccountLogin,
-    pollAccountLogin,
     models,
     collaborationModes,
     skills,
@@ -52,9 +51,6 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     formatRelativeTime,
     queuedNotice,
   } = useChat({ status, call, onEvent, enabled, namespace });
-  const [authSessions, setAuthSessions] = useState<Record<string, ChatDeviceCodeSession | undefined>>({});
-  const [authBusyByProvider, setAuthBusyByProvider] = useState<Record<string, boolean>>({});
-  const [authErrorByProvider, setAuthErrorByProvider] = useState<Record<string, string | undefined>>({});
 
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -94,27 +90,12 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     [],
   );
 
-  const providerLabel = useMemo<Record<string, string>>(
-    () => ({
-      "openai-codex": "OpenAI Codex",
-      "github-copilot": "GitHub Copilot",
-      "claude-code": "Claude Code",
-    }),
-    [],
-  );
-
   const activeTitle = activeThread?.title ?? "";
   const isMobileViewport = typeof window !== "undefined" ? window.innerWidth < 640 : false;
   const canSend = status === "connected" && !!activeThread;
   const canEditSettings = status === "connected" && !!activeThread;
   const showStop = shouldShowStop(!!activeThread?.running, sending);
   const attachedFolder = activeSettings.attachedFolder;
-
-  useEffect(() => {
-    setAuthSessions({});
-    setAuthBusyByProvider({});
-    setAuthErrorByProvider({});
-  }, [namespace]);
 
   const skillOptions = useMemo(() => {
     if (!trigger || trigger.type !== "slash") return [];
@@ -343,40 +324,6 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
     }
   };
 
-  const connectProvider = async (provider: string) => {
-    setAuthErrorByProvider((prev) => ({ ...prev, [provider]: undefined }));
-    setAuthBusyByProvider((prev) => ({ ...prev, [provider]: true }));
-    try {
-      const session = await startAccountLogin(provider);
-      setAuthSessions((prev) => ({ ...prev, [provider]: session }));
-      let delaySeconds = Math.max(1, session.intervalSecs || 5);
-      for (let i = 0; i < 120; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
-        const result = await pollAccountLogin(provider, session);
-        if (result.status === "authorized") {
-          setAuthSessions((prev) => ({ ...prev, [provider]: undefined }));
-          setAuthBusyByProvider((prev) => ({ ...prev, [provider]: false }));
-          await refreshAccountProviders();
-          return;
-        }
-        if (result.status === "pending" || result.status === "slow_down") {
-          delaySeconds = Math.max(1, result.intervalSecs ?? delaySeconds);
-          continue;
-        }
-        const reason = result.status === "denied" ? "Access denied." : "Device code expired.";
-        setAuthErrorByProvider((prev) => ({ ...prev, [provider]: reason }));
-        setAuthBusyByProvider((prev) => ({ ...prev, [provider]: false }));
-        return;
-      }
-      setAuthErrorByProvider((prev) => ({ ...prev, [provider]: "Authorization timed out." }));
-    } catch (nextError) {
-      const message = nextError instanceof Error ? nextError.message : "Login failed.";
-      setAuthErrorByProvider((prev) => ({ ...prev, [provider]: message }));
-    } finally {
-      setAuthBusyByProvider((prev) => ({ ...prev, [provider]: false }));
-    }
-  };
-
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-transparent sm:flex">
       <ChatThreadList
@@ -460,52 +407,11 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace }: ChatPan
             }}
             className="chat-scroll h-full overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4"
           >
-          {!accountStatus.ok && (
-            <div className="rounded-lg border border-amber-400/60 bg-amber-50/70 dark:bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
-              <div className="font-medium">{accountStatus.message}</div>
-              {accountProviders.length > 0 ? (
-                <div className="mt-3 space-y-3">
-                  {accountProviders
-                    .filter((provider) => provider.enabled)
-                    .map((provider) => {
-                      const session = authSessions[provider.id];
-                      const busy = !!authBusyByProvider[provider.id];
-                      const authError = authErrorByProvider[provider.id];
-                      return (
-                        <div key={provider.id} className="rounded-md border border-amber-400/40 bg-amber-100/60 dark:bg-amber-500/5 p-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium">{providerLabel[provider.id] ?? provider.id}</span>
-                            {provider.loggedIn ? (
-                              <span className="text-xs px-2 py-0.5 rounded-full border border-emerald-500/50 text-emerald-700 dark:text-emerald-300">
-                                Connected
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => void connectProvider(provider.id)}
-                                className="px-2 py-1 text-xs rounded border border-amber-500/50 hover:bg-amber-200/50 disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
-                                {busy ? "Connecting..." : "Connect"}
-                              </button>
-                            )}
-                          </div>
-                          {!provider.loggedIn && session ? (
-                            <div className="mt-2 text-xs space-y-1">
-                              <div>
-                                Visit <a className="underline" href={session.verificationUrl} target="_blank" rel="noreferrer">{session.verificationUrl}</a> and enter code:
-                              </div>
-                              <div className="font-mono tracking-wide">{session.userCode}</div>
-                            </div>
-                          ) : null}
-                          {authError ? <div className="mt-2 text-xs text-red-700 dark:text-red-300">{authError}</div> : null}
-                        </div>
-                      );
-                    })}
-                </div>
-              ) : null}
-            </div>
-          )}
+          <AuthRedirectBanner
+            visible={!accountStatus.ok}
+            message={AUTH_COPY.bannerMessage}
+            onAction={() => onOpenSettings?.("providers")}
+          />
 
           {error && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive flex items-center justify-between gap-3">

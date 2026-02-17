@@ -9,6 +9,7 @@ import { TerminalScreen } from '@/components/terminal-screen';
 import { GatewayDetailsModal } from '@/components/gateway-details-modal';
 import { ChatPanel } from '@/components/chat-panel';
 import { GatewayHeader } from '@/components/gateway-header';
+import { SettingsPanel } from '@/components/settings/SettingsPanel';
 
 function App() {
   const {
@@ -67,6 +68,13 @@ function App() {
   const [detailsName, setDetailsName] = useState('');
   const [detailsUrl, setDetailsUrl] = useState('');
   const [activeTab, setActiveTab] = useState<"terminals" | "chat">("terminals");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<"connection" | "providers" | "preferences" | "about" | undefined>(undefined);
+
+  const openSettings = useCallback((section?: "connection" | "providers" | "preferences" | "about") => {
+    setSettingsInitialSection(section);
+    setIsSettingsOpen(true);
+  }, []);
 
   useEffect(() => {
     setIsTargetOpen(false);
@@ -333,6 +341,7 @@ function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         hasChatService={hasChatService}
+        onOpenSettings={() => openSettings()}
       />
 
       <main
@@ -364,10 +373,26 @@ function App() {
               onEvent={onEvent}
               enabled={hasChatService}
               namespace={previewNamespace}
+              onOpenSettings={openSettings}
             />
           </section>
         )}
       </main>
+
+      <SettingsPanel
+        isOpen={isSettingsOpen}
+        onClose={() => {
+          setIsSettingsOpen(false);
+          setSettingsInitialSection(undefined);
+        }}
+        status={status}
+        activeTarget={activeTarget}
+        serverHello={serverHello}
+        previewRefresh={previewRefresh}
+        onPreviewRefresh={setPreviewRefresh}
+        call={call}
+        initialSection={settingsInitialSection}
+      />
 
       {detailsTarget && (
         <GatewayDetailsModal

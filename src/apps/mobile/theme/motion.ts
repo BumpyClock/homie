@@ -54,6 +54,10 @@ export const motion = {
     drawerSnap: { kind: 'impact', style: Haptics.ImpactFeedbackStyle.Light },
     activityToggle: { kind: 'selection' },
     activityDetail: { kind: 'impact', style: Haptics.ImpactFeedbackStyle.Light },
+    settingsTabSwitch: { kind: 'selection' },
+    providerConnect: { kind: 'impact', style: Haptics.ImpactFeedbackStyle.Light },
+    providerAuthorized: { kind: 'notification', style: Haptics.NotificationFeedbackType.Success },
+    providerDenied: { kind: 'notification', style: Haptics.NotificationFeedbackType.Warning },
   } as const satisfies Record<string, HapticFeedback>,
 } as const;
 

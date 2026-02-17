@@ -2,6 +2,7 @@
 // ABOUTME: Provides robust loading/empty/error states and touch-friendly message actions for mobile chat UX.
 
 import {
+  AUTH_COPY,
   groupChatItemsByTurn,
   type ChatItem,
   type ChatTurnGroup,
@@ -36,6 +37,7 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { motion } from '@/theme/motion';
 
+import { AuthRedirectBanner } from './AuthRedirectBanner';
 import { ChatTurnActivity } from './ChatTurnActivity';
 import { ChatTimelineMessageItem, triggerMessageHaptic } from './ChatTimelineMessageItem';
 import { ChatTimelineStateCard } from './ChatTimelineStateCard';
@@ -71,6 +73,8 @@ interface ChatTimelineProps {
   status?: ConnectionStatus;
   hasTarget?: boolean;
   error?: string | null;
+  /** True if all enabled providers are logged in; false triggers auth banner */
+  providerAuthOk?: boolean;
   onRetry?: () => void;
   onApprovalDecision?: (
     requestId: number | string,
@@ -87,6 +91,7 @@ export function ChatTimeline({
   thread,
   loading,
   status = 'disconnected',
+  providerAuthOk = true,
   hasTarget = true,
   error = null,
   onRetry,
@@ -473,6 +478,11 @@ export function ChatTimeline({
           <Text numberOfLines={2} style={[styles.errorText, { color: palette.danger }]}>{error}</Text>
         </Animated.View>
       ) : null}
+
+      <AuthRedirectBanner
+        visible={!providerAuthOk}
+        message={AUTH_COPY.bannerMessage}
+      />
 
       {loading && thread.items.length === 0 ? (
         <View style={styles.loadingWrap}>

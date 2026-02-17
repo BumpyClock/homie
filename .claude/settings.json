@@ -1,13 +1,13 @@
 {
-    "permissions": {
+  "permissions": {
     "allow": [
       "Skill(beads)",
       "Bash(bd *:*)"
-
     ]
   },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
-    "typescript-language-server@claude-plugins-official": true
+    "typescript-language-server@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
   }
 }

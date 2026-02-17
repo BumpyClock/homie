@@ -16,7 +16,7 @@ system_prompt_path = ""
 stream_idle_timeout_ms = 0
 
 [tools.web.fetch]
-# Disabled by default. Enable to allow web_fetch tool.
+# Enabled by default. Set to false to disable web_fetch tool.
 enabled = false
 max_chars = 50000
 timeout_seconds = 30

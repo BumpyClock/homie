@@ -753,6 +753,24 @@
   animation-delay: 320ms;
 }
 
+@keyframes homie-slide-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.homie-settings-enter {
+  animation: homie-slide-in-right var(--duration-standard) var(--ease-enter) both;
+}
+
+@keyframes homie-slide-out-right {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(16px); }
+}
+
+.homie-settings-exit {
+  animation: homie-slide-out-right var(--duration-fast) var(--ease-exit) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-micro: 0ms;
@@ -776,6 +794,12 @@
     transition: none;
   }
   .homie-dots span {
+    animation: none;
+  }
+  .homie-settings-enter {
+    animation: none;
+  }
+  .homie-settings-exit {
     animation: none;
   }
 }

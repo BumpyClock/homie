@@ -58,8 +58,8 @@ Notes:
 - On a physical device, use your LAN IP (not `127.0.0.1`).
 
 ## Provider auth
-Device-code flow for `openai-codex` and `github-copilot`.
-See `docs/provider-auth.md`.
+Sign in to providers (OpenAI Codex, GitHub Copilot) from the **Settings** panel in web or mobile.
+See `docs/provider-auth.md` for details.
 
 ## More docs
 - Config reference: `docs/config.md`

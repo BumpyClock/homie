@@ -5,7 +5,7 @@ import type { ConnectionStatus } from "@/hooks/use-gateway";
 import { TargetSelector } from "@/components/target-selector";
 import { ThemeSelector } from "@/components/theme-selector";
 import { StatusDot } from "@/components/status-dot";
-import { ChevronDown, RefreshCw, Plus, MessageSquareText, TerminalSquare } from "lucide-react";
+import { ChevronDown, RefreshCw, Plus, MessageSquareText, TerminalSquare, Settings } from "lucide-react";
 import { PREVIEW_OPTIONS, type PreviewRefresh } from "@/lib/session-utils";
 
 interface GatewayHeaderProps {
@@ -33,6 +33,7 @@ interface GatewayHeaderProps {
   activeTab: "terminals" | "chat";
   setActiveTab: (tab: "terminals" | "chat") => void;
   hasChatService: boolean;
+  onOpenSettings: () => void;
 }
 
 export function GatewayHeader({
@@ -60,6 +61,7 @@ export function GatewayHeader({
   activeTab,
   setActiveTab,
   hasChatService,
+  onOpenSettings,
 }: GatewayHeaderProps) {
   return (
     <header className="border-b border-border bg-card/40 backdrop-blur">
@@ -71,6 +73,15 @@ export function GatewayHeader({
           </div>
           <div className="flex items-center gap-2">
             <ThemeSelector />
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="p-2 min-h-[44px] min-w-[44px] rounded-md text-secondary-foreground hover:bg-secondary transition-colors"
+              aria-label="Open settings"
+              title="Settings"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
           </div>
         </div>
 

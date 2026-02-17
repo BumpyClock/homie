@@ -52,6 +52,7 @@ export default function ChatTabScreen() {
     activePendingApprovalCount,
     queuedMessage,
     clearQueuedMessage,
+    providerAuthOk,
   } = useMobileShellData();
 
   const actioningThread = useMemo(
@@ -119,6 +120,7 @@ export default function ChatTabScreen() {
               status={status}
               hasTarget={hasTarget}
               error={error}
+              providerAuthOk={providerAuthOk}
               onRetry={() => {
                 void refreshThreads();
               }}

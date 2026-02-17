@@ -9,5 +9,7 @@ export * from "./terminal-sessions";
 export * from "./model-providers";
 export * from "./chat-utils";
 export * from "./hooks/index.js";
+export * from "./settings-types.js";
+export * from "./provider-auth-copy.js";
 
 export const SHARED_PACKAGE_VERSION = "0.1.3";

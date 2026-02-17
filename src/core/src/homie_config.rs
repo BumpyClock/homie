@@ -417,7 +417,7 @@ impl Default for SearxngSearchConfig {
 }
 
 fn default_web_fetch_enabled() -> bool {
-    false
+    true
 }
 
 fn default_web_fetch_max_chars() -> usize {
