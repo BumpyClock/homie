@@ -222,6 +222,20 @@ impl Default for WebToolsConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WebFetchBackend {
+    Native,
+    Firecrawl,
+    Auto,
+}
+
+impl Default for WebFetchBackend {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct WebFetchConfig {
@@ -261,6 +275,8 @@ pub struct WebFetchConfig {
     )]
     pub readability: bool,
     pub firecrawl: FirecrawlConfig,
+    #[serde(default)]
+    pub backend: WebFetchBackend,
 }
 
 impl Default for WebFetchConfig {
@@ -274,6 +290,7 @@ impl Default for WebFetchConfig {
             user_agent: default_web_fetch_user_agent(),
             readability: default_web_fetch_readability(),
             firecrawl: FirecrawlConfig::default(),
+            backend: WebFetchBackend::Auto,
         }
     }
 }

@@ -4,10 +4,13 @@
 import { formatRelativeTime, type ChatThreadSummary } from '@homie/shared';
 import * as Haptics from 'expo-haptics';
 import { TriangleAlert } from 'lucide-react-native';
-import { memo } from 'react';
-import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback } from 'react';
+import { type ListRenderItemInfo, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { motion } from '@/theme/motion';
 import { radius, spacing, typography } from '@/theme/tokens';
 
 interface ThreadListProps {
@@ -28,6 +31,34 @@ export function ThreadList({
   getApprovalCount,
 }: ThreadListProps) {
   const { palette } = useAppTheme();
+  const reducedMotion = useReducedMotion();
+
+  const renderItem = useCallback(
+    ({ item: thread, index }: ListRenderItemInfo<ChatThreadSummary>) => {
+      const staggerDelay = reducedMotion
+        ? 0
+        : index < 10
+          ? index * motion.stagger.tight
+          : 10 * motion.stagger.tight;
+      const entering = reducedMotion
+        ? undefined
+        : FadeInUp.delay(staggerDelay).duration(motion.duration.fast);
+
+      return (
+        <Animated.View entering={entering}>
+          <ThreadRow
+            thread={thread}
+            selected={thread.chatId === activeChatId}
+            palette={palette}
+            approvalCount={getApprovalCount?.(thread.chatId) ?? 0}
+            onLongPressThread={onLongPressThread}
+            onSelect={onSelect}
+          />
+        </Animated.View>
+      );
+    },
+    [activeChatId, getApprovalCount, onLongPressThread, onSelect, palette, reducedMotion],
+  );
 
   if (!loading && threads.length === 0) {
     return (
@@ -67,18 +98,11 @@ export function ThreadList({
 
   return (
     <FlatList
+      accessibilityLabel="Conversation list"
+      accessibilityRole="list"
       data={threads}
       keyExtractor={(thread) => thread.chatId}
-      renderItem={({ item: thread }) => (
-        <ThreadRow
-          thread={thread}
-          selected={thread.chatId === activeChatId}
-          palette={palette}
-          approvalCount={getApprovalCount?.(thread.chatId) ?? 0}
-          onLongPressThread={onLongPressThread}
-          onSelect={onSelect}
-        />
-      )}
+      renderItem={renderItem}
       contentContainerStyle={styles.list}
       showsVerticalScrollIndicator={false}
       initialNumToRender={10}
@@ -146,6 +170,8 @@ const ThreadRow = memo(function ThreadRow({
         </Text>
         {approvalCount > 0 ? (
           <View
+            accessible
+            accessibilityLabel={`${approvalCount} pending ${approvalCount === 1 ? 'approval' : 'approvals'}`}
             style={[
               styles.approvalPill,
               {

@@ -6,10 +6,13 @@ import {
   type SessionInfo,
   type TmuxSessionInfo,
 } from '@homie/shared';
-import { memo, useMemo } from 'react';
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback, useMemo, useRef } from 'react';
+import { Pressable, SectionList, type SectionListRenderItemInfo, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { motion } from '@/theme/motion';
 import { radius, spacing, typography } from '@/theme/tokens';
 
 interface TerminalSessionListProps {
@@ -45,6 +48,8 @@ export function TerminalSessionList({
   onAttachTmux,
 }: TerminalSessionListProps) {
   const { palette } = useAppTheme();
+  const reducedMotion = useReducedMotion();
+  const rowIndexRef = useRef(0);
   const { active, history } = useMemo(() => partitionTerminalSessions(sessions), [sessions]);
   const runningTmux = useMemo(
     () =>
@@ -99,8 +104,46 @@ export function TerminalSessionList({
     },
   ];
 
+  rowIndexRef.current = 0;
+
+  const renderItem = ({ item }: SectionListRenderItemInfo<DrawerRow, DrawerSection>) => {
+    const globalIndex = rowIndexRef.current++;
+    const staggerDelay = reducedMotion
+      ? 0
+      : globalIndex < 10
+        ? globalIndex * motion.stagger.tight
+        : 10 * motion.stagger.tight;
+    const entering = reducedMotion
+      ? undefined
+      : FadeInUp.delay(staggerDelay).duration(motion.duration.fast);
+
+    if (item.type === 'tmux') {
+      return (
+        <Animated.View entering={entering}>
+          <TmuxRow
+            tmux={item.tmux}
+            onAttach={onAttachTmux}
+            palette={palette}
+          />
+        </Animated.View>
+      );
+    }
+    return (
+      <Animated.View entering={entering}>
+        <TerminalSessionRow
+          session={item.session}
+          selected={item.session.session_id === activeSessionId}
+          palette={palette}
+          onSelect={onSelectSession}
+        />
+      </Animated.View>
+    );
+  };
+
   return (
     <SectionList
+      accessibilityLabel="Terminal sessions list"
+      accessibilityRole="list"
       sections={sections}
       keyExtractor={(item) => item.id}
       stickySectionHeadersEnabled={false}
@@ -108,7 +151,12 @@ export function TerminalSessionList({
       contentContainerStyle={styles.listContent}
       keyboardShouldPersistTaps="handled"
       renderSectionHeader={({ section }) => (
-        <Text style={[styles.sectionTitle, { color: palette.textSecondary }]}>{section.title}</Text>
+        <Text
+          accessibilityRole="header"
+          style={[styles.sectionTitle, { color: palette.textSecondary }]}
+        >
+          {section.title}
+        </Text>
       )}
       renderSectionFooter={({ section }) => {
         if (section.data.length > 0) return <View style={styles.sectionGap} />;
@@ -118,28 +166,14 @@ export function TerminalSessionList({
           </View>
         );
       }}
-      renderItem={({ item }) => {
-        if (item.type === 'tmux') {
-          return (
-            <TmuxRow
-              tmux={item.tmux}
-              onAttach={onAttachTmux}
-              palette={palette}
-            />
-          );
-        }
-        return (
-          <TerminalSessionRow
-            session={item.session}
-            selected={item.session.session_id === activeSessionId}
-            palette={palette}
-            onSelect={onSelectSession}
-          />
-        );
-      }}
+      renderItem={renderItem}
       ListHeaderComponent={
         tmuxError ? (
-          <View style={[styles.errorCard, { backgroundColor: palette.dangerDim, borderColor: palette.danger }]}>
+          <View
+            accessible
+            accessibilityRole="alert"
+            style={[styles.errorCard, { backgroundColor: palette.dangerDim, borderColor: palette.danger }]}
+          >
             <Text style={[styles.errorLabel, { color: palette.danger }]}>{tmuxError}</Text>
           </View>
         ) : null
@@ -173,6 +207,7 @@ const TerminalSessionRow = memo(function TerminalSessionRow({
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityLabel={`Session ${title}`}
+      accessibilityHint="Opens this terminal session"
       onPress={() => onSelect(session.session_id)}
       style={({ pressed }) => [
         styles.rowCard,
@@ -209,6 +244,7 @@ const TmuxRow = memo(function TmuxRow({ tmux, palette, onAttach }: TmuxRowProps)
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Attach tmux ${tmux.name}`}
+      accessibilityHint={tmux.attached ? 'Opens the attached tmux session' : 'Attaches and opens this tmux session'}
       onPress={() => onAttach(tmux.name)}
       style={({ pressed }) => [
         styles.rowCard,

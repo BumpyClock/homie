@@ -25,7 +25,38 @@ Quick start: `docs/quick-start.md`.
 - Readability extraction for HTML, JSON pretty-print, optional Firecrawl fallback.
 - Cache with TTL.
 
-Firecrawl options:
+#### Backend selection
+
+`tools.web.fetch.backend` controls which fetch engine is used:
+
+| Value | Behavior |
+|---|---|
+| `auto` (default) | Use Firecrawl if available (base_url configured + health check passes), otherwise fall back to native HTTP fetch + readability. |
+| `native` | Always use native HTTP fetch + readability extraction. Firecrawl is never attempted. |
+| `firecrawl` | Always try Firecrawl first. Falls back to native if Firecrawl is unavailable. |
+
+Example:
+```toml
+[tools.web.fetch]
+backend = "auto"
+```
+
+#### Local Firecrawl setup
+
+For self-hosted Firecrawl (no API key needed):
+
+1. Run Firecrawl locally (e.g. `docker compose up` from the [firecrawl repo](https://github.com/mendableai/firecrawl)).
+2. Set `base_url` to your local instance:
+   ```toml
+   [tools.web.fetch.firecrawl]
+   base_url = "http://localhost:3002"
+   ```
+3. Leave `api_key` empty — self-hosted instances don't require one.
+4. Set `backend = "auto"` or `backend = "firecrawl"`.
+
+Health check: When `backend = "auto"`, Homie probes the Firecrawl `base_url` on startup. If the endpoint is unreachable, requests silently fall back to native fetch.
+
+#### Firecrawl options
 - `tools.web.fetch.firecrawl.enabled = true`
 - `tools.web.fetch.firecrawl.api_key` or `FIRECRAWL_API_KEY`
 - `tools.web.fetch.firecrawl.base_url` supports self-hosted.

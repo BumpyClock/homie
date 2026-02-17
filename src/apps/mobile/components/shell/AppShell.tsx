@@ -10,6 +10,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Animated, {
+  FadeIn,
   interpolate,
   useAnimatedStyle,
   useSharedValue,
@@ -285,7 +286,13 @@ export function AppShell({
 
       {drawerActions ? <View style={styles.drawerActions}>{drawerActions}</View> : null}
 
-      <View style={styles.drawerContent}>{renderDrawerContent(drawerHelpers)}</View>
+      <Animated.View
+        key={section}
+        entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}
+        style={styles.drawerContent}
+      >
+        {renderDrawerContent(drawerHelpers)}
+      </Animated.View>
     </>
   );
 
@@ -305,6 +312,8 @@ export function AppShell({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={drawerOpen ? 'Close side panel' : 'Open side panel'}
+              accessibilityState={{ expanded: drawerOpen }}
+              accessibilityHint="Toggles the navigation drawer"
               onPress={toggleDrawer}
               style={({ pressed }) => [
                 styles.menuButton,

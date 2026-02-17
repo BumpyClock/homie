@@ -25,6 +25,12 @@ max_redirects = 3
 user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 readability = true
 
+# Backend: auto (default) | native | firecrawl
+# - auto: use Firecrawl if available (base_url + health check), fallback to native
+# - native: always use HTTP fetch + readability
+# - firecrawl: always use Firecrawl, fallback to native if unavailable
+backend = "auto"
+
 [tools.web.fetch.firecrawl]
 # Enable fallback via Firecrawl (optional).
 enabled = false
