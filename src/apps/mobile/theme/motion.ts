@@ -25,6 +25,7 @@ const easing = {
 export const motion = {
   duration: {
     ...duration,
+    listStagger: 40,
     // Backwards compat aliases while migrating callers.
     quick: duration.fast,
     regular: duration.standard,
@@ -38,6 +39,7 @@ export const motion = {
     snappy: { damping: 20, stiffness: 300, mass: 0.5 },
     responsive: { damping: 18, stiffness: 220, mass: 0.6 },
     drawer: { damping: 22, stiffness: 180, mass: 0.8 },
+    list: { damping: 20, stiffness: 250, mass: 0.7 },
     sheet: { damping: 24, stiffness: 200, mass: 1.0 },
     gentle: { damping: 26, stiffness: 120, mass: 1.0 },
   },

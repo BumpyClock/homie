@@ -3,6 +3,7 @@
 
 import { formatRelativeTime, type ChatThreadSummary } from '@homie/shared';
 import * as Haptics from 'expo-haptics';
+import { TriangleAlert } from 'lucide-react-native';
 import { memo } from 'react';
 import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -15,6 +16,7 @@ interface ThreadListProps {
   loading: boolean;
   onSelect: (chatId: string) => void;
   onLongPressThread?: (thread: ChatThreadSummary) => void;
+  getApprovalCount?: (chatId: string) => number;
 }
 
 export function ThreadList({
@@ -23,6 +25,7 @@ export function ThreadList({
   loading,
   onSelect,
   onLongPressThread,
+  getApprovalCount,
 }: ThreadListProps) {
   const { palette } = useAppTheme();
 
@@ -71,6 +74,7 @@ export function ThreadList({
           thread={thread}
           selected={thread.chatId === activeChatId}
           palette={palette}
+          approvalCount={getApprovalCount?.(thread.chatId) ?? 0}
           onLongPressThread={onLongPressThread}
           onSelect={onSelect}
         />
@@ -95,6 +99,7 @@ interface ThreadRowProps {
   thread: ChatThreadSummary;
   selected: boolean;
   palette: ReturnType<typeof useAppTheme>['palette'];
+  approvalCount: number;
   onSelect: (chatId: string) => void;
   onLongPressThread?: (thread: ChatThreadSummary) => void;
 }
@@ -103,6 +108,7 @@ const ThreadRow = memo(function ThreadRow({
   thread,
   selected,
   palette,
+  approvalCount,
   onSelect,
   onLongPressThread,
 }: ThreadRowProps) {
@@ -138,6 +144,21 @@ const ThreadRow = memo(function ThreadRow({
         <Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>
           {thread.title}
         </Text>
+        {approvalCount > 0 ? (
+          <View
+            style={[
+              styles.approvalPill,
+              {
+                backgroundColor: palette.warningDim,
+                borderColor: palette.warning,
+              },
+            ]}>
+            <TriangleAlert size={13} color={palette.warning} />
+            <Text style={[styles.approvalCount, { color: palette.warning }]}>
+              {approvalCount}
+            </Text>
+          </View>
+        ) : null}
         <Text style={[styles.updatedAt, { color: palette.textSecondary }]}>{updatedLabel}</Text>
       </View>
       <Text numberOfLines={2} style={[styles.preview, { color: palette.textSecondary }]}>
@@ -186,6 +207,19 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '400',
     minHeight: 40,
+  },
+  approvalPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  approvalCount: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   runningRow: {
     alignItems: 'center',

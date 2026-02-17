@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,10 +32,15 @@ export default function ChatTabScreen() {
     sendingMessage,
     models,
     skills,
+    collaborationModes,
     selectedModel,
     selectedEffort,
+    selectedPermission,
+    selectedCollaborationMode,
     setSelectedModel,
     setSelectedEffort,
+    setSelectedPermission,
+    setSelectedCollaborationMode,
     selectThread,
     refreshThreads,
     createChat,
@@ -43,12 +48,21 @@ export default function ChatTabScreen() {
     renameThread,
     archiveThread,
     respondApproval,
+    stopChat,
+    activePendingApprovalCount,
+    queuedMessage,
+    clearQueuedMessage,
   } = useMobileShellData();
 
   const actioningThread = useMemo(
     () => threads.find((thread) => thread.chatId === actioningThreadId) ?? null,
     [actioningThreadId, threads],
   );
+  const getApprovalCount = useCallback(
+    (chatId: string) => (chatId === activeChatId ? activePendingApprovalCount : 0),
+    [activeChatId, activePendingApprovalCount],
+  );
+
   const canCreateChat = hasTarget && status === 'connected' && !creatingChat;
   const canRefreshThreads = hasTarget && status === 'connected' && !loadingThreads;
   const wideChatLayout = width >= 1100;
@@ -87,6 +101,7 @@ export default function ChatTabScreen() {
             threads={threads}
             activeChatId={activeChatId}
             loading={loadingThreads}
+            getApprovalCount={getApprovalCount}
             onSelect={(chatId) => {
               selectThread(chatId);
               closeDrawer();
@@ -113,14 +128,23 @@ export default function ChatTabScreen() {
               <ChatComposer
                 disabled={status !== 'connected' || !activeThread || !hasTarget}
                 sending={sendingMessage}
+                isRunning={activeThread?.running ?? false}
                 bottomInset={insets.bottom}
                 models={models}
                 skills={skills}
+                collaborationModes={collaborationModes}
                 selectedModel={selectedModel}
                 selectedEffort={selectedEffort}
+                selectedPermission={selectedPermission}
+                selectedCollaborationMode={selectedCollaborationMode}
                 onSelectModel={setSelectedModel}
                 onSelectEffort={setSelectedEffort}
+                onSelectPermission={setSelectedPermission}
+                onSelectCollaborationMode={setSelectedCollaborationMode}
+                queuedMessage={queuedMessage}
+                onClearQueue={clearQueuedMessage}
                 onSend={sendMessage}
+                onStop={stopChat}
               />
             </KeyboardStickyView>
           </View>

@@ -1,4 +1,4 @@
-// ABOUTME: Chat timeline with pinned-to-latest behavior, grouped tool activity, and inline approval handling.
+// ABOUTME: Chat timeline with pinned-to-latest state machine, grouped tool activity, and inline approval handling.
 // ABOUTME: Provides robust loading/empty/error states and touch-friendly message actions for mobile chat UX.
 
 import {
@@ -40,6 +40,21 @@ import { ChatTurnActivity } from './ChatTurnActivity';
 import { ChatTimelineMessageItem, triggerMessageHaptic } from './ChatTimelineMessageItem';
 import { ChatTimelineStateCard } from './ChatTimelineStateCard';
 import { styles } from './chat-timeline-styles';
+
+/* ── constants ─────────────────────────────────────────── */
+
+/** Offset (in px) within which the list counts as "at the bottom". */
+const PIN_THRESHOLD = 32;
+
+/** Offset beyond which the jump-to-latest FAB appears. */
+const FAB_THRESHOLD = 240;
+
+/** Estimated average height (px) of a turn group, used by getItemLayout. */
+const ESTIMATED_ITEM_HEIGHT = 120;
+
+/* ── types ─────────────────────────────────────────────── */
+
+type ScrollState = 'pinned' | 'unpinned';
 
 interface TimelineThread {
   chatId: string;
@@ -85,15 +100,29 @@ export function ChatTimeline({
   const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
   const [activeActionItemId, setActiveActionItemId] = useState<string | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const flatListRef = useRef<FlatList<ChatTurnGroup> | null>(null);
   const copyResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const pinnedToLatestRef = useRef(true);
   const lastThreadIdRef = useRef<string | undefined>(undefined);
+
+  /* ── scroll state machine refs ───────────────────────── */
+  const scrollStateRef = useRef<ScrollState>('pinned');
+  const isUserDraggingRef = useRef(false);
+  const prevItemCountRef = useRef(0);
 
   const turnGroups = useMemo(() => (thread ? groupChatItemsByTurn(thread.items) : []), [thread?.items]);
   const reversedGroups = useMemo(() => [...turnGroups].reverse(), [turnGroups]);
+
+  const getItemLayout = useCallback(
+    (_data: ArrayLike<ChatTurnGroup> | null | undefined, index: number) => ({
+      length: ESTIMATED_ITEM_HEIGHT,
+      offset: ESTIMATED_ITEM_HEIGHT * index,
+      index,
+    }),
+    [],
+  );
 
   const scrollToLatest = useCallback((animated: boolean) => {
     flatListRef.current?.scrollToOffset({ offset: 0, animated });
@@ -110,15 +139,18 @@ export function ChatTimeline({
     [scrollToLatest],
   );
 
+  /* ── thread switch: reset everything ─────────────────── */
   useEffect(() => {
     if (thread?.chatId === lastThreadIdRef.current) return;
     lastThreadIdRef.current = thread?.chatId;
-    pinnedToLatestRef.current = true;
+    scrollStateRef.current = 'pinned';
+    prevItemCountRef.current = thread?.items.length ?? 0;
     setRespondingItemId(null);
     setLocalApprovalStatus({});
     setCopiedItemId(null);
     setActiveActionItemId(null);
     setShowJumpToLatest(false);
+    setUnreadCount(0);
     if (copyResetTimeoutRef.current) {
       clearTimeout(copyResetTimeoutRef.current);
       copyResetTimeoutRef.current = null;
@@ -126,11 +158,22 @@ export function ChatTimeline({
     if (thread) scheduleScrollToLatest(false);
   }, [scheduleScrollToLatest, thread]);
 
+  /* ── auto-scroll when pinned; track unread when unpinned */
   useEffect(() => {
-    if (!thread || !pinnedToLatestRef.current) return;
-    scheduleScrollToLatest(false);
+    if (!thread) return;
+    const currentCount = thread.items.length;
+    const delta = currentCount - prevItemCountRef.current;
+    prevItemCountRef.current = currentCount;
+
+    if (scrollStateRef.current === 'pinned') {
+      scheduleScrollToLatest(false);
+    } else if (delta > 0) {
+      // Accumulate unread while user is scrolled away
+      setUnreadCount((prev) => prev + delta);
+    }
   }, [scheduleScrollToLatest, thread?.items.length]);
 
+  /* ── cleanup timers on unmount ───────────────────────── */
   useEffect(
     () => () => {
       if (copyResetTimeoutRef.current) clearTimeout(copyResetTimeoutRef.current);
@@ -191,21 +234,65 @@ export function ChatTimeline({
     [copiedItemId, handleCopy],
   );
 
+  /* ── jump-to-latest: force pin + clear unread ────────── */
   const jumpToLatest = useCallback(() => {
-    pinnedToLatestRef.current = true;
+    scrollStateRef.current = 'pinned';
     setShowJumpToLatest(false);
+    setUnreadCount(0);
     scrollToLatest(true);
   }, [scrollToLatest]);
 
+  /* ── scroll state machine handlers ───────────────────── */
+
+  const handleScrollBeginDrag = useCallback(() => {
+    isUserDraggingRef.current = true;
+  }, []);
+
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetY = event.nativeEvent.contentOffset.y;
-    const isPinned = offsetY <= 32;
-    pinnedToLatestRef.current = isPinned;
-    setShowJumpToLatest(offsetY > 240);
+    const nearBottom = offsetY <= PIN_THRESHOLD;
+
+    if (scrollStateRef.current === 'pinned') {
+      // Only unpin on user-initiated scroll away from bottom
+      if (!nearBottom && isUserDraggingRef.current) {
+        scrollStateRef.current = 'unpinned';
+      }
+    } else {
+      // Re-pin when user scrolls back to bottom
+      if (nearBottom) {
+        scrollStateRef.current = 'pinned';
+        setUnreadCount(0);
+      }
+    }
+
+    setShowJumpToLatest(offsetY > FAB_THRESHOLD);
+  }, []);
+
+  const handleMomentumScrollEnd = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    isUserDraggingRef.current = false;
+    // Check final resting position
+    const offsetY = event.nativeEvent.contentOffset.y;
+    if (offsetY <= PIN_THRESHOLD) {
+      scrollStateRef.current = 'pinned';
+      setUnreadCount(0);
+    }
+  }, []);
+
+  const handleScrollEndDrag = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    // If no momentum (user lifted finger without flick), mark drag done
+    const velocity = event.nativeEvent.velocity;
+    if (!velocity || (Math.abs(velocity.y) < 0.1)) {
+      isUserDraggingRef.current = false;
+      const offsetY = event.nativeEvent.contentOffset.y;
+      if (offsetY <= PIN_THRESHOLD) {
+        scrollStateRef.current = 'pinned';
+        setUnreadCount(0);
+      }
+    }
   }, []);
 
   const handleContentSizeChange = useCallback(() => {
-    if (!pinnedToLatestRef.current) return;
+    if (scrollStateRef.current !== 'pinned') return;
     scrollToLatest(false);
   }, [scrollToLatest]);
 
@@ -254,6 +341,12 @@ export function ChatTimeline({
               );
             }
 
+            const itemIsStreaming =
+              (thread?.running ?? false) &&
+              item.turnId !== undefined &&
+              item.turnId === thread?.activeTurnId &&
+              item.kind === 'assistant';
+
             return (
               <ChatTimelineMessageItem
                 key={item.id}
@@ -261,6 +354,7 @@ export function ChatTimeline({
                 palette={palette}
                 isCopied={copiedItemId === item.id}
                 showActions={activeActionItemId === item.id}
+                isStreaming={itemIsStreaming}
                 approvalStatusForItem={
                   item.kind === 'approval' ? approvalStatusValue(item, localApprovalStatus) : undefined
                 }
@@ -297,7 +391,7 @@ export function ChatTimeline({
   if (!thread) {
     if (!hasTarget) {
       return (
-        <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}> 
+        <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}>
           <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}>
             <ChatTimelineStateCard
               icon={Link2}
@@ -313,7 +407,7 @@ export function ChatTimeline({
 
     if (status === 'connecting' || status === 'handshaking') {
       return (
-        <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}> 
+        <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}>
           <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}>
             <ChatTimelineStateCard
               icon={LoaderCircle}
@@ -331,7 +425,7 @@ export function ChatTimeline({
         ? error
         : 'Connection unavailable. Retry from the menu once the gateway is reachable.';
       return (
-        <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}> 
+        <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}>
           <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}>
             <ChatTimelineStateCard
               icon={WifiOff}
@@ -348,7 +442,7 @@ export function ChatTimeline({
     }
 
     return (
-      <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}> 
+      <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}>
         <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}>
           <ChatTimelineStateCard
             icon={MessageCircle}
@@ -361,8 +455,10 @@ export function ChatTimeline({
     );
   }
 
+  const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
+
   return (
-    <View style={[styles.container, { backgroundColor: palette.background }]}> 
+    <View style={[styles.container, { backgroundColor: palette.background }]}>
       {error ? (
         <Animated.View
           entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.micro)}
@@ -394,13 +490,18 @@ export function ChatTimeline({
             data={reversedGroups}
             renderItem={renderTurnGroup}
             keyExtractor={(group) => group.id}
+            getItemLayout={getItemLayout}
             inverted
+            importantForAccessibility="yes"
             accessibilityLabel="Chat timeline"
             accessibilityHint="Newest messages are near the composer. Swipe up for older messages."
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            onScrollBeginDrag={handleScrollBeginDrag}
             onScroll={handleScroll}
+            onScrollEndDrag={handleScrollEndDrag}
+            onMomentumScrollEnd={handleMomentumScrollEnd}
             onContentSizeChange={handleContentSizeChange}
             maintainVisibleContentPosition={{
               minIndexForVisible: 0,
@@ -427,7 +528,11 @@ export function ChatTimeline({
               style={styles.jumpButtonWrap}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Jump to latest message"
+                accessibilityLabel={
+                  unreadCount > 0
+                    ? `Jump to latest message, ${unreadCount} unread`
+                    : 'Jump to latest message'
+                }
                 onPress={jumpToLatest}
                 style={({ pressed }) => [
                   styles.jumpButton,
@@ -438,6 +543,13 @@ export function ChatTimeline({
                   },
                 ]}>
                 <ArrowDown size={16} color={palette.textSecondary} />
+                {unreadCount > 0 ? (
+                  <View style={[styles.jumpBadge, { backgroundColor: palette.accent }]}>
+                    <Text style={[styles.jumpBadgeLabel, { color: palette.surface0 }]}>
+                      {badgeLabel}
+                    </Text>
+                  </View>
+                ) : null}
               </Pressable>
             </Animated.View>
           ) : null}

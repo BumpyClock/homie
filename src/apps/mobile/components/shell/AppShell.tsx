@@ -365,7 +365,7 @@ export function AppShell({
 
         {!persistentDrawer ? (
           <View pointerEvents={drawerOpen ? 'auto' : 'none'} style={styles.drawerLayer}>
-            <Animated.View style={[styles.drawerBackdrop, { backgroundColor: palette.overlay }, backdropStyle]}>
+            <Animated.View accessibilityRole="none" style={[styles.drawerBackdrop, { backgroundColor: palette.overlay }, backdropStyle]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Close side panel"
@@ -375,6 +375,7 @@ export function AppShell({
             </Animated.View>
 
             <Animated.View
+              accessibilityViewIsModal={true}
               {...panelSwipeResponder.panHandlers}
               style={[
                 styles.overlayDrawerPanel,

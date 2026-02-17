@@ -1,8 +1,8 @@
 // ABOUTME: Chat message composer with embedded send button and animated focus states.
 // ABOUTME: Unified floating card design with model/effort pills above a multiline input, anchored above keyboard via KeyboardStickyView in parent.
 
-import { Activity, ArrowUp, ChevronDown, Cpu, Sparkles } from 'lucide-react-native';
-import type { ChatEffort, ModelOption, ReasoningEffortOption, SkillOption } from '@homie/shared';
+import { Activity, ArrowUp, ChevronDown, Cpu, Shield, Sparkles, Square, Users, X } from 'lucide-react-native';
+import type { ChatEffort, ChatPermissionMode, CollaborationModeOption, ModelOption, ReasoningEffortOption, SkillOption } from '@homie/shared';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -15,16 +15,22 @@ import {
   View,
 } from 'react-native';
 import Animated, {
+  FadeIn,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
+  withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
 
+import { CollaborationModePickerSheet } from '@/components/chat/CollaborationModePickerSheet';
 import { EffortPickerSheet } from '@/components/chat/EffortPickerSheet';
 import { ModelPickerSheet } from '@/components/chat/ModelPickerSheet';
+import { PermissionPickerSheet } from '@/components/chat/PermissionPickerSheet';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { motion } from '@/theme/motion';
 import { palettes, radius, spacing, typography } from '@/theme/tokens';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -36,27 +42,45 @@ const SLASH_TRIGGER_REGEX = /(?:^|\s)\/([\w-]*)$/;
 interface ChatComposerProps {
   disabled?: boolean;
   sending?: boolean;
+  isRunning?: boolean;
   bottomInset?: number;
   models?: ModelOption[];
   skills?: SkillOption[];
+  collaborationModes?: CollaborationModeOption[];
   selectedModel?: string | null;
   selectedEffort?: ChatEffort;
+  selectedPermission?: ChatPermissionMode;
+  selectedCollaborationMode?: string | null;
   onSelectModel?: (modelId: string) => void;
   onSelectEffort?: (effort: ChatEffort) => void;
+  onSelectPermission?: (permission: ChatPermissionMode) => void;
+  onSelectCollaborationMode?: (modeId: string) => void;
+  queuedMessage?: string | null;
+  onClearQueue?: () => void;
   onSend: (message: string) => Promise<void>;
+  onStop?: () => void;
 }
 
 export function ChatComposer({
   disabled = false,
   sending = false,
+  isRunning = false,
   bottomInset = 0,
   models = [],
   skills = [],
+  collaborationModes = [],
   selectedModel = null,
   selectedEffort = 'auto',
+  selectedPermission = 'ask',
+  selectedCollaborationMode = null,
   onSelectModel,
   onSelectEffort,
+  onSelectPermission,
+  queuedMessage = null,
+  onClearQueue,
+  onSelectCollaborationMode,
   onSend,
+  onStop,
 }: ChatComposerProps) {
   const { palette } = useAppTheme();
   const reducedMotion = useReducedMotion();
@@ -64,6 +88,8 @@ export function ChatComposer({
   const [focused, setFocused] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [effortPickerVisible, setEffortPickerVisible] = useState(false);
+  const [permissionPickerVisible, setPermissionPickerVisible] = useState(false);
+  const [collaborationPickerVisible, setCollaborationPickerVisible] = useState(false);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [slashTrigger, setSlashTrigger] = useState<{
     start: number;
@@ -74,12 +100,14 @@ export function ChatComposer({
 
   const trimmed = value.trim();
   const canSend = !disabled && !sending && trimmed.length > 0;
+  const showStop = isRunning && !sending;
 
   /* ── Animated values ─────────────────────────────────────── */
   const focusProgress = useSharedValue(0);
   const sendScale = useSharedValue(0);
   const sendOpacity = useSharedValue(0);
   const slashMenuProgress = useSharedValue(0);
+  const borderPulse = useSharedValue(0);
 
   useEffect(() => {
     const dur = reducedMotion ? 0 : 180;
@@ -87,14 +115,29 @@ export function ChatComposer({
   }, [focused, focusProgress, reducedMotion]);
 
   useEffect(() => {
-    if (canSend) {
+    const active = canSend || showStop;
+    if (active) {
       sendScale.value = reducedMotion ? 1 : withSpring(1, SEND_SPRING);
       sendOpacity.value = reducedMotion ? 1 : withTiming(1, { duration: 120 });
     } else {
       sendScale.value = reducedMotion ? 0.6 : withSpring(0.6, SEND_SPRING);
       sendOpacity.value = reducedMotion ? 0.35 : withTiming(0.35, { duration: 120 });
     }
-  }, [canSend, sendScale, sendOpacity, reducedMotion]);
+  }, [canSend, showStop, sendScale, sendOpacity, reducedMotion]);
+
+  useEffect(() => {
+    if (sending && !reducedMotion) {
+      borderPulse.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 800 }),
+          withTiming(0, { duration: 800 }),
+        ),
+        -1,
+      );
+    } else {
+      borderPulse.value = withTiming(0, { duration: 200 });
+    }
+  }, [sending, borderPulse, reducedMotion]);
 
   const sendButtonStyle = useAnimatedStyle(() => ({
     transform: [{ scale: sendScale.value }],
@@ -120,6 +163,17 @@ export function ChatComposer({
     ? 'Auto'
     : selectedEffort.charAt(0).toUpperCase() + selectedEffort.slice(1);
   const showEffortPill = onSelectEffort != null;
+
+  /* ── Permission / collaboration state ──────────────────── */
+  const permissionLabel = selectedPermission.charAt(0).toUpperCase() + selectedPermission.slice(1);
+  const showPermissionPill = onSelectPermission != null;
+
+  const activeCollaboration = selectedCollaborationMode
+    ? collaborationModes.find((m) => m.id === selectedCollaborationMode || m.mode === selectedCollaborationMode) ?? null
+    : null;
+  const collaborationLabel = activeCollaboration?.label ?? null;
+  const showCollaborationPill = collaborationModes.length > 0 && onSelectCollaborationMode;
+
   const slashSkillOptions = (() => {
     if (!slashTrigger) return [];
     const query = slashTrigger.query.toLowerCase().trim();
@@ -200,20 +254,28 @@ export function ChatComposer({
   const pillBackground = palette.surface1;
   const disabledSendBackground = palette.surface2;
 
+  const containerBorderStyle = useAnimatedStyle(() => ({
+    borderColor: focused
+      ? focusedBorderColor
+      : sending
+        ? `rgba(10, 120, 232, ${0.15 + borderPulse.value * 0.25})`
+        : restBorderColor,
+  }));
+
   return (
     <View
       style={[
         styles.outerContainer,
         { paddingBottom: safeBottomPadding },
       ]}>
-      <View
+      <Animated.View
         style={[
           styles.container,
           {
             backgroundColor: containerBg,
-            borderColor: focused ? focusedBorderColor : restBorderColor,
             borderWidth: 1,
           },
+          containerBorderStyle,
         ]}>
         {/* ── Options row: model + effort pills ───────────── */}
         {showModelPill ? (
@@ -260,7 +322,79 @@ export function ChatComposer({
                 <ChevronDown size={10} color={palette.textSecondary} style={{ opacity: 0.6 }} />
               </Pressable>
             ) : null}
+            {showPermissionPill ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Permission: ${permissionLabel}. Tap to change.`}
+                onPress={() => setPermissionPickerVisible(true)}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  styles.pill,
+                  {
+                    backgroundColor: pillBackground,
+                    opacity: pressed ? 0.7 : disabled ? 0.45 : 1,
+                  },
+                ]}>
+                <Shield size={11} color={palette.textSecondary} />
+                <Text
+                  style={[styles.pillLabel, { color: palette.textSecondary }]}
+                  numberOfLines={1}>
+                  {permissionLabel}
+                </Text>
+                <ChevronDown size={10} color={palette.textSecondary} style={{ opacity: 0.6 }} />
+              </Pressable>
+            ) : null}
+            {showCollaborationPill ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Collaboration: ${collaborationLabel ?? 'Default'}. Tap to change.`}
+                onPress={() => setCollaborationPickerVisible(true)}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  styles.pill,
+                  {
+                    backgroundColor: pillBackground,
+                    opacity: pressed ? 0.7 : disabled ? 0.45 : 1,
+                  },
+                ]}>
+                <Users size={11} color={palette.textSecondary} />
+                <Text
+                  style={[styles.pillLabel, { color: palette.textSecondary }]}
+                  numberOfLines={1}>
+                  {collaborationLabel ?? 'Default'}
+                </Text>
+                <ChevronDown size={10} color={palette.textSecondary} style={{ opacity: 0.6 }} />
+              </Pressable>
+            ) : null}
           </View>
+        ) : null}
+
+        {/* ── Queued message indicator ─────────────────────── */}
+        {queuedMessage ? (
+          <Animated.View
+            entering={reducedMotion ? undefined : FadeIn.duration(motion.duration.fast)}
+            accessibilityRole="alert"
+            accessibilityLabel="Message queued. Will send when agent turn completes. Tap X to cancel."
+            style={[
+              styles.queueBanner,
+              { backgroundColor: palette.warningDim },
+            ]}>
+            <Text
+              style={[styles.queueLabel, { color: palette.warning }]}
+              numberOfLines={1}>
+              Queued — will send when turn completes
+            </Text>
+            {onClearQueue ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cancel queued message"
+                onPress={onClearQueue}
+                hitSlop={8}
+                style={styles.queueDismiss}>
+                <X size={12} color={palette.warning} />
+              </Pressable>
+            ) : null}
+          </Animated.View>
         ) : null}
 
         {/* ── Slash skill quick menu ───────────────────────── */}
@@ -338,24 +472,43 @@ export function ChatComposer({
           />
           <AnimatedPressable
             accessibilityRole="button"
-            accessibilityLabel={sending ? 'Sending message' : 'Send message'}
-            onPress={submit}
-            disabled={!canSend}
+            accessibilityLabel={
+              showStop ? 'Stop generation' : sending ? 'Sending message' : 'Send message'
+            }
+            onPress={() => {
+              if (showStop) {
+                if (Platform.OS !== 'web') {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                }
+                onStop?.();
+              } else {
+                void submit();
+              }
+            }}
+            disabled={!canSend && !showStop}
             style={[
               styles.sendButton,
               sendButtonStyle,
               {
-                backgroundColor: canSend ? palette.accent : disabledSendBackground,
+                backgroundColor: showStop
+                  ? palette.danger
+                  : canSend
+                    ? palette.accent
+                    : disabledSendBackground,
               },
             ]}>
-            <ArrowUp
-              size={16}
-              color={canSend ? palettes.light.surface0 : palette.textSecondary}
-              style={canSend ? undefined : { opacity: 0.5 }}
-            />
+            {showStop ? (
+              <Square size={12} color={palettes.light.surface0} fill={palettes.light.surface0} />
+            ) : (
+              <ArrowUp
+                size={16}
+                color={canSend ? palettes.light.surface0 : palette.textSecondary}
+                style={canSend ? undefined : { opacity: 0.5 }}
+              />
+            )}
           </AnimatedPressable>
         </View>
-      </View>
+      </Animated.View>
 
       {/* ── Bottom sheets (rendered outside container) ──── */}
       {showModelPill ? (
@@ -375,6 +528,23 @@ export function ChatComposer({
           selectedEffort={selectedEffort}
           onSelect={onSelectEffort}
           onClose={() => setEffortPickerVisible(false)}
+        />
+      ) : null}
+      {showPermissionPill ? (
+        <PermissionPickerSheet
+          visible={permissionPickerVisible}
+          selectedPermission={selectedPermission}
+          onSelect={onSelectPermission}
+          onClose={() => setPermissionPickerVisible(false)}
+        />
+      ) : null}
+      {showCollaborationPill ? (
+        <CollaborationModePickerSheet
+          visible={collaborationPickerVisible}
+          modes={collaborationModes}
+          selectedModeId={selectedCollaborationMode}
+          onSelect={onSelectCollaborationMode}
+          onClose={() => setCollaborationPickerVisible(false)}
         />
       ) : null}
     </View>
@@ -472,5 +642,22 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     marginBottom: Platform.OS === 'ios' ? 2 : 0,
+  },
+  queueBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginHorizontal: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  queueLabel: {
+    ...typography.caption,
+    flex: 1,
+  },
+  queueDismiss: {
+    marginLeft: spacing.xs,
+    padding: spacing.micro,
   },
 });

@@ -303,6 +303,16 @@ export function applyApprovalDecisionToThread(
   return applyApprovalStatusToThread(thread, requestId, decision);
 }
 
+export function countPendingApprovals(items: ChatItem[]): number {
+  let count = 0;
+  for (const item of items) {
+    if (item.kind === 'approval' && (!item.status || item.status === 'pending')) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 export function pendingApprovalFromThread(
   thread: ActiveMobileThread | null,
 ): PendingApprovalMetadata | null {

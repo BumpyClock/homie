@@ -5,6 +5,8 @@ import {
   type ChatDeviceCodePollResult,
   type ChatDeviceCodeSession,
   type ChatEffort,
+  type ChatPermissionMode,
+  type CollaborationModeOption,
   createChatClient,
   deriveTitleFromThread,
   itemsFromThread,
@@ -28,6 +30,7 @@ import {
   applyApprovalDecisionToThread,
   applyApprovalStatusToThread,
   applyMappedEventToThread,
+  countPendingApprovals,
   fallbackThreadTitle,
   formatError,
   pendingApprovalFromThread,
@@ -55,17 +58,23 @@ export interface UseGatewayChatResult {
   sendingMessage: boolean;
   loadingTerminals: boolean;
   pendingApproval: PendingApprovalMetadata | null;
+  activePendingApprovalCount: number;
   terminalSessions: SessionInfo[];
   tmuxSupported: boolean;
   tmuxError: string | null;
   tmuxSessions: TmuxSessionInfo[];
   models: ModelOption[];
   skills: SkillOption[];
+  collaborationModes: CollaborationModeOption[];
   accountProviders: ChatAccountProviderStatus[];
   selectedModel: string | null;
   selectedEffort: ChatEffort;
+  selectedPermission: ChatPermissionMode;
+  selectedCollaborationMode: string | null;
   setSelectedModel: (modelId: string | null) => void;
   setSelectedEffort: (effort: ChatEffort) => void;
+  setSelectedPermission: (permission: ChatPermissionMode) => void;
+  setSelectedCollaborationMode: (modeId: string | null) => void;
   selectThread: (chatId: string) => void;
   refreshThreads: () => Promise<void>;
   refreshAccountProviders: () => Promise<void>;
@@ -81,6 +90,7 @@ export interface UseGatewayChatResult {
   onTerminalBinary: (callback: (data: ArrayBuffer) => void) => () => void;
   createChat: () => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
+  stopChat: () => Promise<void>;
   renameThread: (chatId: string, title: string) => Promise<void>;
   archiveThread: (chatId: string) => Promise<void>;
   respondApproval: (requestId: number | string, decision: ChatApprovalDecision) => Promise<void>;
@@ -90,6 +100,8 @@ export interface UseGatewayChatResult {
     session: ChatDeviceCodeSession,
     profile?: string,
   ) => Promise<ChatDeviceCodePollResult>;
+  queuedMessage: string | null;
+  clearQueuedMessage: () => void;
 }
 
 function normalizeTerminalSessions(raw: unknown): SessionInfo[] {
@@ -152,6 +164,8 @@ function isRpcMethodNotFound(error: unknown): boolean {
 const LAST_ACTIVE_CHAT_KEY_PREFIX = 'homie.mobile.last_active_chat';
 const SELECTED_MODEL_KEY = 'homie.mobile.selected_model';
 const SELECTED_EFFORT_KEY = 'homie.mobile.selected_effort';
+const SELECTED_PERMISSION_KEY = 'homie.mobile.selected_permission';
+const SELECTED_COLLABORATION_MODE_KEY = 'homie.mobile.selected_collaboration_mode';
 
 function storageKeyForGatewayTarget(gatewayUrl: string): string | null {
   const normalized = gatewayUrl.trim();
@@ -185,11 +199,16 @@ export function useGatewayChat(
   const [loadingTerminals, setLoadingTerminals] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [skills, setSkills] = useState<SkillOption[]>([]);
+  const [collaborationModes, setCollaborationModes] = useState<CollaborationModeOption[]>([]);
   const [accountProviders, setAccountProviders] = useState<ChatAccountProviderStatus[]>([]);
   const [selectedModel, setSelectedModelState] = useState<string | null>(null);
   const selectedModelRef = useRef<string | null>(null);
   const [selectedEffort, setSelectedEffortState] = useState<ChatEffort>('auto');
   const selectedEffortRef = useRef<ChatEffort>('auto');
+  const [selectedPermission, setSelectedPermissionState] = useState<ChatPermissionMode>('ask');
+  const selectedPermissionRef = useRef<ChatPermissionMode>('ask');
+  const [selectedCollaborationMode, setSelectedCollaborationModeState] = useState<string | null>(null);
+  const selectedCollaborationModeRef = useRef<string | null>(null);
 
   const transportRef = useRef<GatewayTransport | null>(null);
   const chatClientRef = useRef<ReturnType<typeof createChatClient> | null>(null);
@@ -201,6 +220,8 @@ export function useGatewayChat(
   const restoredChatIdRef = useRef<string | null>(null);
   const bootstrappedRef = useRef(false);
   const [restoringSelection, setRestoringSelection] = useState(false);
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
+  const queuedMessageRef = useRef<string | null>(null);
 
   const setSelectedModel = useCallback((modelId: string | null) => {
     selectedModelRef.current = modelId;
@@ -216,6 +237,22 @@ export function useGatewayChat(
     selectedEffortRef.current = effort;
     setSelectedEffortState(effort);
     void AsyncStorage.setItem(SELECTED_EFFORT_KEY, effort).catch(() => { return; });
+  }, []);
+
+  const setSelectedPermission = useCallback((permission: ChatPermissionMode) => {
+    selectedPermissionRef.current = permission;
+    setSelectedPermissionState(permission);
+    void AsyncStorage.setItem(SELECTED_PERMISSION_KEY, permission).catch(() => { return; });
+  }, []);
+
+  const setSelectedCollaborationMode = useCallback((modeId: string | null) => {
+    selectedCollaborationModeRef.current = modeId;
+    setSelectedCollaborationModeState(modeId);
+    if (modeId) {
+      void AsyncStorage.setItem(SELECTED_COLLABORATION_MODE_KEY, modeId).catch(() => { return; });
+    } else {
+      void AsyncStorage.removeItem(SELECTED_COLLABORATION_MODE_KEY).catch(() => { return; });
+    }
   }, []);
 
   useEffect(() => {
@@ -544,6 +581,39 @@ export function useGatewayChat(
     return transport.onBinaryMessage(callback);
   }, []);
 
+  const sendMessageInternal = useCallback(async (trimmed: string) => {
+    const chatClient = chatClientRef.current;
+    const active = activeThreadRef.current;
+    if (!chatClient || !active || !trimmed) return;
+
+    setSendingMessage(true);
+    const optimistic = { ...active, running: true };
+    setActiveThread(optimistic);
+    updateThreadSummaryFromActive(optimistic, Date.now());
+
+    try {
+      const effortValue = selectedEffortRef.current;
+      await chatClient.sendMessage({
+        chatId: active.chatId,
+        message: trimmed,
+        model: selectedModelRef.current ?? undefined,
+        effort: effortValue !== 'auto' ? effortValue : undefined,
+      });
+      setError(null);
+    } catch (nextError) {
+      const current = activeThreadRef.current;
+      if (current && current.chatId === active.chatId) {
+        const stopped = { ...current, running: false };
+        setActiveThread(stopped);
+        updateThreadSummaryFromActive(stopped, Date.now());
+      }
+      setError(formatError(nextError));
+      throw nextError;
+    } finally {
+      setSendingMessage(false);
+    }
+  }, [setActiveThread, updateThreadSummaryFromActive]);
+
   const handleGatewayEvent = useCallback((event: RpcEvent) => {
     const mapped = mapChatEvent(
       {
@@ -592,7 +662,16 @@ export function useGatewayChat(
     const nextActive = applyMappedEventToThread(active, mapped);
     setActiveThread(nextActive);
     updateThreadSummaryFromActive(nextActive, mapped.activityAt);
-  }, [setActiveThread, updateThreadSummaryFromActive]);
+
+    if (mapped.type === 'turn.completed' && queuedMessageRef.current) {
+      const queued = queuedMessageRef.current;
+      queuedMessageRef.current = null;
+      setQueuedMessage(null);
+      setTimeout(() => {
+        void sendMessageInternal(queued);
+      }, 100);
+    }
+  }, [sendMessageInternal, setActiveThread, updateThreadSummaryFromActive]);
 
   useEffect(() => {
     const transport = createMobileGatewayClient({
@@ -661,10 +740,30 @@ export function useGatewayChat(
         setSkills(nextSkills);
       }).catch(() => { return; });
 
+      void chatClient.listCollaborationModes().then((nextModes) => {
+        setCollaborationModes(nextModes);
+        void AsyncStorage.getItem(SELECTED_COLLABORATION_MODE_KEY).then((stored) => {
+          if (stored) {
+            const match = nextModes.find((m) => m.id === stored || m.mode === stored);
+            if (match) {
+              selectedCollaborationModeRef.current = stored;
+              setSelectedCollaborationModeState(stored);
+            }
+          }
+        }).catch(() => { return; });
+      }).catch(() => { return; });
+
       void AsyncStorage.getItem(SELECTED_EFFORT_KEY).then((stored) => {
         if (stored) {
           selectedEffortRef.current = stored as ChatEffort;
           setSelectedEffortState(stored as ChatEffort);
+        }
+      }).catch(() => { return; });
+
+      void AsyncStorage.getItem(SELECTED_PERMISSION_KEY).then((stored) => {
+        if (stored) {
+          selectedPermissionRef.current = stored as ChatPermissionMode;
+          setSelectedPermissionState(stored as ChatPermissionMode);
         }
       }).catch(() => { return; });
     }
@@ -745,44 +844,38 @@ export function useGatewayChat(
   }, [loadThread]);
 
   const sendMessage = useCallback(async (message: string) => {
-    const chatClient = chatClientRef.current;
     const active = activeThreadRef.current;
     const trimmed = message.trim();
-    if (!chatClient || !active || !trimmed) return;
+    if (!chatClientRef.current || !active || !trimmed) return;
 
-    setSendingMessage(true);
-    const optimistic = {
-      ...active,
-      running: true,
-    };
-    setActiveThread(optimistic);
-    updateThreadSummaryFromActive(optimistic, Date.now());
+    if (active.running) {
+      queuedMessageRef.current = trimmed;
+      setQueuedMessage(trimmed);
+      return;
+    }
+
+    await sendMessageInternal(trimmed);
+  }, [sendMessageInternal]);
+
+  const clearQueuedMessage = useCallback(() => {
+    queuedMessageRef.current = null;
+    setQueuedMessage(null);
+  }, []);
+
+  const stopChat = useCallback(async () => {
+    const chatClient = chatClientRef.current;
+    const active = activeThreadRef.current;
+    if (!chatClient || !active || !active.activeTurnId) return;
 
     try {
-      const effortValue = selectedEffortRef.current;
-      await chatClient.sendMessage({
+      await chatClient.cancel({
         chatId: active.chatId,
-        message: trimmed,
-        model: selectedModelRef.current ?? undefined,
-        effort: effortValue !== 'auto' ? effortValue : undefined,
+        turnId: active.activeTurnId,
       });
-      setError(null);
     } catch (nextError) {
-      const current = activeThreadRef.current;
-      if (current && current.chatId === active.chatId) {
-        const stopped = {
-          ...current,
-          running: false,
-        };
-        setActiveThread(stopped);
-        updateThreadSummaryFromActive(stopped, Date.now());
-      }
       setError(formatError(nextError));
-      throw nextError;
-    } finally {
-      setSendingMessage(false);
     }
-  }, [setActiveThread, updateThreadSummaryFromActive]);
+  }, []);
 
   const renameThread = useCallback(async (chatId: string, title: string) => {
     const chatClient = chatClientRef.current;
@@ -901,6 +994,9 @@ export function useGatewayChat(
   );
 
   const pendingApproval = pendingApprovalFromThread(activeThreadState);
+  const activePendingApprovalCount = activeThreadState
+    ? countPendingApprovals(activeThreadState.items)
+    : 0;
 
   return {
     status,
@@ -916,17 +1012,23 @@ export function useGatewayChat(
     sendingMessage,
     loadingTerminals,
     pendingApproval,
+    activePendingApprovalCount,
     terminalSessions,
     tmuxSupported,
     tmuxError,
     tmuxSessions,
     models,
     skills,
+    collaborationModes,
     accountProviders,
     selectedModel,
     selectedEffort,
+    selectedPermission,
+    selectedCollaborationMode,
     setSelectedModel,
     setSelectedEffort,
+    setSelectedPermission,
+    setSelectedCollaborationMode,
     selectThread,
     refreshThreads,
     refreshAccountProviders,
@@ -939,10 +1041,13 @@ export function useGatewayChat(
     onTerminalBinary,
     createChat,
     sendMessage,
+    stopChat,
     renameThread,
     archiveThread,
     respondApproval,
     startProviderLogin,
     pollProviderLogin,
+    queuedMessage,
+    clearQueuedMessage,
   };
 }

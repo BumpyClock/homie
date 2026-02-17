@@ -247,4 +247,72 @@ export const styles = StyleSheet.create({
     width: touchTarget.min,
     ...elevation.fab,
   },
+  jumpBadge: {
+    alignItems: 'center',
+    borderRadius: 9,
+    height: 18,
+    justifyContent: 'center',
+    minWidth: 18,
+    paddingHorizontal: 4,
+    position: 'absolute',
+    right: -4,
+    top: -4,
+  },
+  jumpBadgeLabel: {
+    ...typography.label,
+    fontSize: 10,
+    lineHeight: 14,
+  },
+
+  /* ── per-kind card styles ───────────────────────────────── */
+
+  cardContainer: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginLeft: 36,
+    padding: spacing.sm,
+    gap: spacing.xs,
+  },
+  cardHeader: {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    gap: spacing.xs,
+  },
+  cardHeaderLeft: {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: spacing.xs,
+  },
+  cardHeaderLabel: {
+    ...typography.label,
+    fontSize: 11,
+    textTransform: 'uppercase' as const,
+  },
+  monoBlock: {
+    ...typography.monoSmall,
+    fontSize: 12,
+  },
+  statusPill: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: spacing.xs,
+  },
+  statusPillLabel: {
+    ...typography.label,
+    fontSize: 10,
+    textTransform: 'uppercase' as const,
+  },
+  filePathText: {
+    ...typography.monoSmall,
+    fontSize: 12,
+  },
+  systemText: {
+    ...typography.body,
+    fontSize: 13,
+  },
 });
