@@ -19,7 +19,7 @@ Date: 2026-02-11
   - `gpt-4.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-codex`, `gpt-5.1`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, `gpt-5.2`, `gpt-5.2-codex`
 
 ## Notes
-- OpenClaw-style model list path is catalog/registry-driven, not direct provider `/models` probing.
+- reference-style model list path is catalog/registry-driven, not direct provider `/models` probing.
 - If we need truly live lists later, implement provider-specific discovery endpoints with robust auth/shape handling per provider.
 - GitHub docs currently mark `gpt-5` and `gpt-5-codex` as retiring on 2026-02-17; keep in fallback short-term for continuity, then prune.
 - 2026-02-11 update: Added `gpt-5.3-codex` and `gpt-5.2` to Codex fallback catalog; added `gpt-5.3-codex` to Copilot fallback catalog.

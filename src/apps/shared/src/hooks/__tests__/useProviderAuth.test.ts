@@ -127,7 +127,7 @@ describe("useProviderAuth", () => {
     await advance(5_000);
 
     expect(result.current.authStates["github"]?.status).toBe("denied");
-    expect(result.current.authStates["github"]?.error).toBe("Access denied.");
+    expect(result.current.authStates["github"]?.error).toBe("Access denied");
     expect(mocks.onAuthorized).not.toHaveBeenCalled();
   });
 
@@ -149,9 +149,7 @@ describe("useProviderAuth", () => {
     await advance(5_000);
 
     expect(result.current.authStates["github"]?.status).toBe("expired");
-    expect(result.current.authStates["github"]?.error).toBe(
-      "Device code expired.",
-    );
+    expect(result.current.authStates["github"]?.error).toBe("Code expired");
   });
 
   // -----------------------------------------------------------------------
@@ -382,6 +380,6 @@ describe("useProviderAuth", () => {
     expect(result.current.authStates["github"]?.status).toBe("authorized");
     expect(result.current.authStates["github"]?.error).toBeUndefined();
     expect(result.current.authStates["gitlab"]?.status).toBe("denied");
-    expect(result.current.authStates["gitlab"]?.error).toBe("Access denied.");
+    expect(result.current.authStates["gitlab"]?.error).toBe("Access denied");
   });
 });

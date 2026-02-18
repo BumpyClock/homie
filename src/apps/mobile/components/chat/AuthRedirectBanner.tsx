@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronRight } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
+import { AUTH_COPY } from '@homie/shared';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { motion } from '@/theme/motion';
@@ -34,7 +35,7 @@ interface AuthRedirectBannerProps {
 export function AuthRedirectBanner({
   visible,
   message,
-  actionLabel = 'Open Settings',
+  actionLabel = AUTH_COPY.bannerActionMobile,
   onAction,
 }: AuthRedirectBannerProps) {
   const { palette } = useAppTheme();

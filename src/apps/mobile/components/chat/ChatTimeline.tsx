@@ -482,6 +482,7 @@ export function ChatTimeline({
       <AuthRedirectBanner
         visible={!providerAuthOk}
         message={AUTH_COPY.bannerMessage}
+        actionLabel={AUTH_COPY.bannerActionMobile}
       />
 
       {loading && thread.items.length === 0 ? (

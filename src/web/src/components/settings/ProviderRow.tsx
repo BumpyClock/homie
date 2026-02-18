@@ -1,8 +1,7 @@
 import { useRef, useEffect } from "react";
 import { KeyRound } from "lucide-react";
-import type { ChatAccountProviderStatus } from "@homie/shared";
-import type { ProviderAuthState } from "@homie/shared";
-import { modelProviderLabel } from "@homie/shared";
+import { AUTH_COPY, modelProviderLabel } from "@homie/shared";
+import type { ChatAccountProviderStatus, ProviderAuthState } from "@homie/shared";
 import { DeviceCodeInline } from "./DeviceCodeInline";
 
 interface ProviderRowProps {
@@ -60,7 +59,7 @@ export function ProviderRow({ provider, authState, onConnect, onCancel }: Provid
       if (status === "authorized") {
         liveRef.current.textContent = `${label} connected`;
       } else if (status === "error") {
-        liveRef.current.textContent = `${label}: ${errorText ?? "Error"}`;
+        liveRef.current.textContent = `${label}: ${errorText ?? AUTH_COPY.errorFailed}`;
       } else if (status === "polling") {
         liveRef.current.textContent = `${label}: Waiting for authorization`;
       }
@@ -89,13 +88,13 @@ export function ProviderRow({ provider, authState, onConnect, onCancel }: Provid
             </div>
           )}
           {status === "idle" && (
-            <div className="text-xs text-text-secondary">Not connected</div>
+            <div className="text-xs text-text-secondary">{AUTH_COPY.statusNotConnected}</div>
           )}
           {status === "starting" && (
             <div className="text-xs text-text-secondary">Starting device code flow\u2026</div>
           )}
           {status === "error" && (
-            <div className="text-xs text-danger">{errorText ?? "Authentication failed."}</div>
+            <div className="text-xs text-danger">{errorText ?? AUTH_COPY.errorFailed}</div>
           )}
         </div>
 
@@ -104,7 +103,7 @@ export function ProviderRow({ provider, authState, onConnect, onCancel }: Provid
           {status === "authorized" && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success-dim text-success transition-colors duration-[200ms]">
               <span className="w-1.5 h-1.5 rounded-full bg-success" aria-hidden="true" />
-              Connected
+              {AUTH_COPY.statusConnected}
             </span>
           )}
           {status === "idle" && (

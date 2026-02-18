@@ -21,36 +21,36 @@ source: local repo review (/home/bumpyclock/Projects/references/roci)
 - Session persistence + event log + compaction.
 - Memory search + recall tools.
 
-## OpenClaw patterns worth copying (code refs)
+## Reference patterns worth copying (code refs)
 Auth store + external CLI sync:
-- `~/Projects/openclaw/src/agents/auth-profiles/store.ts`
+- `~/Projects/reference-assistant/src/agents/auth-profiles/store.ts`
   - `auth-profiles.json` schema: `{ version, profiles, order?, lastGood?, usageStats? }`
   - updates are lock-protected (proper-lockfile) + migrations (legacy auth.json / oauth.json)
-- `~/Projects/openclaw/src/agents/cli-credentials.ts`
+- `~/Projects/reference-assistant/src/agents/cli-credentials.ts`
   - Codex CLI creds: keychain `"Codex Auth"` + account derived from `CODEX_HOME` OR `$CODEX_HOME/auth.json`
   - Claude Code creds: keychain `"Claude Code-credentials"` OR `~/.claude/.credentials.json`
   - supports write-back of refreshed Claude tokens (keychain/file)
 
 Copilot device flow + token exchange:
-- `~/Projects/openclaw/src/providers/github-copilot-auth.ts`
+- `~/Projects/reference-assistant/src/providers/github-copilot-auth.ts`
   - device-code login to GitHub endpoints; handles `authorization_pending`, `slow_down`, `expired_token`, `access_denied`
-- `~/Projects/openclaw/src/providers/github-copilot-token.ts`
+- `~/Projects/reference-assistant/src/providers/github-copilot-token.ts`
   - exchange GitHub token -> Copilot token via `https://api.github.com/copilot_internal/v2/token`
   - cache token w/ expiry; derive API base URL from `proxy-ep=` inside token
 
 Run/event model:
-- lane queueing: `~/Projects/openclaw/src/process/command-queue.ts`
-- session/global lane nesting: `~/Projects/openclaw/src/agents/pi-embedded-runner/run.ts`
-- active run registry + abort: `~/Projects/openclaw/src/agents/pi-embedded-runner/runs.ts`
-- monotonic per-run events: `~/Projects/openclaw/src/infra/agent-events.ts`
+- lane queueing: `~/Projects/reference-assistant/src/process/command-queue.ts`
+- session/global lane nesting: `~/Projects/reference-assistant/src/agents/pi-embedded-runner/run.ts`
+- active run registry + abort: `~/Projects/reference-assistant/src/agents/pi-embedded-runner/runs.ts`
+- monotonic per-run events: `~/Projects/reference-assistant/src/infra/agent-events.ts`
   - `seq` monotonic per runId; streams: lifecycle/assistant/tool/compaction
 
 Exec allowlist patterns (future Homie allowlist):
-- `~/Projects/openclaw/src/infra/exec-approvals.ts`
+- `~/Projects/reference-assistant/src/infra/exec-approvals.ts`
   - resolves executable path + pattern matching for approvals/allowlists
 
 OpenAI Codex request mechanics (pi-ai):
-- `~/Projects/openclaw/node_modules/@mariozechner/pi-ai/dist/providers/openai-codex-responses.js`
+- `~/Projects/reference-assistant/node_modules/@mariozechner/pi-ai/dist/providers/openai-codex-responses.js`
   - URL: `https://chatgpt.com/backend-api/codex/responses`
   - Auth headers:
     - `Authorization: Bearer <oauth_access_token>`
@@ -123,7 +123,7 @@ Approval key shape (Codex behavior):
   - device-code sessions must expose `{verification_url,user_code,interval,expires_at}`
   - AuthError should normalize: pending/slow_down/expired/access_denied/provider_disabled/workspace_not_allowed/rate_limited
 - Run:
-  - include `seq` + `ts` per event (monotonic ordering, OpenClaw pattern)
+  - include `seq` + `ts` per event (monotonic ordering, reference pattern)
   - cancellation: `abort()` async; emit terminal `canceled` after cleanup (Codex pattern)
 - Approvals:
   - shape should be rich enough to represent Codex command/file approvals, even if Homie UI only supports “approve/decline” initially

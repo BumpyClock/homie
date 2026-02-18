@@ -410,6 +410,7 @@ export function ChatPanel({ status, call, onEvent, enabled, namespace, onOpenSet
           <AuthRedirectBanner
             visible={!accountStatus.ok}
             message={AUTH_COPY.bannerMessage}
+            actionLabel={AUTH_COPY.bannerActionWeb}
             onAction={() => onOpenSettings?.("providers")}
           />
 

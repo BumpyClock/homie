@@ -1,9 +1,9 @@
-# OpenClaw browser control endpoint (Homie integration)
+# Reference browser control endpoint (Homie integration)
 
-Sources: `~/Projects/openclaw/src/browser/client.ts`, `~/Projects/openclaw/src/browser/client-actions-core.ts`, `~/Projects/openclaw/src/browser/routes/*`, `~/Projects/openclaw/docs/tools/browser.md`.
+Sources: `~/Projects/reference-assistant/src/browser/client.ts`, `~/Projects/reference-assistant/src/browser/client-actions-core.ts`, `~/Projects/reference-assistant/src/browser/routes/*`, `~/Projects/reference-assistant/docs/tools/browser.md`.
 
 ## Control server basics
-- Base URL: OpenClaw browser control service (loopback, derived from gateway port).
+- Base URL: reference browser control service (loopback, derived from gateway port).
 - Most endpoints accept `?profile=<name>` to select a browser profile.
 
 ## HTTP endpoints
@@ -24,6 +24,6 @@ Sources: `~/Projects/openclaw/src/browser/client.ts`, `~/Projects/openclaw/src/b
 - `POST /act` body `{ kind: click|type|press|hover|scrollIntoView|drag|select|fill|resize|wait|evaluate|close, ... }`.
 
 ## Notes
-- OpenClaw tool schema uses `action` + optional fields (e.g., `snapshotFormat` for snapshots).
+- Reference tool schema uses `action` + optional fields (e.g., `snapshotFormat` for snapshots).
 - Control server is loopback-only by default; remote access flows through gateway/node proxy.
 - No explicit HTTP auth in the control server; secure remote endpoints externally.

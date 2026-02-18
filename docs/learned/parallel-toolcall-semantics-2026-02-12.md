@@ -3,8 +3,8 @@
 Scope: `remotely-5ko.7` and `remotely-5ko.8`.
 
 ## Parity notes
-- OpenClaw pattern to preserve: assistant tool-call batch should be followed by matching tool-result batch before next model step; avoid per-result re-entry loops.
-- OpenClaw guard behavior to preserve: duplicate/missing tool-result cases must be repaired/deduped at transcript boundaries.
+- Reference pattern to preserve: assistant tool-call batch should be followed by matching tool-result batch before next model step; avoid per-result re-entry loops.
+- Reference guard behavior to preserve: duplicate/missing tool-result cases must be repaired/deduped at transcript boundaries.
 - Codex-rs repo was not available in local workspace path during this pass; parity was validated against Homie/ROCI stream semantics and existing Responses-style finalize behavior in `src/infra/roci`.
 
 ## Homie/ROCI decisions

@@ -78,6 +78,7 @@ SearXNG:
 ## Tool providers
 - `tools.providers.<provider_id>` controls per-provider tool loading.
 - Built-in `core` provider exists by default.
+- Tool catalogs are channel-aware: `chat.tools.list` returns only tools from providers enabled for the active channel.
 - `tools.providers.<provider_id>.channels` is an optional channel allowlist.
   - omitted or `[]` -> all channels
   - set -> provider loads only when current channel matches one of the listed values

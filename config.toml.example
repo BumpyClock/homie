@@ -24,7 +24,7 @@ stream_idle_timeout_ms = 0
 
 [tools.web.fetch]
 # Enabled by default. Set to false to disable web_fetch tool.
-enabled = false
+enabled = true
 max_chars = 50000
 timeout_seconds = 30
 cache_ttl_minutes = 15

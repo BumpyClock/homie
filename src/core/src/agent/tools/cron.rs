@@ -24,8 +24,12 @@ struct CronToolParams {
 
 pub fn cron_tool(ctx: ToolContext) -> Arc<dyn Tool> {
     let params = AgentToolParameters::object()
-        .string("action", "create|list|status|cancel|runs", false)
-        .string("cron_id", "Cron identifier for status/cancel/runs", false)
+        .string(
+            "action",
+            "add|create|list|status|update|remove|cancel|run|runs|wake",
+            false,
+        )
+        .string("cron_id", "Cron identifier for status/update/remove/cancel/run/runs", false)
         .string("name", "Cron name", false)
         .string("schedule", "Cron schedule expression", false)
         .string("command", "Cron command", false)
@@ -63,8 +67,12 @@ async fn cron_impl(
         "create" => create_cron(store, params),
         "list" => list_crons(store),
         "status" => cron_status(store, params.cron_id),
+        "update" => update_cron(store, params),
+        "remove" => remove_cron(store, params.cron_id),
         "cancel" => cancel_cron(store, params.cron_id),
+        "run" => run_cron_now(store, params.cron_id),
         "runs" => cron_runs(store, params.cron_id, params.limit),
+        "wake" => wake_crons(store, params.cron_id),
         _ => Err(RociError::InvalidArgument(format!(
             "unsupported action: {action}"
         ))),
@@ -94,10 +102,15 @@ fn normalize_action(action: &str) -> Result<String, RociError> {
         "create" | "add" | "start" => Ok("create".to_string()),
         "list" => Ok("list".to_string()),
         "status" | "read" => Ok("status".to_string()),
+        "update" | "edit" => Ok("update".to_string()),
+        "remove" | "delete" => Ok("remove".to_string()),
         "cancel" | "pause" | "stop" => Ok("cancel".to_string()),
+        "run" | "run_now" => Ok("run".to_string()),
         "runs" | "log" | "logs" | "tail" => Ok("runs".to_string()),
+        "wake" | "kick" => Ok("wake".to_string()),
         _ => Err(RociError::InvalidArgument(
-            "action must be one of create|list|status|cancel|runs".into(),
+            "action must be one of add|create|list|status|update|remove|cancel|run|runs|wake"
+                .into(),
         )),
     }
 }
@@ -154,6 +167,45 @@ fn list_crons(store: &dyn Store) -> Result<serde_json::Value, RociError> {
         })
 }
 
+fn update_cron(store: &dyn Store, params: CronToolParams) -> Result<serde_json::Value, RociError> {
+    let cron_id = params
+        .cron_id
+        .ok_or_else(|| RociError::InvalidArgument("cron_id is required".into()))?;
+    let mut cron = store
+        .get_cron(&cron_id)
+        .map_err(|error| RociError::ToolExecution {
+            tool_name: "cron".into(),
+            message: error,
+        })?
+        .ok_or_else(|| RociError::InvalidArgument("cron not found".into()))?;
+
+    if let Some(name) = params.name {
+        cron.name = name;
+    }
+    if let Some(schedule) = params.schedule {
+        cron.schedule = schedule;
+        cron.next_run_at = Some(now_unix());
+    }
+    if let Some(command) = params.command {
+        cron.command = command;
+    }
+    if let Some(skip_overlap) = params.skip_overlap {
+        cron.skip_overlap = skip_overlap;
+    }
+    if let Some(status) = params.status {
+        cron.status = parse_cron_status(Some(status.as_str()));
+    }
+    cron.updated_at = now_unix();
+
+    store
+        .upsert_cron(&cron)
+        .map_err(|error| RociError::ToolExecution {
+            tool_name: "cron".into(),
+            message: error,
+        })?;
+    Ok(serde_json::json!({ "cron": cron }))
+}
+
 fn cron_status(store: &dyn Store, id: Option<String>) -> Result<serde_json::Value, RociError> {
     let cron_id = id.ok_or_else(|| RociError::InvalidArgument("cron_id is required".into()))?;
     match store.get_cron(&cron_id) {
@@ -190,6 +242,81 @@ fn cancel_cron(store: &dyn Store, id: Option<String>) -> Result<serde_json::Valu
         })?;
 
     Ok(serde_json::json!({ "cron": updated }))
+}
+
+fn remove_cron(store: &dyn Store, id: Option<String>) -> Result<serde_json::Value, RociError> {
+    let cron_id = id.ok_or_else(|| RociError::InvalidArgument("cron_id is required".into()))?;
+    let existing = store
+        .get_cron(&cron_id)
+        .map_err(|error| RociError::ToolExecution {
+            tool_name: "cron".into(),
+            message: error,
+        })?;
+    if existing.is_none() {
+        return Err(RociError::InvalidArgument("cron not found".into()));
+    }
+
+    store
+        .delete_cron(&cron_id)
+        .map_err(|error| RociError::ToolExecution {
+            tool_name: "cron".into(),
+            message: error,
+        })?;
+    Ok(serde_json::json!({ "cron_id": cron_id, "removed": true }))
+}
+
+fn run_cron_now(store: &dyn Store, id: Option<String>) -> Result<serde_json::Value, RociError> {
+    let cron_id = id.ok_or_else(|| RociError::InvalidArgument("cron_id is required".into()))?;
+    let mut cron = store
+        .get_cron(&cron_id)
+        .map_err(|error| RociError::ToolExecution {
+            tool_name: "cron".into(),
+            message: error,
+        })?
+        .ok_or_else(|| RociError::InvalidArgument("cron not found".into()))?;
+
+    let now = now_unix();
+    cron.next_run_at = Some(now);
+    cron.updated_at = now;
+    store
+        .upsert_cron(&cron)
+        .map_err(|error| RociError::ToolExecution {
+            tool_name: "cron".into(),
+            message: error,
+        })?;
+    Ok(serde_json::json!({
+        "cron_id": cron_id,
+        "queued": true,
+        "next_run_at": now
+    }))
+}
+
+fn wake_crons(store: &dyn Store, id: Option<String>) -> Result<serde_json::Value, RociError> {
+    if id.is_some() {
+        return run_cron_now(store, id);
+    }
+
+    let mut crons = store.list_crons().map_err(|error| RociError::ToolExecution {
+        tool_name: "cron".into(),
+        message: error,
+    })?;
+    let now = now_unix();
+    let mut woke = 0usize;
+    for cron in crons.iter_mut() {
+        if cron.status != CronStatus::Active {
+            continue;
+        }
+        cron.next_run_at = Some(now);
+        cron.updated_at = now;
+        store
+            .upsert_cron(cron)
+            .map_err(|error| RociError::ToolExecution {
+                tool_name: "cron".into(),
+                message: error,
+            })?;
+        woke += 1;
+    }
+    Ok(serde_json::json!({ "woke": woke, "next_run_at": now }))
 }
 
 fn cron_runs(

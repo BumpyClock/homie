@@ -11,10 +11,10 @@ Date: 2026-02-13
 - Project is active and maintained (recent release activity in Feb 2026).
 - MIT license.
 - Ships as `agent-browser` package, with local/remote browser automation model.
-- Better naming fit for Homie than `openclaw_browser` path.
+- Better naming fit for Homie than `legacy_browser` path.
 
 ## Recommendation
-- Remove `openclaw_browser` provider/config path now (done in this repo).
+- Remove `legacy_browser` provider/config path now (done in this repo).
 - Reintroduce browser automation under neutral provider/tool ids:
   - provider id: `browser`
   - tool name: `browser`

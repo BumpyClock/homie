@@ -60,6 +60,7 @@ Notes:
 ## Provider auth
 Sign in to providers (OpenAI Codex, GitHub Copilot) from the **Settings** panel in web or mobile.
 See `docs/provider-auth.md` for details.
+Latest smoke checklist/results: `docs/provider-auth-smoke-matrix.md`.
 
 ## More docs
 - Config reference: `docs/config.md`

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { ChatDeviceCodeSession, ChatDeviceCodePollResult } from "../chat-client.js";
+import { AUTH_COPY } from "../provider-auth-copy.js";
 
 export interface ProviderAuthState {
   status: "idle" | "starting" | "polling" | "authorized" | "denied" | "expired" | "error";
@@ -105,12 +106,12 @@ export function useProviderAuth(opts: UseProviderAuthOptions): {
                 continue;
 
               case "denied":
-                setState(providerId, { status: "denied", error: "Access denied." });
+                setState(providerId, { status: "denied", error: AUTH_COPY.errorDenied });
                 tokensRef.current.delete(providerId);
                 return;
 
               case "expired":
-                setState(providerId, { status: "expired", error: "Device code expired." });
+                setState(providerId, { status: "expired", error: AUTH_COPY.errorExpired });
                 tokensRef.current.delete(providerId);
                 return;
             }
@@ -123,7 +124,7 @@ export function useProviderAuth(opts: UseProviderAuthOptions): {
           }
         } catch (err) {
           if (token.cancelled) return;
-          const message = err instanceof Error ? err.message : "Login failed.";
+          const message = err instanceof Error ? err.message : AUTH_COPY.errorFailed;
           setState(providerId, { status: "error", error: message });
           tokensRef.current.delete(providerId);
         }

@@ -1,6 +1,6 @@
-# Web tools (OpenClaw + codex-rs) findings
+# Web tools findings
 
-## OpenClaw web_fetch
+## Reference web_fetch behavior
 - SSRF protection: pinned DNS + dispatcher per host (`infra/net/ssrf.ts`).
 - Redirect handling: manual, max redirects, loop detection.
 - Extraction:
@@ -12,7 +12,7 @@
 - Output payload: url/finalUrl/status/contentType/title/extractMode/extractor/truncated/length/fetchedAt/tookMs/text (+warning).
 - Errors: returns meaningful messages; HTML error body converted to text; max chars on error.
 
-## OpenClaw web_search
+## Reference web_search behavior
 - Providers: Brave + Perplexity (direct or via OpenRouter).
 - Cache: in-memory TTL.
 - Params: `query`, `count`, `country`, `search_lang`, `ui_lang`, `freshness` (Brave only).
@@ -37,7 +37,7 @@ Sources:
 - WebSearchMode resolved from config + sandbox policy (read-only => cached, danger => live).
 
 ## Implication for Homie
-- If we keep tools local, follow OpenClaw patterns for `web_fetch` + `web_search`.
+- If we keep tools local, follow reference patterns for `web_fetch` + `web_search`.
 - Can mirror codex-rs mode semantics: `web_search_mode` mapped from approval/sandbox policy.
 - Firecrawl optional; keep disabled unless key set.
 

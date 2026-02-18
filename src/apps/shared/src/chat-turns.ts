@@ -11,6 +11,7 @@ export type ChatToolName =
   | "find"
   | "grep"
   | "apply_patch"
+  | "cron"
   | "web_search"
   | "web_fetch"
   | "browser";
@@ -26,6 +27,7 @@ export const FRIENDLY_CHAT_TOOL_LABELS: Record<ChatToolName, string> = {
   find: "Find files",
   grep: "Search text",
   apply_patch: "Apply patch",
+  cron: "Cron",
   web_search: "Search web",
   web_fetch: "Fetch page",
   browser: "Browser",
@@ -42,10 +44,10 @@ const CHAT_TOOL_ALIASES: Readonly<Record<string, ChatToolName>> = {
   file_search: "find",
   search_files: "find",
   applypatch: "apply_patch",
+  cron: "cron",
+  cron_tool: "cron",
   websearch: "web_search",
   webfetch: "web_fetch",
-  openclawbrowser: "browser",
-  openclaw_browser: "browser",
   browser: "browser",
 };
 

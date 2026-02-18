@@ -44,6 +44,22 @@ Provider login uses the **RFC 8628 device authorization grant**:
 
 The shared `useProviderAuth` hook (`src/apps/shared/src/hooks/useProviderAuth.ts`) implements the state machine used by both web and mobile. See `docs/design/shared-auth-architecture.md` for details.
 
+## Shared auth-missing copy contract
+
+Auth-missing copy is centralized in `src/apps/shared/src/provider-auth-copy.ts` (`AUTH_COPY`) and consumed by both clients.
+
+- Banner message: `Provider sign-in required`
+- Web banner action: `Go to Settings`
+- Mobile banner action: `Open Settings`
+- Status labels: `Connected`, `Not connected`
+- Error labels: `Access denied`, `Code expired`, `Connection failed`
+
+This keeps chat redirect and provider-row semantics consistent across web and mobile.
+
+## Smoke matrix
+
+Latest smoke results: `docs/provider-auth-smoke-matrix.md`
+
 ## Credential storage
 
 Default location:

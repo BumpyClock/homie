@@ -1,4 +1,5 @@
 import { AlertTriangle, ChevronRight } from "lucide-react";
+import { AUTH_COPY } from "@homie/shared";
 
 interface AuthRedirectBannerProps {
   /** Controls visibility/animation */
@@ -24,7 +25,7 @@ interface AuthRedirectBannerProps {
 export function AuthRedirectBanner({
   visible,
   message,
-  actionLabel = "Go to Settings",
+  actionLabel = AUTH_COPY.bannerActionWeb,
   onAction,
 }: AuthRedirectBannerProps) {
   return (

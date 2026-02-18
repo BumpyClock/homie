@@ -7,6 +7,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { AUTH_COPY } from '@homie/shared';
 import type { ChatAccountProviderStatus } from '@homie/shared';
 import type { ProviderAuthState } from '@homie/shared';
 
@@ -101,7 +102,7 @@ export function ProviderRow({
             <Text style={[styles.errorText, { color: palette.danger }]}>{errorMessage}</Text>
           ) : null}
           {status === 'idle' && !provider.loggedIn ? (
-            <Text style={[styles.meta, { color: palette.textSecondary }]}>Not connected</Text>
+            <Text style={[styles.meta, { color: palette.textSecondary }]}>{AUTH_COPY.statusNotConnected}</Text>
           ) : null}
           {status === 'starting' ? (
             <Text style={[styles.meta, { color: palette.textSecondary }]}>
@@ -112,7 +113,7 @@ export function ProviderRow({
 
         <View style={styles.actionColumn}>
           {status === 'authorized' ? (
-            <StatusPill compact label="Connected" tone="success" />
+            <StatusPill compact label={AUTH_COPY.statusConnected} tone="success" />
           ) : (
             <Pressable
               onPress={handleAction}
@@ -173,7 +174,7 @@ function actionButtonLabel(status: string): string {
 function statusAccessibilityLabel(status: string): string {
   switch (status) {
     case 'authorized':
-      return 'connected';
+      return AUTH_COPY.statusConnected.toLowerCase();
     case 'starting':
       return 'connecting';
     case 'polling':
@@ -183,7 +184,7 @@ function statusAccessibilityLabel(status: string): string {
     case 'expired':
       return 'connection failed';
     default:
-      return 'not connected';
+      return AUTH_COPY.statusNotConnected.toLowerCase();
   }
 }
 
