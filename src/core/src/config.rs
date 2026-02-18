@@ -34,6 +34,12 @@ pub struct ServerConfig {
     pub pairing_default_ttl_secs: u64,
     /// Retention window for notification records, in days.
     pub notification_retention_days: u64,
+    /// Retention window for cron run records, in days.
+    pub cron_retention_days: u64,
+    /// Maximum number of cron run records to retain per cron id.
+    pub cron_max_run_records: usize,
+    /// Maximum number of concurrently running cron jobs.
+    pub cron_max_concurrent_runs: usize,
 }
 
 impl Default for ServerConfig {
@@ -53,6 +59,9 @@ impl Default for ServerConfig {
             pairing_retention_secs: 86_400,
             pairing_default_ttl_secs: 300,
             notification_retention_days: 30,
+            cron_retention_days: 30,
+            cron_max_run_records: 500,
+            cron_max_concurrent_runs: 5,
         }
     }
 }

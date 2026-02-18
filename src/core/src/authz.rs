@@ -21,6 +21,8 @@ pub enum Scope {
     PresenceWrite,
     JobsRead,
     JobsWrite,
+    CronRead,
+    CronWrite,
     PairingRead,
     PairingWrite,
     NotificationsRead,
@@ -54,6 +56,8 @@ impl AuthContext {
                     | Scope::Events
                     | Scope::PresenceRead
                     | Scope::PresenceWrite
+                    | Scope::CronRead
+                    | Scope::CronWrite
             ),
             Role::Viewer => matches!(
                 scope,
@@ -123,6 +127,9 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
         }
         "jobs.status" | "jobs.logs.tail" => Some(Scope::JobsRead),
         "jobs.start" | "jobs.cancel" => Some(Scope::JobsWrite),
+        "cron.list" | "cron.status" | "cron.runs" | "cron.logs.tail" => Some(Scope::CronRead),
+        "cron.add" | "cron.update" | "cron.remove" | "cron.run" | "cron.run.force"
+        | "cron.start" | "cron.cancel" => Some(Scope::CronWrite),
         "pairing.list" => Some(Scope::PairingRead),
         "pairing.request" | "pairing.approve" | "pairing.revoke" => Some(Scope::PairingWrite),
         "notifications.list" => Some(Scope::NotificationsRead),
@@ -131,5 +138,25 @@ pub fn scope_for_method(method: &str) -> Option<Scope> {
             Some(Scope::Events)
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{scope_for_method, Scope};
+
+    #[test]
+    fn cron_methods_map_to_cron_scopes() {
+        assert_eq!(scope_for_method("cron.start"), Some(Scope::CronWrite));
+        assert_eq!(scope_for_method("cron.cancel"), Some(Scope::CronWrite));
+        assert_eq!(scope_for_method("cron.add"), Some(Scope::CronWrite));
+        assert_eq!(scope_for_method("cron.update"), Some(Scope::CronWrite));
+        assert_eq!(scope_for_method("cron.remove"), Some(Scope::CronWrite));
+        assert_eq!(scope_for_method("cron.run"), Some(Scope::CronWrite));
+        assert_eq!(scope_for_method("cron.run.force"), Some(Scope::CronWrite));
+        assert_eq!(scope_for_method("cron.status"), Some(Scope::CronRead));
+        assert_eq!(scope_for_method("cron.runs"), Some(Scope::CronRead));
+        assert_eq!(scope_for_method("cron.logs.tail"), Some(Scope::CronRead));
+        assert_eq!(scope_for_method("cron.list"), Some(Scope::CronRead));
     }
 }

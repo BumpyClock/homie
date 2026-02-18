@@ -254,4 +254,7 @@ Behavior:
 - `HOMIE_TAILSCALE=1` (enables Tailscale Serve behavior)
 - `HOMIE_TAILSCALE_SERVE=1` (auto `tailscale serve https /` for the bind port)
 - `HOMIE_DB_PATH` (override sqlite path; default `homie.db`)
+- `HOMIE_CRON_RETENTION_DAYS` (prune completed cron runs older than this many days; default `30`)
+- `HOMIE_CRON_MAX_RUN_RECORDS` (retain at most this many cron runs per cron id; default `500`)
+- `HOMIE_CRON_MAX_CONCURRENT_RUNS` (global cron run concurrency cap; default `5`)
 - `HOMIE_LOG` / `RUST_LOG` (logging filter)

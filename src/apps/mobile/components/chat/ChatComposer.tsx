@@ -3,6 +3,7 @@
 
 import { Activity, ArrowUp, ChevronDown, Cpu, Shield, Sparkles, Square, Users, X } from 'lucide-react-native';
 import type { ChatEffort, ChatPermissionMode, CollaborationModeOption, ModelOption, ReasoningEffortOption, SkillOption } from '@homie/shared';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -39,7 +40,11 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const SEND_SPRING = { damping: 14, stiffness: 200, mass: 0.6 } as const;
 const SLASH_TRIGGER_REGEX = /(?:^|\s)\/([\w-]*)$/;
 
+const DRAFT_KEY_PREFIX = '@draft:';
+const DRAFT_DEBOUNCE_MS = 500;
+
 interface ChatComposerProps {
+  chatId?: string | null;
   disabled?: boolean;
   sending?: boolean;
   isRunning?: boolean;
@@ -62,6 +67,7 @@ interface ChatComposerProps {
 }
 
 export function ChatComposer({
+  chatId = null,
   disabled = false,
   sending = false,
   isRunning = false,
@@ -97,6 +103,51 @@ export function ChatComposer({
     query: string;
   } | null>(null);
   const inputRef = useRef<TextInput>(null);
+
+  /* ── Draft persistence ────────────────────────────────── */
+  // Track current value in a ref so cleanup/save callbacks always see latest text
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
+  // Load draft when chatId changes; save previous draft on cleanup
+  useEffect(() => {
+    if (!chatId) return;
+
+    let cancelled = false;
+    const key = `${DRAFT_KEY_PREFIX}${chatId}`;
+
+    AsyncStorage.getItem(key).then((stored) => {
+      if (!cancelled && stored != null) setValue(stored);
+    });
+
+    return () => {
+      cancelled = true;
+      // Save whatever was typed before switching away
+      const current = valueRef.current.trim();
+      if (current) {
+        void AsyncStorage.setItem(key, current);
+      } else {
+        void AsyncStorage.removeItem(key);
+      }
+    };
+  }, [chatId]);
+
+  // Debounce-save draft as user types
+  useEffect(() => {
+    if (!chatId) return;
+
+    const timer = setTimeout(() => {
+      const key = `${DRAFT_KEY_PREFIX}${chatId}`;
+      const draft = value.trim();
+      if (draft) {
+        void AsyncStorage.setItem(key, draft);
+      } else {
+        void AsyncStorage.removeItem(key);
+      }
+    }, DRAFT_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+  }, [chatId, value]);
 
   const trimmed = value.trim();
   const canSend = !disabled && !sending && trimmed.length > 0;
@@ -235,10 +286,14 @@ export function ChatComposer({
     }
     try {
       await onSend(draft);
+      // Clear persisted draft on successful send
+      if (chatId) {
+        void AsyncStorage.removeItem(`${DRAFT_KEY_PREFIX}${chatId}`);
+      }
     } catch {
       setValue(draft);
     }
-  }, [canSend, trimmed, onSend]);
+  }, [canSend, trimmed, onSend, chatId]);
 
   useEffect(() => {
     const duration = reducedMotion ? 0 : 150;

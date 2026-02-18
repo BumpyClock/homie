@@ -102,12 +102,18 @@ importers:
       '@types/react':
         specifier: ~19.1.17
         version: 19.1.17
+      jsdom:
+        specifier: ^28.1.0
+        version: 28.1.0
       react-test-renderer:
         specifier: 19.1.0
         version: 19.1.0(react@19.1.0)
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@24.10.13)(jiti@2.6.1)(jsdom@28.1.0)(lightningcss@1.31.1)(terser@5.46.0)(yaml@2.8.2)
 
   src/apps/shared:
     devDependencies:

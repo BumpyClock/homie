@@ -209,6 +209,51 @@ function asBoolean(value: unknown): boolean | null {
   return null;
 }
 
+function normalizeRawSkillEntries(value: unknown): unknown[] {
+  const entries: unknown[] = [];
+
+  if (!value) {
+    return entries;
+  }
+
+  if (Array.isArray(value)) {
+    for (const candidate of value) {
+      if (Array.isArray(candidate)) {
+        entries.push(...candidate);
+        continue;
+      }
+
+      const item = asObject(candidate);
+      if (!item) {
+        continue;
+      }
+
+      if (Array.isArray(item.skills)) {
+        entries.push(...normalizeRawSkillEntries(item.skills));
+        continue;
+      }
+
+      entries.push(candidate);
+    }
+    return entries;
+  }
+
+  const record = asObject(value);
+  if (!record) {
+    return entries;
+  }
+
+  if (Array.isArray(record.data)) {
+    entries.push(...normalizeRawSkillEntries(record.data));
+  }
+
+  if (Array.isArray(record.skills)) {
+    entries.push(...normalizeRawSkillEntries(record.skills));
+  }
+
+  return entries;
+}
+
 function parseChatThreadRef(raw: unknown): ChatCreateResult {
   const record = asObject(raw) ?? {};
   return {
@@ -587,19 +632,27 @@ export function normalizeCollaborationModes(raw: unknown): CollaborationModeOpti
 }
 
 export function normalizeSkillOptions(raw: unknown): SkillOption[] {
+  if (Array.isArray(raw)) {
+    return normalizeSkillOptions({ skills: raw });
+  }
+
   const record = asObject(raw);
   if (!record) return [];
 
   const result = asObject(record.result) ?? {};
-  const dataBuckets = result.data ?? record.data ?? [];
-  const rawSkills =
-    result.skills ??
-    record.skills ??
-    (Array.isArray(dataBuckets)
-      ? dataBuckets.flatMap((bucket) => asObject(bucket)?.skills ?? [])
-      : []);
+  const dataCandidates = [
+    record.data,
+    result.data,
+    record.skills,
+    result.skills,
+    record,
+    result,
+  ];
 
-  if (!Array.isArray(rawSkills)) return [];
+  const rawSkills = dataCandidates.flatMap((candidate) => normalizeRawSkillEntries(candidate));
+  if (rawSkills.length === 0) return [];
+
+  const seen = new Set<string>();
 
   return rawSkills
     .map((entry) => {
@@ -610,7 +663,13 @@ export function normalizeSkillOptions(raw: unknown): SkillOption[] {
         description: asString(item.description) || undefined,
       };
     })
-    .filter((skill) => skill.name);
+    .filter((skill) => {
+      if (!skill.name) return false;
+      const key = `${skill.name}\0${skill.path || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 export function normalizeFileOptions(raw: unknown): FileOption[] {

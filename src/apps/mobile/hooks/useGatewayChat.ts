@@ -168,6 +168,8 @@ const SELECTED_MODEL_KEY = 'homie.mobile.selected_model';
 const SELECTED_EFFORT_KEY = 'homie.mobile.selected_effort';
 const SELECTED_PERMISSION_KEY = 'homie.mobile.selected_permission';
 const SELECTED_COLLABORATION_MODE_KEY = 'homie.mobile.selected_collaboration_mode';
+const THREAD_CACHE_KEY_PREFIX = 'homie.mobile.thread_cache';
+const THREAD_CACHE_MAX = 50;
 
 function storageKeyForGatewayTarget(gatewayUrl: string): string | null {
   const normalized = gatewayUrl.trim();
@@ -179,6 +181,36 @@ function normalizeStoredChatId(raw: string | null): string | null {
   if (!raw) return null;
   const normalized = raw.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function threadCacheKey(gatewayUrl: string): string {
+  return `${THREAD_CACHE_KEY_PREFIX}:${encodeURIComponent(gatewayUrl.trim())}`;
+}
+
+async function saveThreadCache(
+  gatewayUrl: string,
+  threads: ChatThreadSummary[],
+): Promise<void> {
+  try {
+    const bounded = threads.slice(0, THREAD_CACHE_MAX);
+    await AsyncStorage.setItem(threadCacheKey(gatewayUrl), JSON.stringify(bounded));
+  } catch {
+    // Best-effort — don't disrupt main flow
+  }
+}
+
+async function loadThreadCache(
+  gatewayUrl: string,
+): Promise<ChatThreadSummary[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(threadCacheKey(gatewayUrl));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed as ChatThreadSummary[];
+  } catch {
+    return null;
+  }
 }
 
 export function useGatewayChat(
@@ -286,6 +318,13 @@ export function useGatewayChat(
       setRestoringSelection(false);
       return;
     }
+
+    // Load cached threads so they render immediately before gateway connects
+    void loadThreadCache(gatewayUrl).then((cached) => {
+      if (cancelled || !cached || cached.length === 0) return;
+      // Only populate if no fresh threads have arrived yet
+      setThreads((current) => (current.length === 0 ? cached : current));
+    });
 
     setRestoringSelection(true);
     void AsyncStorage.getItem(storageKey)
@@ -436,6 +475,7 @@ export function useGatewayChat(
       const nextThreads = sortThreads(buildChatThreadSummaries(records));
       setThreads(nextThreads);
       setError(null);
+      void saveThreadCache(gatewayUrl, nextThreads);
       for (const thread of nextThreads) {
         void hydrateThread(thread.chatId, thread.threadId);
       }
@@ -444,7 +484,7 @@ export function useGatewayChat(
     } finally {
       setLoadingThreads(false);
     }
-  }, [hydrateThread]);
+  }, [gatewayUrl, hydrateThread]);
 
   const refreshAccountProviders = useCallback(async () => {
     const chatClient = chatClientRef.current;

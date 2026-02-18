@@ -27,6 +27,18 @@ type WebTerminalEvent =
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'error'; message: string };
 
+function fallbackDecodeUtf8(payload: Uint8Array): string {
+  const chunkSize = 2048;
+  let output = '';
+  for (let index = 0; index < payload.length; index += chunkSize) {
+    const segment = payload.subarray(index, index + chunkSize);
+    output += String.fromCharCode(...segment);
+  }
+  return output;
+}
+
+type Decoder = (payload: ArrayBuffer | Uint8Array) => string;
+
 const ACCESSORY_KEYS = [
   { id: 'tab', label: 'Tab', data: '\t' },
   { id: 'ctrl_c', label: '^C', data: '\u0003' },
@@ -65,8 +77,31 @@ const TERMINAL_HTML = `<!doctype html>
   </head>
   <body>
     <div id="terminal"></div>
-    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm/lib/xterm.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script>
+      if (typeof globalThis === 'undefined') {
+        window.globalThis = window;
+      }
+    </script>
+    <script>
+      window.__homiePostError = (message, detail) => {
+        if (!window.ReactNativeWebView) {
+          return;
+        }
+        const payload = {
+          type: 'error',
+          message: detail ? message + ': ' + detail : message,
+        };
+        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      };
+    </script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@xterm/xterm/lib/xterm.js"
+      onerror="window.__homiePostError && window.__homiePostError('xterm.js failed to load')"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit/lib/addon-fit.js"
+      onerror="window.__homiePostError && window.__homiePostError('xterm addon-fit failed to load')"
+    ></script>
     <script>
       (function() {
         const post = (payload) => {
@@ -74,6 +109,29 @@ const TERMINAL_HTML = `<!doctype html>
             window.ReactNativeWebView.postMessage(JSON.stringify(payload));
           }
         };
+
+        const postError = (message, detail) => {
+          post({
+            type: 'error',
+            message: detail ? message + ': ' + detail : message,
+          });
+        };
+
+        window.addEventListener('error', (event) => {
+          const message = event.message || 'webview runtime error';
+          const detail = event.error && event.error.message
+            ? event.error.message
+            : event.filename
+              ? event.filename + ':' + event.lineno
+              : '';
+          postError(message, detail);
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+          const reason = event.reason;
+          const message = reason && reason.message ? reason.message : String(reason);
+          postError('Unhandled promise rejection', message);
+        });
 
         try {
           const terminal = new window.Terminal({
@@ -160,7 +218,15 @@ export function MobileTerminalPane({
 }: MobileTerminalPaneProps) {
   const { palette } = useAppTheme();
   const webViewRef = useRef<WebView>(null);
-  const decoderRef = useRef(new TextDecoder());
+  const decoderRef = useRef<TextDecoder | null>(
+    typeof TextDecoder === 'function' ? new TextDecoder() : null,
+  );
+  const decodePayload = useRef<Decoder>((payload: ArrayBuffer | Uint8Array): string => {
+    if (decoderRef.current) {
+      return decoderRef.current.decode(payload, { stream: true });
+    }
+    return fallbackDecodeUtf8(payload instanceof Uint8Array ? payload : new Uint8Array(payload));
+  });
   const activeSessionRef = useRef<string | null>(null);
   const terminalReadyRef = useRef(false);
   const pendingWritesRef = useRef<string[]>([]);
@@ -212,7 +278,7 @@ export function MobileTerminalPane({
       }
       if (!activeSessionRef.current || frame.sessionId !== activeSessionRef.current) return;
       if (frame.stream !== StreamType.Stdout && frame.stream !== StreamType.Stderr) return;
-      const chunk = decoderRef.current.decode(frame.payload, { stream: true });
+      const chunk = decodePayload.current(frame.payload);
       writeToTerminal(chunk);
     });
     return unsubscribe;
@@ -225,6 +291,7 @@ export function MobileTerminalPane({
     setInfoExpanded(false);
     infoAnim.setValue(0);
     pendingWritesRef.current = [];
+    decoderRef.current = typeof TextDecoder === 'function' ? new TextDecoder() : null;
     if (!sessionId) {
       clearTerminal();
     }

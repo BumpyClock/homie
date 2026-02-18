@@ -369,8 +369,8 @@ async fn web_fetch_inner(
     // Firecrawl-first path: try Firecrawl before native fetch
     if resolved_backend == ResolvedBackend::Firecrawl {
         // SSRF check before sending URL to Firecrawl
-        let parsed_url = Url::parse(url)
-            .map_err(|_| RociError::InvalidArgument("invalid url".into()))?;
+        let parsed_url =
+            Url::parse(url).map_err(|_| RociError::InvalidArgument("invalid url".into()))?;
         if !matches!(parsed_url.scheme(), "http" | "https") {
             return Err(RociError::InvalidArgument("invalid url scheme".into()));
         }
@@ -422,8 +422,7 @@ async fn web_fetch_inner(
     let fetch_result = fetch_with_redirects(&client, url, max_redirects, &user_agent).await;
 
     // Only allow Firecrawl fallback when resolved to Native (haven't already tried Firecrawl)
-    let allow_firecrawl_fallback =
-        resolved_backend == ResolvedBackend::Native && firecrawl_enabled;
+    let allow_firecrawl_fallback = resolved_backend == ResolvedBackend::Native && firecrawl_enabled;
 
     let (response, final_url) = match fetch_result {
         Ok(res) => res,
@@ -1719,13 +1718,7 @@ mod tests {
 
         // Firecrawl with non-empty base_url returns Firecrawl
         assert_eq!(
-            resolve_backend(
-                WebFetchBackend::Firecrawl,
-                "https://fc.local",
-                None,
-                30
-            )
-            .await,
+            resolve_backend(WebFetchBackend::Firecrawl, "https://fc.local", None, 30).await,
             ResolvedBackend::Firecrawl
         );
 

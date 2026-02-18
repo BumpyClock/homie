@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::homie_config::{ToolProviderConfig, ToolsConfig};
 
-use super::{apply_patch, browser, exec, fs, process, web, ToolContext};
+use super::{apply_patch, browser, cron, exec, fs, process, web, ToolContext};
 
 pub trait ToolProvider: Send + Sync {
     fn id(&self) -> &'static str;
@@ -48,6 +48,7 @@ impl ToolProvider for CoreToolProvider {
             exec::exec_tool(ctx.clone()),
             process::process_tool(ctx.clone()),
             browser::browser_tool(ctx.clone()),
+            cron::cron_tool(ctx.clone()),
         ];
         if let Some(tool) = web::web_fetch_tool(ctx.clone()) {
             tools.push(tool);

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function trimTrailingDot(value) {
   return value.endsWith(".") ? value.slice(0, -1) : value;
@@ -35,6 +37,8 @@ function resolveExpoHostname() {
   return detectTailscaleDnsName();
 }
 
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const projectRoot = resolve(scriptDir, "..");
 const hostname = resolveExpoHostname();
 const nextEnv = { ...process.env };
 
@@ -60,6 +64,7 @@ if (hostname) {
 const result = spawnSync("pnpm", ["exec", "expo", "start", ...process.argv.slice(2)], {
   stdio: "inherit",
   env: nextEnv,
+  cwd: projectRoot,
 });
 
 if (typeof result.status === "number") {

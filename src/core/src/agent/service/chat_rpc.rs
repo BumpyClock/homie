@@ -5,24 +5,16 @@ use uuid::Uuid;
 use crate::agent::roci_backend::RociBackend;
 use crate::storage::SessionStatus;
 
-use crate::agent::service::core::CodexChatCore;
+use super::files::{extract_attached_folder, search_files_in_folder};
 use super::models::{chrono_now, extract_id_from_result};
 use super::params::{
-    build_chat_settings,
-    merge_settings,
-    normalize_model_selector,
-    normalize_settings_models,
-    parse_files_search_params,
-    parse_message_params,
-    parse_resume_params,
-    parse_settings_update_params,
-    parse_thread_archive_params,
-    parse_thread_read_params,
+    build_chat_settings, merge_settings, normalize_model_selector, normalize_settings_models,
+    parse_cancel_params, parse_files_search_params, parse_message_params, parse_resume_params,
+    parse_settings_update_params, parse_thread_archive_params, parse_thread_read_params,
     parse_thread_rename_params,
-    parse_cancel_params,
 };
+use crate::agent::service::core::CodexChatCore;
 use crate::storage::ChatRecord;
-use super::files::{extract_attached_folder, search_files_in_folder};
 
 impl CodexChatCore {
     pub(super) async fn chat_create(&mut self, req_id: Uuid) -> Response {
@@ -179,7 +171,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) async fn chat_message_send(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+    pub(super) async fn chat_message_send(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
         let (chat_id, message, model, effort, approval_policy, collaboration_mode, inject) =
             match parse_message_params(&params) {
                 Some(v) => v,
@@ -270,7 +266,10 @@ impl CodexChatCore {
                 .await
             {
                 Ok(turn_id) => {
-                    return Response::success(req_id, json!({ "chat_id": chat_id, "turn_id": turn_id }))
+                    return Response::success(
+                        req_id,
+                        json!({ "chat_id": chat_id, "turn_id": turn_id }),
+                    )
                 }
                 Err(e) => {
                     return Response::error(
@@ -402,7 +401,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) async fn chat_thread_read(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+    pub(super) async fn chat_thread_read(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
         let (chat_id, thread_id, include_turns) = match parse_thread_read_params(&params) {
             Some(v) => v,
             None => {
@@ -493,7 +496,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) async fn chat_thread_list(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+    pub(super) async fn chat_thread_list(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
         if self.use_roci() {
             let threads = self.roci.thread_list().await;
             return Response::success(req_id, json!({ "threads": threads }));
@@ -579,7 +586,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) async fn chat_thread_archive(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+    pub(super) async fn chat_thread_archive(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
         let (chat_id, thread_id_param) = match parse_thread_archive_params(&params) {
             Some(v) => v,
             None => {
@@ -629,7 +640,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) async fn chat_thread_rename(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+    pub(super) async fn chat_thread_rename(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
         let (chat_id, thread_id_param, title) = match parse_thread_rename_params(&params) {
             Some(v) => v,
             None => {

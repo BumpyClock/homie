@@ -15,6 +15,7 @@ use tower_http::trace::TraceLayer;
 use crate::auth::{authenticate, AuthOutcome, TailscaleWhois};
 use crate::config::ServerConfig;
 use crate::connection::{run_connection, ConnectionParams};
+use crate::cron::{spawn_cron_scheduler, CronRunner};
 use crate::presence::NodeRegistry;
 use crate::router::{ReapEvent, ServiceRegistry};
 use crate::storage::Store;
@@ -31,6 +32,7 @@ pub(crate) struct AppState {
     pub nodes: Arc<Mutex<NodeRegistry>>,
     pub terminal_registry: Arc<Mutex<TerminalRegistry>>,
     pub event_tx: broadcast::Sender<ReapEvent>,
+    pub cron_runner: Arc<CronRunner>,
     pub homie_config: Arc<HomieConfig>,
     pub exec_policy: Arc<ExecPolicy>,
 }
@@ -48,7 +50,6 @@ pub fn build_router(
     whois: impl TailscaleWhois,
     store: Arc<dyn Store>,
 ) -> Router {
-    // Mark previous sessions inactive on restart.
     if let Err(e) = store.mark_all_inactive() {
         tracing::warn!("failed to mark sessions inactive on startup: {e}");
     }
@@ -61,6 +62,22 @@ pub fn build_router(
     if let Err(e) = store.prune_notifications(config.notification_retention_days) {
         tracing::warn!("failed to prune notifications on startup: {e}");
     }
+    if let Err(e) = store.prune_cron_runs(config.cron_retention_days, config.cron_max_run_records) {
+        tracing::warn!("failed to prune cron runs on startup: {e}");
+    }
+
+    let terminal_registry = Arc::new(Mutex::new(TerminalRegistry::new(store.clone())));
+    let (event_tx, _event_rx) = broadcast::channel::<ReapEvent>(256);
+    let cron_runner = Arc::new(CronRunner::new(
+        store.clone(),
+        config.cron_max_concurrent_runs,
+        event_tx.clone(),
+    ));
+    let _cron_scheduler = spawn_cron_scheduler(
+        cron_runner.clone(),
+        config.cron_retention_days,
+        config.cron_max_run_records,
+    );
 
     let mut registry = ServiceRegistry::new();
     registry.register("terminal", "1.0");
@@ -68,14 +85,13 @@ pub fn build_router(
     registry.register("chat", "1.0");
     registry.register("presence", "1.0");
     registry.register("jobs", "0.1");
+    registry.register("cron", "0.1");
     registry.register("pairing", "0.1");
     registry.register("notifications", "0.1");
 
     let homie_config = load_homie_config();
     let exec_policy = load_exec_policy(&homie_config);
     let nodes = Arc::new(Mutex::new(NodeRegistry::new(config.node_timeout)));
-    let terminal_registry = Arc::new(Mutex::new(TerminalRegistry::new(store.clone())));
-    let (event_tx, _event_rx) = broadcast::channel::<ReapEvent>(256);
 
     let reaper_registry = terminal_registry.clone();
     let reaper_tx = event_tx.clone();
@@ -105,6 +121,7 @@ pub fn build_router(
         nodes,
         terminal_registry,
         event_tx,
+        cron_runner,
         homie_config,
         exec_policy,
     };
@@ -117,7 +134,6 @@ pub fn build_router(
         .with_state(state)
 }
 
-/// Extension type for the remote IP, injected by middleware.
 #[derive(Debug, Clone, Copy)]
 struct RemoteIp(IpAddr);
 
@@ -175,6 +191,7 @@ async fn ws_upgrade(
     let store = state.store.clone();
     let config = state.config.clone();
     let homie_config = state.homie_config.clone();
+    let cron_runner = state.cron_runner.clone();
     let exec_policy = state.exec_policy.clone();
     let nodes = state.nodes.clone();
     let terminal_registry = state.terminal_registry.clone();
@@ -188,6 +205,7 @@ async fn ws_upgrade(
         nodes,
         terminal_registry,
         event_tx,
+        cron_runner,
         homie_config,
         exec_policy,
         pairing_default_ttl_secs: state.config.pairing_default_ttl_secs,

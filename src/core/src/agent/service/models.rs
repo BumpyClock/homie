@@ -135,10 +135,7 @@ pub(super) fn append_openai_compatible_models(models: &mut Vec<Value>, compat_mo
     }
 }
 
-pub(super) fn replace_github_copilot_models(
-    models: &mut Vec<Value>,
-    copilot_models: Vec<String>,
-) {
+pub(super) fn replace_github_copilot_models(models: &mut Vec<Value>, copilot_models: Vec<String>) {
     if copilot_models.is_empty() {
         return;
     }
@@ -177,7 +174,9 @@ pub(super) fn replace_github_copilot_models(
     }
 }
 
-pub(super) async fn discover_github_copilot_models(auth: &GitHubCopilotAuth) -> Result<Vec<String>, String> {
+pub(super) async fn discover_github_copilot_models(
+    auth: &GitHubCopilotAuth,
+) -> Result<Vec<String>, String> {
     let token = auth
         .exchange_copilot_token()
         .await

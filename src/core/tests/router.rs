@@ -265,6 +265,51 @@ async fn jobs_start_and_status_returns_job() {
 }
 
 #[tokio::test]
+async fn cron_start_and_status_is_routed() {
+    let addr = start_server(ServerConfig::default()).await;
+    let mut ws = connect_and_handshake(addr).await;
+
+    let result = rpc(
+        &mut ws,
+        "cron.start",
+        Some(json!({
+            "name": "nightly-clean",
+            "schedule": "* * * * * *",
+            "command": "echo tidy",
+        })),
+    )
+    .await;
+
+    let cron_id = result["cron"]["cron_id"].as_str().unwrap().to_string();
+    let status = rpc(&mut ws, "cron.status", Some(json!({ "cron_id": cron_id }))).await;
+    assert_eq!(status["cron"]["status"], "active");
+}
+
+#[tokio::test]
+async fn handshake_includes_cron_service() {
+    let addr = start_server(ServerConfig::default()).await;
+    let url = format!("ws://{addr}/ws");
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    let hello = serde_json::to_string(&ClientHello {
+        protocol: VersionRange::new(1, 1),
+        client_id: "test-client/0.1.0".into(),
+        auth_token: None,
+        capabilities: vec![],
+    })
+    .unwrap();
+    ws.send(text_msg(hello)).await.unwrap();
+
+    let text = next_text(&mut ws).await;
+    let resp: HandshakeResponse = serde_json::from_str(&text).unwrap();
+    let services = match resp {
+        HandshakeResponse::Hello(h) => h.services,
+        _ => panic!("expected server hello"),
+    };
+    assert!(services.iter().any(|service| service.service == "cron"));
+}
+
+#[tokio::test]
 async fn pairing_request_and_approve_updates_status() {
     let addr = start_server(ServerConfig::default()).await;
     let mut ws = connect_and_handshake(addr).await;

@@ -1,17 +1,17 @@
 mod tests {
     use crate::agent::process::CodexRequestId;
+    use crate::agent::service::dispatch::{AgentService, ChatService};
     use crate::agent::service::events::codex_method_to_topics;
     use crate::agent::service::models::{chrono_now, roci_model_catalog};
     use crate::agent::service::params::{
         normalize_model_selector, parse_approval_params, parse_cancel_params, parse_message_params,
         parse_tool_channel,
     };
-    use crate::agent::service::dispatch::{AgentService, ChatService};
     use crate::execpolicy::ExecPolicy;
     use crate::homie_config::{HomieConfig, ProvidersConfig};
     use crate::outbound::OutboundMessage;
-    use crate::ServiceHandler;
     use crate::storage::{ChatRecord, SessionStatus, SqliteStore, Store};
+    use crate::ServiceHandler;
     use homie_protocol::error_codes;
     use serde_json::json;
     use std::sync::Arc;

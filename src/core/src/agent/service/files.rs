@@ -51,7 +51,11 @@ pub(super) fn normalize_search_root(base: &str) -> PathBuf {
     path
 }
 
-pub(super) fn search_files_in_folder(base: &str, query: &str, limit: usize) -> Result<Vec<Value>, String> {
+pub(super) fn search_files_in_folder(
+    base: &str,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<Value>, String> {
     if query.trim().is_empty() {
         return Ok(Vec::new());
     }

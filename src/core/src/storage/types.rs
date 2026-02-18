@@ -66,6 +66,95 @@ pub struct TerminalRecord {
     pub exit_code: Option<u32>,
 }
 
+/// Status for a scheduled cron job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CronStatus {
+    Active,
+    Paused,
+}
+
+impl CronStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Paused => "paused",
+        }
+    }
+
+    pub fn from_label(s: &str) -> Self {
+        match s {
+            "active" => Self::Active,
+            _ => Self::Paused,
+        }
+    }
+}
+
+/// Persisted cron job metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CronRecord {
+    pub cron_id: String,
+    pub name: String,
+    pub schedule: String,
+    pub command: String,
+    pub status: CronStatus,
+    /// Skip a new run if another run is still executing.
+    pub skip_overlap: bool,
+    pub created_at: u64,
+    pub updated_at: u64,
+    /// Next scheduled unix epoch for the cron expression.
+    pub next_run_at: Option<u64>,
+    /// Last run's scheduled unix epoch.
+    pub last_run_at: Option<u64>,
+}
+
+/// Status for an individual cron run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CronRunStatus {
+    Queued,
+    Running,
+    Succeeded,
+    Failed,
+    Skipped,
+}
+
+impl CronRunStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+        }
+    }
+
+    pub fn from_label(s: &str) -> Self {
+        match s {
+            "running" => Self::Running,
+            "succeeded" => Self::Succeeded,
+            "failed" => Self::Failed,
+            "skipped" => Self::Skipped,
+            _ => Self::Queued,
+        }
+    }
+}
+
+/// Persisted cron run metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CronRunRecord {
+    pub run_id: String,
+    pub cron_id: String,
+    pub scheduled_at: u64,
+    pub started_at: Option<u64>,
+    pub finished_at: Option<u64>,
+    pub status: CronRunStatus,
+    pub exit_code: Option<i64>,
+    pub output: Option<String>,
+    pub error: Option<String>,
+}
+
 /// Status of a job record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

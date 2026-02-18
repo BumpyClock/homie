@@ -21,7 +21,6 @@ use crate::auth::AuthOutcome;
 use crate::authz::{context_for_outcome, scope_for_method, AuthContext, Scope};
 use crate::config::ServerConfig;
 use crate::debug_bytes::{fmt_bytes, terminal_debug_enabled_for};
-use crate::jobs::JobsService;
 use crate::notifications::NotificationsService;
 use crate::outbound::OutboundMessage;
 use crate::pairing::PairingService;
@@ -29,6 +28,7 @@ use crate::presence::{NodeRegistry, PresenceService};
 use crate::router::{MessageRouter, ServiceRegistry, SubscriptionManager};
 use crate::storage::Store;
 use crate::terminal::{TerminalRegistry, TerminalService};
+use crate::{CronService, JobsService};
 use crate::{ExecPolicy, HomieConfig};
 
 /// Represents an authenticated WS connection after handshake.
@@ -51,6 +51,7 @@ pub struct ConnectionParams {
     pub nodes: Arc<Mutex<NodeRegistry>>,
     pub terminal_registry: Arc<Mutex<TerminalRegistry>>,
     pub event_tx: broadcast::Sender<crate::router::ReapEvent>,
+    pub cron_runner: Arc<crate::cron::CronRunner>,
     pub homie_config: Arc<HomieConfig>,
     pub exec_policy: Arc<ExecPolicy>,
     pub pairing_default_ttl_secs: u64,
@@ -68,6 +69,7 @@ struct MessageLoopParams {
     nodes: Arc<Mutex<NodeRegistry>>,
     terminal_registry: Arc<Mutex<TerminalRegistry>>,
     event_tx: broadcast::Sender<crate::router::ReapEvent>,
+    cron_runner: Arc<crate::cron::CronRunner>,
     homie_config: Arc<HomieConfig>,
     exec_policy: Arc<ExecPolicy>,
     pairing_default_ttl_secs: u64,
@@ -86,6 +88,7 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
         nodes,
         terminal_registry,
         event_tx,
+        cron_runner,
         homie_config,
         exec_policy,
         pairing_default_ttl_secs,
@@ -181,6 +184,7 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
         nodes,
         terminal_registry,
         event_tx,
+        cron_runner,
         homie_config,
         exec_policy,
         pairing_default_ttl_secs,
@@ -206,6 +210,7 @@ async fn run_message_loop(
         nodes,
         terminal_registry,
         event_tx,
+        cron_runner,
         homie_config,
         exec_policy,
         pairing_default_ttl_secs,
@@ -241,6 +246,10 @@ async fn run_message_loop(
         store.clone(),
         pairing_default_ttl_secs,
         pairing_retention_secs,
+    )));
+    router.register(Box::new(CronService::new(
+        store.clone(),
+        cron_runner.clone(),
     )));
     router.register(Box::new(NotificationsService::new(
         store.clone(),

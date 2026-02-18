@@ -3,8 +3,9 @@ mod types;
 
 pub use sqlite::SqliteStore;
 pub use types::{
-    ChatRawEventRecord, ChatRecord, JobRecord, JobStatus, NotificationEvent,
-    NotificationSubscription, PairingRecord, PairingStatus, SessionStatus, TerminalRecord,
+    ChatRawEventRecord, ChatRecord, CronRecord, CronRunRecord, CronRunStatus, CronStatus,
+    JobRecord, JobStatus, NotificationEvent, NotificationSubscription, PairingRecord,
+    PairingStatus, SessionStatus, TerminalRecord,
 };
 
 use uuid::Uuid;
@@ -125,4 +126,37 @@ pub trait Store: Send + Sync + 'static {
 
     /// Prune raw provider events to keep only the latest runs.
     fn prune_chat_raw_events(&self, max_runs: usize) -> Result<(), String>;
+
+    /// Persist or update a cron record.
+    fn upsert_cron(&self, cron: &CronRecord) -> Result<(), String>;
+
+    /// Get a cron by ID.
+    fn get_cron(&self, cron_id: &str) -> Result<Option<CronRecord>, String>;
+
+    /// List all crons, ordered by created_at descending.
+    fn list_crons(&self) -> Result<Vec<CronRecord>, String>;
+
+    /// Remove a cron by ID.
+    fn delete_cron(&self, cron_id: &str) -> Result<(), String>;
+
+    /// Persist or update a cron run record.
+    fn upsert_cron_run(&self, run: &CronRunRecord) -> Result<(), String>;
+
+    /// Get a cron run by ID.
+    fn get_cron_run(&self, run_id: &str) -> Result<Option<CronRunRecord>, String>;
+
+    /// List runs for a cron, ordered by scheduled_at descending.
+    fn list_cron_runs(&self, cron_id: &str, limit: usize) -> Result<Vec<CronRunRecord>, String>;
+
+    /// List latest runs globally, ordered by scheduled_at descending.
+    fn list_latest_cron_runs(&self, limit: usize) -> Result<Vec<CronRunRecord>, String>;
+
+    /// Get the most recent run for a cron.
+    fn get_cron_last_run(&self, cron_id: &str) -> Result<Option<CronRunRecord>, String>;
+
+    /// Return true if there is an in-flight run for the cron.
+    fn cron_has_running(&self, cron_id: &str) -> Result<bool, String>;
+
+    /// Remove old/inactive cron runs.
+    fn prune_cron_runs(&self, retention_days: u64, max_runs: usize) -> Result<(), String>;
 }

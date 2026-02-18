@@ -1,5 +1,12 @@
 version = 1
 
+# Gateway cron retention.
+# env vars:
+# - HOMIE_CRON_RETENTION_DAYS
+# - HOMIE_CRON_MAX_RUN_RECORDS
+# - HOMIE_CRON_MAX_CONCURRENT_RUNS
+# defaults: 30, 500, 5.
+
 [debug]
 homie_debug_env = "HOMIE_DEBUG"
 home_debug_env = "HOME_DEBUG"

@@ -73,7 +73,8 @@ impl RociBackend {
         homie_config: Arc<crate::HomieConfig>,
     ) -> Self {
         let processes = Arc::new(crate::agent::tools::ProcessRegistry::new());
-        let tool_ctx = ToolContext::with_processes(processes.clone(), homie_config.clone());
+        let tool_ctx = ToolContext::with_processes(processes.clone(), homie_config.clone())
+            .with_store(store.clone());
         let tools = match build_tools(tool_ctx, &homie_config) {
             Ok(tools) => tools,
             Err(error) => {

@@ -19,7 +19,6 @@ config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
   path.resolve(monorepoRoot, "node_modules"),
 ];
-config.resolver.disableHierarchicalLookup = true;
 
 // Force all workspace packages to share the same React runtime instance
 config.resolver.extraNodeModules = {

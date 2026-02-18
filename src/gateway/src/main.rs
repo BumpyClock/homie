@@ -37,6 +37,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "HOMIE_NOTIFICATION_RETENTION_DAYS",
         defaults.notification_retention_days,
     );
+    let cron_retention_days = parse_u64("HOMIE_CRON_RETENTION_DAYS", defaults.cron_retention_days);
+    let cron_max_run_records =
+        parse_usize("HOMIE_CRON_MAX_RUN_RECORDS", defaults.cron_max_run_records);
+    let cron_max_concurrent_runs = parse_usize(
+        "HOMIE_CRON_MAX_CONCURRENT_RUNS",
+        defaults.cron_max_concurrent_runs,
+    );
     let local_role = parse_role("HOMIE_LOCAL_ROLE", defaults.local_role);
     let tailscale_role = parse_role("HOMIE_TAILSCALE_ROLE", defaults.tailscale_role);
 
@@ -55,6 +62,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pairing_retention_secs,
         pairing_default_ttl_secs,
         notification_retention_days,
+        cron_retention_days,
+        cron_max_run_records,
+        cron_max_concurrent_runs,
     };
 
     let db_path = env::var("HOMIE_DB_PATH").unwrap_or_else(|_| "homie.db".to_string());

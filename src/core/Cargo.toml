@@ -29,6 +29,7 @@ readabilityrs.workspace = true
 htmd.workspace = true
 html2text.workspace = true
 pulldown-cmark.workspace = true
+cron = "0.12"
 roci = { path = "../infra/roci", default-features = false, features = ["openai", "openai-compatible", "anthropic", "agent"] }
 
 [dev-dependencies]

@@ -7,15 +7,17 @@ use crate::agent::tools::{list_tools, ToolContext};
 
 use super::files::list_homie_skills;
 use super::models::{
-    discover_github_copilot_models,
-    discover_openai_compatible_models,
-    append_openai_compatible_models,
-    roci_model_catalog,
+    append_openai_compatible_models, discover_github_copilot_models,
+    discover_openai_compatible_models, roci_model_catalog,
 };
 use super::params::parse_tool_channel;
 
 impl CodexChatCore {
-    pub(super) async fn chat_skills_list(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+    pub(super) async fn chat_skills_list(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
         if self.use_roci() {
             let skills = match list_homie_skills() {
                 Ok(skills) => skills,
@@ -45,7 +47,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) async fn chat_model_list(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+    pub(super) async fn chat_model_list(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
         if self.use_roci() {
             let mut models = roci_model_catalog(&self.homie_config.providers);
             if self.homie_config.providers.github_copilot.enabled {
@@ -54,7 +60,10 @@ impl CodexChatCore {
                         let auth = self.github_copilot_auth(store, "default");
                         match discover_github_copilot_models(&auth).await {
                             Ok(copilot_models) => {
-                                super::models::replace_github_copilot_models(&mut models, copilot_models);
+                                super::models::replace_github_copilot_models(
+                                    &mut models,
+                                    copilot_models,
+                                );
                             }
                             Err(err) => {
                                 tracing::debug!("github-copilot model discovery skipped: {err}");
@@ -66,7 +75,9 @@ impl CodexChatCore {
                     }
                 }
             }
-            match discover_openai_compatible_models(&self.homie_config.providers.openai_compatible).await {
+            match discover_openai_compatible_models(&self.homie_config.providers.openai_compatible)
+                .await
+            {
                 Ok(compat_models) => {
                     append_openai_compatible_models(&mut models, compat_models);
                 }
@@ -93,7 +104,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) async fn chat_tools_list(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+    pub(super) async fn chat_tools_list(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
         if self.use_roci() {
             let channel = parse_tool_channel(&params);
             let ctx = ToolContext::new_with_channel(self.homie_config.clone(), &channel);
@@ -175,7 +190,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) async fn chat_skills_config_write(&mut self, req_id: Uuid, params: Option<Value>) -> Response {
+    pub(super) async fn chat_skills_config_write(
+        &mut self,
+        req_id: Uuid,
+        params: Option<Value>,
+    ) -> Response {
         if self.use_roci() {
             return Response::success(req_id, json!({ "ok": true }));
         }

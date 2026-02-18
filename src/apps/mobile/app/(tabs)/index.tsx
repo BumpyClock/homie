@@ -128,6 +128,7 @@ export default function ChatTabScreen() {
             />
             <KeyboardStickyView offset={{ closed: 0, opened: -insets.bottom }}>
               <ChatComposer
+                chatId={activeChatId}
                 disabled={status !== 'connected' || !activeThread || !hasTarget}
                 sending={sendingMessage}
                 isRunning={activeThread?.running ?? false}

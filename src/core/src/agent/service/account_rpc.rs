@@ -9,13 +9,11 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::homie_config::ProvidersConfig;
 use crate::agent::service::core::CodexChatCore;
+use crate::homie_config::ProvidersConfig;
 
 use super::params::{
-    device_code_poll_json,
-    device_code_session_json,
-    parse_account_provider_params,
+    device_code_poll_json, device_code_session_json, parse_account_provider_params,
     parse_device_code_session,
 };
 
@@ -241,7 +239,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) fn openai_codex_auth(&self, store: FileTokenStore, profile: &str) -> OpenAiCodexAuth {
+    pub(super) fn openai_codex_auth(
+        &self,
+        store: FileTokenStore,
+        profile: &str,
+    ) -> OpenAiCodexAuth {
         let mut auth = OpenAiCodexAuth::new(Arc::new(store)).with_profile(profile);
         let cfg = &self.homie_config.providers.openai_codex;
         if !cfg.issuer.trim().is_empty() {
@@ -253,7 +255,11 @@ impl CodexChatCore {
         auth
     }
 
-    pub(super) fn github_copilot_auth(&self, store: FileTokenStore, profile: &str) -> GitHubCopilotAuth {
+    pub(super) fn github_copilot_auth(
+        &self,
+        store: FileTokenStore,
+        profile: &str,
+    ) -> GitHubCopilotAuth {
         let mut auth = GitHubCopilotAuth::new(Arc::new(store)).with_profile(profile);
         let cfg = &self.homie_config.providers.github_copilot;
         if !cfg.device_code_url.trim().is_empty() {
@@ -297,7 +303,10 @@ impl CodexChatCore {
             if config.get_api_key("openai-compatible").is_none()
                 && !cfg.openai_compatible.api_key.trim().is_empty()
             {
-                config.set_api_key("openai-compatible", cfg.openai_compatible.api_key.trim().to_string());
+                config.set_api_key(
+                    "openai-compatible",
+                    cfg.openai_compatible.api_key.trim().to_string(),
+                );
             }
         }
 
@@ -317,9 +326,7 @@ impl CodexChatCore {
                         if let Some(account_id) = token.account_id {
                             config.set_account_id("openai-codex", account_id);
                             if super::models::debug_enabled() {
-                                tracing::debug!(
-                                    "openai-codex account_id set"
-                                );
+                                tracing::debug!("openai-codex account_id set");
                             }
                         }
                         if config.get_base_url("openai-codex").is_none() {
@@ -457,7 +464,10 @@ impl CodexChatCore {
             if let Some(scopes) = token.scopes {
                 map.insert("scopes".into(), json!(scopes));
             }
-            map.insert("has_refresh_token".into(), json!(token.refresh_token.is_some()));
+            map.insert(
+                "has_refresh_token".into(),
+                json!(token.refresh_token.is_some()),
+            );
         }
         Ok(Value::Object(map))
     }

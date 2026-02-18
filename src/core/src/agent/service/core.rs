@@ -133,7 +133,11 @@ impl CodexChatCore {
         }
     }
 
-    pub(super) fn resolve_thread_id(&mut self, chat_id: &str, explicit: Option<&str>) -> Option<String> {
+    pub(super) fn resolve_thread_id(
+        &mut self,
+        chat_id: &str,
+        explicit: Option<&str>,
+    ) -> Option<String> {
         if let Some(thread_id) = explicit {
             let thread_id = thread_id.to_string();
             self.thread_ids

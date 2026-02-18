@@ -5,8 +5,8 @@ use crate::HomieConfig;
 use serde_json::json;
 use tokio::sync::mpsc;
 
-use crate::agent::process::{CodexEvent, CodexResponseSender};
 use super::params::{extract_thread_id, extract_turn_id};
+use crate::agent::process::{CodexEvent, CodexResponseSender};
 
 pub(super) fn codex_method_to_topics(method: &str) -> Option<(&'static str, &'static str)> {
     match method {
@@ -15,14 +15,24 @@ pub(super) fn codex_method_to_topics(method: &str) -> Option<(&'static str, &'st
         "item/completed" => Some(("chat.item.completed", "agent.chat.item.completed")),
         "turn/started" => Some(("chat.turn.started", "agent.chat.turn.started")),
         "turn/completed" => Some(("chat.turn.completed", "agent.chat.turn.completed")),
-        "item/commandExecution/outputDelta" => Some(("chat.command.output", "agent.chat.command.output")),
+        "item/commandExecution/outputDelta" => {
+            Some(("chat.command.output", "agent.chat.command.output"))
+        }
         "item/fileChange/outputDelta" => Some(("chat.file.output", "agent.chat.file.output")),
-        "item/reasoning/summaryTextDelta" => Some(("chat.reasoning.delta", "agent.chat.reasoning.delta")),
+        "item/reasoning/summaryTextDelta" => {
+            Some(("chat.reasoning.delta", "agent.chat.reasoning.delta"))
+        }
         "turn/diff/updated" => Some(("chat.diff.updated", "agent.chat.diff.updated")),
         "turn/plan/updated" => Some(("chat.plan.updated", "agent.chat.plan.updated")),
-        "thread/tokenUsage/updated" => Some(("chat.token.usage.updated", "agent.chat.token.usage.updated")),
-        "item/commandExecution/requestApproval" => Some(("chat.approval.required", "agent.chat.approval.required")),
-        "item/fileChange/requestApproval" => Some(("chat.approval.required", "agent.chat.approval.required")),
+        "thread/tokenUsage/updated" => {
+            Some(("chat.token.usage.updated", "agent.chat.token.usage.updated"))
+        }
+        "item/commandExecution/requestApproval" => {
+            Some(("chat.approval.required", "agent.chat.approval.required"))
+        }
+        "item/fileChange/requestApproval" => {
+            Some(("chat.approval.required", "agent.chat.approval.required"))
+        }
         _ => None,
     }
 }

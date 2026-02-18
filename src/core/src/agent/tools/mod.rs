@@ -4,11 +4,13 @@ use std::sync::Arc;
 use roci::tools::Tool;
 
 use crate::homie_config::WebToolsConfig;
+use crate::storage::Store;
 use crate::HomieConfig;
 
 mod apply_patch;
 mod args;
 mod browser;
+mod cron;
 mod exec;
 mod fs;
 mod process;
@@ -27,6 +29,7 @@ pub struct ToolContext {
     pub channel: String,
     pub processes: Arc<ProcessRegistry>,
     pub web: WebToolsConfig,
+    pub store: Option<Arc<dyn Store>>,
 }
 
 impl ToolContext {
@@ -44,6 +47,11 @@ impl ToolContext {
         Self::with_processes_and_channel(processes, homie_config, DEFAULT_TOOL_CHANNEL)
     }
 
+    pub fn with_store(mut self, store: Arc<dyn Store>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
     pub fn with_processes_and_channel(
         processes: Arc<ProcessRegistry>,
         homie_config: Arc<HomieConfig>,
@@ -57,6 +65,7 @@ impl ToolContext {
             channel,
             processes,
             web,
+            store: None,
         }
     }
 }

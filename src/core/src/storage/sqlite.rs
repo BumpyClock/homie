@@ -5,8 +5,9 @@ use rusqlite::{params, types::Type, Connection};
 use uuid::Uuid;
 
 use super::types::{
-    ChatRawEventRecord, ChatRecord, JobRecord, JobStatus, NotificationEvent,
-    NotificationSubscription, PairingRecord, PairingStatus, SessionStatus, TerminalRecord,
+    ChatRawEventRecord, ChatRecord, CronRecord, CronRunRecord, CronRunStatus, CronStatus,
+    JobRecord, JobStatus, NotificationEvent, NotificationSubscription, PairingRecord,
+    PairingStatus, SessionStatus, TerminalRecord,
 };
 use super::Store;
 
@@ -121,6 +122,34 @@ impl SqliteStore {
                 params_json TEXT NOT NULL,
                 created_at  INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS cron_jobs (
+                cron_id       TEXT PRIMARY KEY,
+                name          TEXT NOT NULL,
+                schedule      TEXT NOT NULL,
+                command       TEXT NOT NULL,
+                status        TEXT NOT NULL DEFAULT 'active',
+                skip_overlap  INTEGER NOT NULL DEFAULT 1,
+                created_at    INTEGER NOT NULL,
+                updated_at    INTEGER NOT NULL,
+                last_run_at   INTEGER,
+                next_run_at   INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS cron_runs (
+                run_id       TEXT PRIMARY KEY,
+                cron_id      TEXT NOT NULL,
+                scheduled_at INTEGER NOT NULL,
+                started_at   INTEGER,
+                finished_at  INTEGER,
+                status       TEXT NOT NULL DEFAULT 'queued',
+                exit_code    INTEGER,
+                output       TEXT,
+                error        TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cron_runs_cron_id
+                ON cron_runs (cron_id, scheduled_at DESC);
             ",
         )
         .map_err(|e| format!("migrate: {e}"))?;
@@ -836,6 +865,298 @@ impl Store for SqliteStore {
         .map_err(|e| format!("prune_chat_raw_events runs: {e}"))?;
         Ok(())
     }
+
+    fn upsert_cron(&self, cron: &CronRecord) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        conn.execute(
+            "INSERT INTO cron_jobs (cron_id, name, schedule, command, status, skip_overlap, created_at, updated_at, last_run_at, next_run_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(cron_id) DO UPDATE SET
+                name = excluded.name,
+                schedule = excluded.schedule,
+                command = excluded.command,
+                status = excluded.status,
+                skip_overlap = excluded.skip_overlap,
+                updated_at = excluded.updated_at,
+                last_run_at = excluded.last_run_at,
+                next_run_at = excluded.next_run_at",
+            params![
+                cron.cron_id,
+                cron.name,
+                cron.schedule,
+                cron.command,
+                cron.status.as_str(),
+                cron.skip_overlap,
+                cron.created_at as i64,
+                cron.updated_at as i64,
+                cron.last_run_at.map(|v| v as i64),
+                cron.next_run_at.map(|v| v as i64),
+            ],
+        )
+        .map_err(|e| format!("upsert_cron: {e}"))?;
+        Ok(())
+    }
+
+    fn get_cron(&self, cron_id: &str) -> Result<Option<CronRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT cron_id, name, schedule, command, status, skip_overlap, created_at,
+                        updated_at, last_run_at, next_run_at
+                 FROM cron_jobs WHERE cron_id = ?1",
+            )
+            .map_err(|e| format!("get_cron prepare: {e}"))?;
+
+        let mut rows = stmt
+            .query_map(params![cron_id], |row| {
+                Ok(CronRecord {
+                    cron_id: row.get(0)?,
+                    name: row.get(1)?,
+                    schedule: row.get(2)?,
+                    command: row.get(3)?,
+                    status: CronStatus::from_label(&row.get::<_, String>(4)?),
+                    skip_overlap: row.get(5)?,
+                    created_at: row.get::<_, i64>(6)? as u64,
+                    updated_at: row.get::<_, i64>(7)? as u64,
+                    last_run_at: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
+                    next_run_at: row.get::<_, Option<i64>>(9)?.map(|v| v as u64),
+                })
+            })
+            .map_err(|e| format!("get_cron query: {e}"))?;
+
+        match rows.next() {
+            Some(Ok(rec)) => Ok(Some(rec)),
+            Some(Err(e)) => Err(format!("get_cron row: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    fn list_crons(&self) -> Result<Vec<CronRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT cron_id, name, schedule, command, status, skip_overlap, created_at,
+                        updated_at, last_run_at, next_run_at
+                 FROM cron_jobs
+                 ORDER BY created_at DESC",
+            )
+            .map_err(|e| format!("list_crons prepare: {e}"))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(CronRecord {
+                    cron_id: row.get(0)?,
+                    name: row.get(1)?,
+                    schedule: row.get(2)?,
+                    command: row.get(3)?,
+                    status: CronStatus::from_label(&row.get::<_, String>(4)?),
+                    skip_overlap: row.get(5)?,
+                    created_at: row.get::<_, i64>(6)? as u64,
+                    updated_at: row.get::<_, i64>(7)? as u64,
+                    last_run_at: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
+                    next_run_at: row.get::<_, Option<i64>>(9)?.map(|v| v as u64),
+                })
+            })
+            .map_err(|e| format!("list_crons query: {e}"))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("list_crons collect: {e}"))
+    }
+
+    fn delete_cron(&self, cron_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        conn.execute("DELETE FROM cron_jobs WHERE cron_id = ?1", params![cron_id])
+            .map_err(|e| format!("delete_cron: {e}"))?;
+        conn.execute("DELETE FROM cron_runs WHERE cron_id = ?1", params![cron_id])
+            .map_err(|e| format!("delete_cron runs: {e}"))?;
+        Ok(())
+    }
+
+    fn upsert_cron_run(&self, run: &CronRunRecord) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        conn.execute(
+            "INSERT INTO cron_runs (
+                run_id, cron_id, scheduled_at, started_at, finished_at, status, exit_code, output, error
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(run_id) DO UPDATE SET
+                scheduled_at = excluded.scheduled_at,
+                started_at = excluded.started_at,
+                finished_at = excluded.finished_at,
+                status = excluded.status,
+                exit_code = excluded.exit_code,
+                output = excluded.output,
+                error = excluded.error",
+            params![
+                run.run_id,
+                run.cron_id,
+                run.scheduled_at as i64,
+                run.started_at.map(|v| v as i64),
+                run.finished_at.map(|v| v as i64),
+                run.status.as_str(),
+                run.exit_code,
+                run.output,
+                run.error,
+            ],
+        )
+        .map_err(|e| format!("upsert_cron_run: {e}"))?;
+        Ok(())
+    }
+
+    fn get_cron_run(&self, run_id: &str) -> Result<Option<CronRunRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT run_id, cron_id, scheduled_at, started_at, finished_at, status, exit_code, output, error
+                 FROM cron_runs WHERE run_id = ?1",
+            )
+            .map_err(|e| format!("get_cron_run prepare: {e}"))?;
+
+        let mut rows = stmt
+            .query_map(params![run_id], |row| {
+                Ok(CronRunRecord {
+                    run_id: row.get(0)?,
+                    cron_id: row.get(1)?,
+                    scheduled_at: row.get::<_, i64>(2)? as u64,
+                    started_at: row.get::<_, Option<i64>>(3)?.map(|v| v as u64),
+                    finished_at: row.get::<_, Option<i64>>(4)?.map(|v| v as u64),
+                    status: CronRunStatus::from_label(&row.get::<_, String>(5)?),
+                    exit_code: row.get(6)?,
+                    output: row.get(7)?,
+                    error: row.get(8)?,
+                })
+            })
+            .map_err(|e| format!("get_cron_run query: {e}"))?;
+
+        match rows.next() {
+            Some(Ok(rec)) => Ok(Some(rec)),
+            Some(Err(e)) => Err(format!("get_cron_run row: {e}")),
+            None => Ok(None),
+        }
+    }
+
+    fn list_cron_runs(&self, cron_id: &str, limit: usize) -> Result<Vec<CronRunRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let max_rows = limit.max(1).min(10_000) as i64;
+        let mut stmt = conn
+            .prepare(
+                "SELECT run_id, cron_id, scheduled_at, started_at, finished_at, status, exit_code, output, error
+                 FROM cron_runs
+                 WHERE cron_id = ?1
+                 ORDER BY scheduled_at DESC, rowid DESC
+                 LIMIT ?2",
+            )
+            .map_err(|e| format!("list_cron_runs prepare: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![cron_id, max_rows], |row| {
+                Ok(CronRunRecord {
+                    run_id: row.get(0)?,
+                    cron_id: row.get(1)?,
+                    scheduled_at: row.get::<_, i64>(2)? as u64,
+                    started_at: row.get::<_, Option<i64>>(3)?.map(|v| v as u64),
+                    finished_at: row.get::<_, Option<i64>>(4)?.map(|v| v as u64),
+                    status: CronRunStatus::from_label(&row.get::<_, String>(5)?),
+                    exit_code: row.get(6)?,
+                    output: row.get(7)?,
+                    error: row.get(8)?,
+                })
+            })
+            .map_err(|e| format!("list_cron_runs query: {e}"))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("list_cron_runs collect: {e}"))
+    }
+
+    fn list_latest_cron_runs(&self, limit: usize) -> Result<Vec<CronRunRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let max_rows = limit.max(1).min(10_000) as i64;
+        let mut stmt = conn
+            .prepare(
+                "SELECT run_id, cron_id, scheduled_at, started_at, finished_at, status, exit_code, output, error
+                 FROM cron_runs
+                 ORDER BY scheduled_at DESC, rowid DESC
+                 LIMIT ?1",
+            )
+            .map_err(|e| format!("list_latest_cron_runs prepare: {e}"))?;
+
+        let rows = stmt
+            .query_map(params![max_rows], |row| {
+                Ok(CronRunRecord {
+                    run_id: row.get(0)?,
+                    cron_id: row.get(1)?,
+                    scheduled_at: row.get::<_, i64>(2)? as u64,
+                    started_at: row.get::<_, Option<i64>>(3)?.map(|v| v as u64),
+                    finished_at: row.get::<_, Option<i64>>(4)?.map(|v| v as u64),
+                    status: CronRunStatus::from_label(&row.get::<_, String>(5)?),
+                    exit_code: row.get(6)?,
+                    output: row.get(7)?,
+                    error: row.get(8)?,
+                })
+            })
+            .map_err(|e| format!("list_latest_cron_runs query: {e}"))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("list_latest_cron_runs collect: {e}"))
+    }
+
+    fn get_cron_last_run(&self, cron_id: &str) -> Result<Option<CronRunRecord>, String> {
+        let runs = self.list_cron_runs(cron_id, 1)?;
+        Ok(runs.into_iter().next())
+    }
+
+    fn cron_has_running(&self, cron_id: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let mut stmt = conn
+            .prepare("SELECT 1 FROM cron_runs WHERE cron_id = ?1 AND status = 'running' LIMIT 1")
+            .map_err(|e| format!("cron_has_running prepare: {e}"))?;
+        let mut rows = stmt
+            .query_map(params![cron_id], |row| row.get::<_, i32>(0))
+            .map_err(|e| format!("cron_has_running query: {e}"))?;
+        Ok(rows.next().is_some())
+    }
+
+    fn prune_cron_runs(&self, retention_days: u64, max_runs: usize) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+        let cutoff = now_unix().saturating_sub(retention_days.saturating_mul(86_400));
+        conn.execute(
+            "DELETE FROM cron_runs WHERE finished_at IS NOT NULL AND finished_at < ?1",
+            params![cutoff as i64],
+        )
+        .map_err(|e| format!("prune_cron_runs cutoff: {e}"))?;
+
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT cron_id FROM cron_runs")
+            .map_err(|e| format!("prune_cron_runs cron_ids: {e}"))?;
+        let cron_ids = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("prune_cron_runs list crons: {e}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("prune_cron_runs collect crons: {e}"))?;
+
+        for cron_id in cron_ids {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT run_id FROM cron_runs
+                     WHERE cron_id = ?1
+                     ORDER BY scheduled_at DESC, rowid DESC
+                     LIMIT -1 OFFSET ?2",
+                )
+                .map_err(|e| format!("prune_cron_runs runs: {e}"))?;
+            let run_ids = stmt
+                .query_map(params![cron_id, max_runs as i64], |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(|e| format!("prune_cron_runs run ids: {e}"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("prune_cron_runs run id collect: {e}"))?;
+
+            for run_id in run_ids {
+                conn.execute("DELETE FROM cron_runs WHERE run_id = ?1", params![run_id])
+                    .map_err(|e| format!("prune_cron_runs delete run: {e}"))?;
+            }
+        }
+        Ok(())
+    }
 }
 
 fn parse_settings_json(raw: Option<String>) -> Result<Option<serde_json::Value>, rusqlite::Error> {
@@ -1375,5 +1696,234 @@ mod tests {
         assert_eq!(events[1].method, "item/started");
         assert_eq!(events[0].thread_id, thread_id);
         assert_eq!(events[1].thread_id, thread_id);
+    }
+
+    #[test]
+    fn cron_upsert_and_get() {
+        let store = make_store();
+        let now = now_unix();
+        let cron = CronRecord {
+            cron_id: "cron-1".into(),
+            name: "heartbeat".into(),
+            schedule: "* * * * * *".into(),
+            command: "echo hi".into(),
+            status: CronStatus::Active,
+            skip_overlap: true,
+            created_at: now,
+            updated_at: now,
+            next_run_at: Some(now + 60),
+            last_run_at: None,
+        };
+        store.upsert_cron(&cron).unwrap();
+
+        let loaded = store.get_cron("cron-1").unwrap().unwrap();
+        assert_eq!(loaded.name, "heartbeat");
+        assert_eq!(loaded.status, CronStatus::Active);
+        assert!(loaded.skip_overlap);
+        assert_eq!(loaded.next_run_at, Some(now + 60));
+    }
+
+    #[test]
+    fn cron_list_and_update_ordered_and_remove() {
+        let store = make_store();
+        let now = now_unix();
+        let a = CronRecord {
+            cron_id: "a".into(),
+            name: "every-min".into(),
+            schedule: "* * * * * *".into(),
+            command: "echo a".into(),
+            status: CronStatus::Active,
+            skip_overlap: true,
+            created_at: now,
+            updated_at: now,
+            next_run_at: Some(now + 60),
+            last_run_at: None,
+        };
+        let b = CronRecord {
+            cron_id: "b".into(),
+            name: "every-sec".into(),
+            schedule: "* * * * * *".into(),
+            command: "echo b".into(),
+            status: CronStatus::Paused,
+            skip_overlap: true,
+            created_at: now + 1,
+            updated_at: now + 1,
+            next_run_at: Some(now + 30),
+            last_run_at: None,
+        };
+        store.upsert_cron(&a).unwrap();
+        store.upsert_cron(&b).unwrap();
+
+        let items = store.list_crons().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].cron_id, "b");
+
+        let mut updated = a;
+        updated.name = "updated".into();
+        updated.status = CronStatus::Paused;
+        store.upsert_cron(&updated).unwrap();
+        let reloaded = store.get_cron("a").unwrap().unwrap();
+        assert_eq!(reloaded.name, "updated");
+        assert_eq!(reloaded.status, CronStatus::Paused);
+
+        store.delete_cron("a").unwrap();
+        assert!(store.get_cron("a").unwrap().is_none());
+    }
+
+    #[test]
+    fn cron_runs_store_and_retrieve() {
+        let store = make_store();
+        let now = now_unix();
+        let run = CronRunRecord {
+            run_id: "run-1".into(),
+            cron_id: "cron-1".into(),
+            scheduled_at: now,
+            started_at: Some(now),
+            finished_at: Some(now + 1),
+            status: CronRunStatus::Succeeded,
+            exit_code: Some(0),
+            output: Some("ok".into()),
+            error: None,
+        };
+        store.upsert_cron_run(&run).unwrap();
+        store
+            .upsert_cron_run(&CronRunRecord {
+                run_id: "run-2".into(),
+                cron_id: "cron-1".into(),
+                scheduled_at: now + 10,
+                started_at: Some(now + 10),
+                finished_at: Some(now + 11),
+                status: CronRunStatus::Failed,
+                exit_code: Some(1),
+                output: Some("oops".into()),
+                error: Some("boom".into()),
+            })
+            .unwrap();
+
+        let latest = store.get_cron_last_run("cron-1").unwrap().unwrap();
+        assert_eq!(latest.run_id, "run-2");
+
+        let items = store.list_cron_runs("cron-1", 10).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].status, CronRunStatus::Failed);
+        assert!(store.cron_has_running("cron-1").unwrap() == false);
+        assert_eq!(items[0].run_id, "run-2");
+    }
+
+    #[test]
+    fn cron_runs_pruning_keeps_recent_per_cron() {
+        let store = make_store();
+        let now = now_unix();
+        for i in 0..6 {
+            store
+                .upsert_cron_run(&CronRunRecord {
+                    run_id: format!("run-{i}"),
+                    cron_id: "cron-1".into(),
+                    scheduled_at: now + (i as u64),
+                    started_at: Some(now + (i as u64)),
+                    finished_at: Some(now + (i as u64) + 1),
+                    status: CronRunStatus::Succeeded,
+                    exit_code: Some(0),
+                    output: None,
+                    error: None,
+                })
+                .unwrap();
+        }
+
+        store.prune_cron_runs(0, 3).unwrap();
+        let runs = store.list_cron_runs("cron-1", 10).unwrap();
+        assert_eq!(runs.len(), 3);
+        assert_eq!(runs[0].run_id, "run-5");
+    }
+
+    #[test]
+    fn cron_has_running_detects_running_runs() {
+        let store = make_store();
+        let cron_id = "cron-running-check";
+        let now = now_unix();
+        store
+            .upsert_cron_run(&CronRunRecord {
+                run_id: "running-1".into(),
+                cron_id: cron_id.into(),
+                scheduled_at: now,
+                started_at: Some(now),
+                finished_at: None,
+                status: CronRunStatus::Running,
+                exit_code: None,
+                output: None,
+                error: None,
+            })
+            .unwrap();
+        assert!(store.cron_has_running(cron_id).unwrap());
+
+        store
+            .upsert_cron_run(&CronRunRecord {
+                run_id: "running-1".into(),
+                cron_id: cron_id.into(),
+                scheduled_at: now,
+                started_at: Some(now),
+                finished_at: Some(now + 1),
+                status: CronRunStatus::Succeeded,
+                exit_code: Some(0),
+                output: None,
+                error: None,
+            })
+            .unwrap();
+        assert!(!store.cron_has_running(cron_id).unwrap());
+    }
+
+    #[test]
+    fn cron_runs_prune_respects_retention_and_per_cron_cap() {
+        let store = make_store();
+        let now = now_unix();
+        store
+            .upsert_cron(&CronRecord {
+                cron_id: "cron-prune".into(),
+                name: "keep".into(),
+                schedule: "* * * * * *".into(),
+                command: "echo hi".into(),
+                status: CronStatus::Active,
+                skip_overlap: true,
+                created_at: now,
+                updated_at: now,
+                next_run_at: None,
+                last_run_at: None,
+            })
+            .unwrap();
+
+        store
+            .upsert_cron_run(&CronRunRecord {
+                run_id: "old".into(),
+                cron_id: "cron-prune".into(),
+                scheduled_at: now - (3 * 86_400),
+                started_at: Some(now - (3 * 86_400)),
+                finished_at: Some(now - (3 * 86_400)),
+                status: CronRunStatus::Succeeded,
+                exit_code: Some(0),
+                output: None,
+                error: None,
+            })
+            .unwrap();
+        for i in 0..5 {
+            store
+                .upsert_cron_run(&CronRunRecord {
+                    run_id: format!("new-{i}"),
+                    cron_id: "cron-prune".into(),
+                    scheduled_at: now + i as u64,
+                    started_at: Some(now + i as u64),
+                    finished_at: Some(now + i as u64 + 1),
+                    status: CronRunStatus::Succeeded,
+                    exit_code: Some(0),
+                    output: None,
+                    error: None,
+                })
+                .unwrap();
+        }
+
+        store.prune_cron_runs(1, 3).unwrap();
+
+        let runs = store.list_cron_runs("cron-prune", 10).unwrap();
+        assert_eq!(runs.len(), 3);
+        assert!(!runs.iter().any(|run| run.run_id == "old"));
     }
 }

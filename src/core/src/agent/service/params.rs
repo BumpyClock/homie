@@ -1,10 +1,10 @@
 use serde_json::{json, Map, Value};
 
-use crate::homie_config::ProvidersConfig;
 use crate::agent::process::CodexRequestId;
 use crate::agent::process::CodexRequestId::Text;
-use roci::auth::DeviceCodeSession;
+use crate::homie_config::ProvidersConfig;
 use roci::auth::DeviceCodePoll;
+use roci::auth::DeviceCodeSession;
 
 pub(super) fn parse_message_params(
     params: &Option<Value>,
@@ -203,7 +203,9 @@ pub(super) fn parse_thread_read_params(
     }
 }
 
-pub(super) fn parse_thread_archive_params(params: &Option<Value>) -> Option<(String, Option<String>)> {
+pub(super) fn parse_thread_archive_params(
+    params: &Option<Value>,
+) -> Option<(String, Option<String>)> {
     let p = params.as_ref()?;
     let chat_id = p.get("chat_id")?.as_str()?.to_string();
     let thread_id = p

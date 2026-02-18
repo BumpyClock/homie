@@ -263,3 +263,28 @@ async fn unauthorized_requests_are_rejected_for_viewer_role() {
     let err = rpc_err(&mut ws, "terminal.session.start", None).await;
     assert_eq!(err.code, homie_protocol::error_codes::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn cron_requests_are_rejected_for_viewer_role() {
+    let config = ServerConfig {
+        local_role: Role::Viewer,
+        ..Default::default()
+    };
+    let addr = start_server(config).await;
+    let mut ws = connect_ws(addr).await;
+
+    ws.send(text_msg(client_hello(1, 1))).await.unwrap();
+    let _ = next_text(&mut ws).await;
+
+    let err = rpc_err(
+        &mut ws,
+        "cron.start",
+        Some(serde_json::json!({
+            "name": "nightly-clean",
+            "schedule": "* * * * * *",
+            "command": "echo tidy",
+        })),
+    )
+    .await;
+    assert_eq!(err.code, homie_protocol::error_codes::UNAUTHORIZED);
+}
