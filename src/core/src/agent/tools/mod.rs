@@ -21,12 +21,21 @@ mod web;
 pub use process_registry::{ProcessInfo, ProcessRegistry};
 pub use registry::{ListedTool, ToolProvider, ToolRegistry};
 
-pub const DEFAULT_TOOL_CHANNEL: &str = "web";
+pub const TOOL_CHANNEL_WEB: &str = "web";
+pub const TOOL_CHANNEL_MOBILE: &str = "mobile";
+pub const TOOL_CHANNEL_WHATSAPP: &str = "whatsapp";
+pub const DEFAULT_TOOL_CHANNEL: &str = TOOL_CHANNEL_WEB;
+pub const TOOL_CHANNEL_DENIED_CODE: &str = "tool_channel_denied";
+pub const CANONICAL_TOOL_CHANNELS: &[&str] = &[
+    TOOL_CHANNEL_WEB,
+    TOOL_CHANNEL_MOBILE,
+    TOOL_CHANNEL_WHATSAPP,
+];
 
 #[derive(Clone)]
 pub struct ToolContext {
     pub cwd: PathBuf,
-    pub channel: String,
+    pub channel: Option<String>,
     pub processes: Arc<ProcessRegistry>,
     pub web: WebToolsConfig,
     pub store: Option<Arc<dyn Store>>,
@@ -35,16 +44,16 @@ pub struct ToolContext {
 impl ToolContext {
     #[allow(dead_code)]
     pub fn new(homie_config: Arc<HomieConfig>) -> Self {
-        Self::new_with_channel(homie_config, DEFAULT_TOOL_CHANNEL)
+        Self::new_with_channel(homie_config, None)
     }
 
-    pub fn new_with_channel(homie_config: Arc<HomieConfig>, channel: &str) -> Self {
+    pub fn new_with_channel(homie_config: Arc<HomieConfig>, channel: Option<&str>) -> Self {
         let processes = Arc::new(ProcessRegistry::new());
         Self::with_processes_and_channel(processes, homie_config, channel)
     }
 
     pub fn with_processes(processes: Arc<ProcessRegistry>, homie_config: Arc<HomieConfig>) -> Self {
-        Self::with_processes_and_channel(processes, homie_config, DEFAULT_TOOL_CHANNEL)
+        Self::with_processes_and_channel(processes, homie_config, None)
     }
 
     pub fn with_store(mut self, store: Arc<dyn Store>) -> Self {
@@ -55,11 +64,11 @@ impl ToolContext {
     pub fn with_processes_and_channel(
         processes: Arc<ProcessRegistry>,
         homie_config: Arc<HomieConfig>,
-        channel: &str,
+        channel: Option<&str>,
     ) -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let web = homie_config.tools.web.clone();
-        let channel = normalize_channel(channel);
+        let channel = resolve_tool_channel(channel);
         Self {
             cwd,
             channel,
@@ -70,12 +79,18 @@ impl ToolContext {
     }
 }
 
-fn normalize_channel(channel: &str) -> String {
-    let trimmed = channel.trim();
-    if trimmed.is_empty() {
-        DEFAULT_TOOL_CHANNEL.to_string()
+pub fn resolve_tool_channel(channel: Option<&str>) -> Option<String> {
+    let normalized = channel
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_lowercase())?;
+    if CANONICAL_TOOL_CHANNELS
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(&normalized))
+    {
+        Some(normalized)
     } else {
-        trimmed.to_lowercase()
+        None
     }
 }
 

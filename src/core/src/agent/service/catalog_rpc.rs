@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::agent::service::core::CodexChatCore;
-use crate::agent::tools::{list_tools, ToolContext};
+use crate::agent::tools::{list_tools, ToolContext, TOOL_CHANNEL_DENIED_CODE};
 
 use super::files::list_homie_skills;
 use super::models::{
@@ -110,8 +110,49 @@ impl CodexChatCore {
         params: Option<Value>,
     ) -> Response {
         if self.use_roci() {
-            let channel = parse_tool_channel(&params);
-            let ctx = ToolContext::new_with_channel(self.homie_config.clone(), &channel);
+            let requested_channel = parse_tool_channel(&params);
+            if let (Some(bound_channel), Some(requested)) =
+                (self.tool_channel.as_deref(), requested_channel.as_deref())
+            {
+                if !bound_channel.eq_ignore_ascii_case(requested) {
+                    tracing::info!(
+                        provider = "*",
+                        tool = "*",
+                        channel = requested,
+                        bound_channel = bound_channel,
+                        decision = "deny",
+                        "tool channel policy"
+                    );
+                    return Response::error(
+                        req_id,
+                        error_codes::INVALID_PARAMS,
+                        TOOL_CHANNEL_DENIED_CODE,
+                    );
+                }
+            }
+            let effective_channel = self
+                .tool_channel
+                .as_deref()
+                .or(requested_channel.as_deref());
+            let ctx =
+                ToolContext::new_with_channel(self.homie_config.clone(), effective_channel);
+            let resolved_channel = match ctx.channel.clone() {
+                Some(channel) => channel,
+                None => {
+                    tracing::info!(
+                        provider = "*",
+                        tool = "*",
+                        channel = effective_channel.unwrap_or("undefined"),
+                        decision = "deny",
+                        "tool channel policy"
+                    );
+                    return Response::error(
+                        req_id,
+                        error_codes::INVALID_PARAMS,
+                        TOOL_CHANNEL_DENIED_CODE,
+                    );
+                }
+            };
             let tools = match list_tools(ctx, &self.homie_config) {
                 Ok(tools) => tools,
                 Err(err) => {
@@ -122,6 +163,13 @@ impl CodexChatCore {
                     )
                 }
             };
+            tracing::debug!(
+                provider = "*",
+                tool = "*",
+                channel = resolved_channel,
+                decision = "allow",
+                "tool channel policy"
+            );
             let data: Vec<Value> = tools
                 .into_iter()
                 .map(|tool| {

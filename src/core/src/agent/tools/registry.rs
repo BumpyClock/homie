@@ -164,15 +164,33 @@ impl ToolRegistry {
         let mut tools = Vec::new();
         let mut seen_names: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
+        let channel = ctx.channel.as_deref().unwrap_or("undefined");
         for provider in &self.providers {
             let override_cfg = config.providers.get(provider.id());
-            if !provider_enabled(provider.as_ref(), override_cfg, &ctx.channel) {
+            let provider_allowed =
+                provider_enabled(provider.as_ref(), override_cfg, ctx.channel.as_deref());
+            tracing::debug!(
+                provider = provider.id(),
+                tool = "*",
+                channel = channel,
+                decision = if provider_allowed { "allow" } else { "deny" },
+                "tool channel policy"
+            );
+            if !provider_allowed {
                 continue;
             }
             let provider_tools = provider.tools(ctx.clone());
             self.validate_tool_overrides(provider.id(), override_cfg, &provider_tools)?;
             for tool in provider_tools {
-                if !tool_allowed(tool.name(), override_cfg) {
+                let allowed = tool_allowed(tool.name(), override_cfg);
+                tracing::debug!(
+                    provider = provider.id(),
+                    tool = tool.name(),
+                    channel = channel,
+                    decision = if allowed { "allow" } else { "deny" },
+                    "tool channel policy"
+                );
+                if !allowed {
                     continue;
                 }
                 if let Some(existing) =
@@ -198,7 +216,7 @@ impl ToolRegistry {
 fn provider_enabled(
     provider: &dyn ToolProvider,
     override_cfg: Option<&ToolProviderConfig>,
-    channel: &str,
+    channel: Option<&str>,
 ) -> bool {
     if !provider_allowed_for_channel(override_cfg, channel) {
         return false;
@@ -209,7 +227,13 @@ fn provider_enabled(
     }
 }
 
-fn provider_allowed_for_channel(override_cfg: Option<&ToolProviderConfig>, channel: &str) -> bool {
+fn provider_allowed_for_channel(
+    override_cfg: Option<&ToolProviderConfig>,
+    channel: Option<&str>,
+) -> bool {
+    let Some(channel) = channel else {
+        return false;
+    };
     let Some(override_cfg) = override_cfg else {
         return true;
     };
@@ -287,7 +311,7 @@ mod tests {
     fn dummy_ctx_for_channel(channel: &str) -> ToolContext {
         let homie_config = Arc::new(crate::HomieConfig::default());
         let processes = Arc::new(super::super::ProcessRegistry::new());
-        ToolContext::with_processes_and_channel(processes, homie_config, channel)
+        ToolContext::with_processes_and_channel(processes, homie_config, Some(channel))
     }
 
     #[test]
@@ -372,7 +396,7 @@ mod tests {
             "channel_gate".into(),
             crate::homie_config::ToolProviderConfig {
                 enabled: Some(true),
-                channels: vec!["discord".to_string()],
+                channels: vec!["mobile".to_string()],
                 allow_tools: Vec::new(),
                 deny_tools: Vec::new(),
             },
@@ -395,14 +419,69 @@ mod tests {
             "channel_gate".into(),
             crate::homie_config::ToolProviderConfig {
                 enabled: Some(true),
-                channels: vec!["discord".to_string()],
+                channels: vec!["mobile".to_string()],
                 allow_tools: Vec::new(),
                 deny_tools: Vec::new(),
             },
         );
         let tools = registry
-            .build_tools(dummy_ctx_for_channel("discord"), &config)
+            .build_tools(dummy_ctx_for_channel("mobile"), &config)
             .expect("build");
         assert!(tools.iter().any(|tool| tool.name() == "channel_tool"));
+    }
+
+    #[test]
+    fn list_and_runtime_channel_gating_do_not_drift() {
+        let registry = ToolRegistry::new().with_provider(Arc::new(StaticProvider {
+            id: "channel_gate",
+            dynamic: false,
+            names: vec!["channel_tool"],
+        }));
+        let mut config = ToolsConfig::default();
+        config.providers.insert(
+            "channel_gate".into(),
+            crate::homie_config::ToolProviderConfig {
+                enabled: Some(true),
+                channels: vec!["mobile".to_string()],
+                allow_tools: Vec::new(),
+                deny_tools: Vec::new(),
+            },
+        );
+
+        let list_mobile = registry
+            .list_tools(dummy_ctx_for_channel("mobile"), &config)
+            .expect("list mobile")
+            .iter()
+            .any(|tool| tool.name == "channel_tool");
+        let run_mobile = registry
+            .build_tools(dummy_ctx_for_channel("mobile"), &config)
+            .expect("build mobile")
+            .iter()
+            .any(|tool| tool.name() == "channel_tool");
+        assert_eq!(list_mobile, run_mobile);
+
+        let list_web = registry
+            .list_tools(dummy_ctx_for_channel("web"), &config)
+            .expect("list web")
+            .iter()
+            .any(|tool| tool.name == "channel_tool");
+        let run_web = registry
+            .build_tools(dummy_ctx_for_channel("web"), &config)
+            .expect("build web")
+            .iter()
+            .any(|tool| tool.name() == "channel_tool");
+        assert_eq!(list_web, run_web);
+
+        let list_unknown = registry
+            .list_tools(dummy_ctx_for_channel("discord"), &config)
+            .expect("list unknown")
+            .iter()
+            .any(|tool| tool.name == "channel_tool");
+        let run_unknown = registry
+            .build_tools(dummy_ctx_for_channel("discord"), &config)
+            .expect("build unknown")
+            .iter()
+            .any(|tool| tool.name() == "channel_tool");
+        assert_eq!(list_unknown, run_unknown);
     }
 }

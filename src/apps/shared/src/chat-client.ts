@@ -24,6 +24,10 @@ export interface ChatRpcTransport {
 
 export type ChatApprovalPolicy = "never" | "on-request" | "untrusted";
 export type ChatApprovalDecision = "accept" | "decline" | "accept_for_session" | "cancel";
+export const CHAT_TOOL_CHANNELS = ["web", "mobile", "whatsapp"] as const;
+export type ChatToolChannel = (typeof CHAT_TOOL_CHANNELS)[number];
+export type ChatToolChannelInput = ChatToolChannel | (string & {});
+const DEFAULT_DENY_TOOL_CHANNEL = "__deny__";
 
 export interface ChatCollaborationPayload {
   mode: string;
@@ -174,7 +178,7 @@ export interface ChatClient {
   listModels(): Promise<ModelOption[]>;
   listCollaborationModes(): Promise<CollaborationModeOption[]>;
   listSkills(): Promise<SkillOption[]>;
-  listTools(channel?: string): Promise<ChatWebToolName[]>;
+  listTools(channel?: ChatToolChannelInput | null): Promise<ChatWebToolName[]>;
   updateSettings(input: UpdateChatSettingsInput): Promise<unknown>;
   searchFiles(input: SearchChatFilesInput): Promise<FileOption[]>;
 }
@@ -207,6 +211,13 @@ function asBoolean(value: unknown): boolean | null {
     }
   }
   return null;
+}
+
+function resolveToolChannel(channel?: ChatToolChannelInput | null): string {
+  if (typeof channel !== "string") return DEFAULT_DENY_TOOL_CHANNEL;
+  const normalized = channel.trim();
+  if (!normalized) return DEFAULT_DENY_TOOL_CHANNEL;
+  return normalized;
 }
 
 function normalizeRawSkillEntries(value: unknown): unknown[] {
@@ -868,8 +879,10 @@ export function createChatClient(transport: ChatRpcCall | ChatRpcTransport): Cha
       return normalizeSkillOptions(raw);
     },
 
-    async listTools(channel = "web") {
-      const raw = await call("chat.tools.list", { channel });
+    async listTools(channel) {
+      const raw = await call("chat.tools.list", {
+        channel: resolveToolChannel(channel),
+      });
       return normalizeEnabledWebTools(raw);
     },
 

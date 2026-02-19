@@ -71,10 +71,15 @@ impl RociBackend {
         store: Arc<dyn Store>,
         exec_policy: Arc<ExecPolicy>,
         homie_config: Arc<crate::HomieConfig>,
+        tool_channel: Option<String>,
     ) -> Self {
         let processes = Arc::new(crate::agent::tools::ProcessRegistry::new());
-        let tool_ctx = ToolContext::with_processes(processes.clone(), homie_config.clone())
-            .with_store(store.clone());
+        let tool_ctx = ToolContext::with_processes_and_channel(
+            processes.clone(),
+            homie_config.clone(),
+            tool_channel.as_deref(),
+        )
+        .with_store(store.clone());
         let tools = match build_tools(tool_ctx, &homie_config) {
             Ok(tools) => tools,
             Err(error) => {
@@ -2001,6 +2006,7 @@ mod tests {
             store.clone(),
             Arc::new(ExecPolicy::empty()),
             Arc::new(crate::HomieConfig::default()),
+            None,
         );
         let thread_id = "thread-1";
         let chat_id = "chat-1";
@@ -2103,6 +2109,7 @@ mod tests {
             store,
             Arc::new(ExecPolicy::empty()),
             Arc::new(crate::HomieConfig::default()),
+            None,
         );
 
         backend.ensure_thread(thread_id).await;
@@ -2165,6 +2172,7 @@ mod tests {
             store,
             Arc::new(ExecPolicy::empty()),
             Arc::new(crate::HomieConfig::default()),
+            None,
         );
 
         backend.ensure_thread(thread_id).await;
@@ -2252,6 +2260,7 @@ mod tests {
             store.clone(),
             Arc::new(ExecPolicy::empty()),
             Arc::new(crate::HomieConfig::default()),
+            None,
         );
 
         backend.ensure_thread(thread_id).await;
@@ -2297,6 +2306,7 @@ mod tests {
             store.clone(),
             Arc::new(ExecPolicy::empty()),
             Arc::new(crate::HomieConfig::default()),
+            None,
         );
         backend.ensure_thread(thread_id).await;
 
@@ -2328,6 +2338,7 @@ mod tests {
             store,
             Arc::new(ExecPolicy::empty()),
             homie_config.clone(),
+            None,
         );
 
         let creds_dir = homie_config.credentials_dir().expect("credentials dir");

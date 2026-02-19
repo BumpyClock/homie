@@ -7,6 +7,7 @@ mod tests {
         normalize_model_selector, parse_approval_params, parse_cancel_params, parse_message_params,
         parse_tool_channel,
     };
+    use crate::agent::tools::TOOL_CHANNEL_DENIED_CODE;
     use crate::execpolicy::ExecPolicy;
     use crate::homie_config::{HomieConfig, ProvidersConfig};
     use crate::outbound::OutboundMessage;
@@ -222,17 +223,17 @@ mod tests {
     }
 
     #[test]
-    fn parse_tool_channel_defaults_to_web() {
-        assert_eq!(parse_tool_channel(&None), "web");
-        assert_eq!(parse_tool_channel(&Some(json!({}))), "web");
-        assert_eq!(parse_tool_channel(&Some(json!({"channel": "   "}))), "web");
+    fn parse_tool_channel_requires_non_empty_value() {
+        assert_eq!(parse_tool_channel(&None), None);
+        assert_eq!(parse_tool_channel(&Some(json!({}))), None);
+        assert_eq!(parse_tool_channel(&Some(json!({"channel": "   "}))), None);
     }
 
     #[test]
     fn parse_tool_channel_normalizes_value() {
         assert_eq!(
             parse_tool_channel(&Some(json!({"channel": "  DisCord "}))),
-            "discord"
+            Some("discord".to_string())
         );
     }
 
@@ -434,7 +435,9 @@ mod tests {
             Arc::new(ExecPolicy::empty()),
         );
         let id = Uuid::new_v4();
-        let resp = svc.handle_request(id, "chat.tools.list", None).await;
+        let resp = svc
+            .handle_request(id, "chat.tools.list", Some(json!({ "channel": "web" })))
+            .await;
         assert!(resp.error.is_none());
         let result = resp.result.expect("result");
         let data = result["data"].as_array().expect("data array");
@@ -456,7 +459,7 @@ mod tests {
             "core".to_string(),
             crate::homie_config::ToolProviderConfig {
                 enabled: Some(true),
-                channels: vec!["discord".to_string()],
+                channels: vec!["mobile".to_string()],
                 allow_tools: Vec::new(),
                 deny_tools: Vec::new(),
             },
@@ -469,7 +472,11 @@ mod tests {
         );
 
         let web_resp = svc
-            .handle_request(Uuid::new_v4(), "chat.tools.list", None)
+            .handle_request(
+                Uuid::new_v4(),
+                "chat.tools.list",
+                Some(json!({ "channel": "web" })),
+            )
             .await;
         assert!(web_resp.error.is_none());
         let web_tools = web_resp.result.expect("web result")["data"]
@@ -478,21 +485,74 @@ mod tests {
             .clone();
         assert!(web_tools.is_empty());
 
-        let discord_resp = svc
+        let mobile_resp = svc
+            .handle_request(
+                Uuid::new_v4(),
+                "chat.tools.list",
+                Some(json!({ "channel": "mobile" })),
+            )
+            .await;
+        assert!(mobile_resp.error.is_none());
+        let mobile_tools = mobile_resp.result.expect("mobile result")["data"]
+            .as_array()
+            .expect("mobile data")
+            .clone();
+        assert!(mobile_tools
+            .iter()
+            .any(|tool| tool.get("provider").and_then(|v| v.as_str()) == Some("core")));
+    }
+
+    #[tokio::test]
+    async fn chat_tools_list_denies_unknown_or_undefined_channel() {
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
+        let mut svc = ChatService::new(
+            tx,
+            make_store(),
+            Arc::new(HomieConfig::default()),
+            Arc::new(ExecPolicy::empty()),
+        );
+        let missing_resp = svc
+            .handle_request(Uuid::new_v4(), "chat.tools.list", None)
+            .await;
+        assert!(missing_resp.result.is_none());
+        let missing_error = missing_resp.error.expect("missing error");
+        assert_eq!(missing_error.code, error_codes::INVALID_PARAMS);
+        assert!(missing_error.message.contains(TOOL_CHANNEL_DENIED_CODE));
+
+        let resp = svc
             .handle_request(
                 Uuid::new_v4(),
                 "chat.tools.list",
                 Some(json!({ "channel": "discord" })),
             )
             .await;
-        assert!(discord_resp.error.is_none());
-        let discord_tools = discord_resp.result.expect("discord result")["data"]
-            .as_array()
-            .expect("discord data")
-            .clone();
-        assert!(discord_tools
-            .iter()
-            .any(|tool| tool.get("provider").and_then(|v| v.as_str()) == Some("core")));
+        assert!(resp.result.is_none());
+        let error = resp.error.expect("error");
+        assert_eq!(error.code, error_codes::INVALID_PARAMS);
+        assert!(error.message.contains(TOOL_CHANNEL_DENIED_CODE));
+    }
+
+    #[tokio::test]
+    async fn chat_tools_list_denies_channel_mismatch_with_bound_connection_channel() {
+        let (tx, _rx) = mpsc::channel::<OutboundMessage>(16);
+        let mut svc = ChatService::new_with_channel(
+            tx,
+            make_store(),
+            Arc::new(HomieConfig::default()),
+            Arc::new(ExecPolicy::empty()),
+            Some("web".to_string()),
+        );
+        let resp = svc
+            .handle_request(
+                Uuid::new_v4(),
+                "chat.tools.list",
+                Some(json!({ "channel": "mobile" })),
+            )
+            .await;
+        assert!(resp.result.is_none());
+        let error = resp.error.expect("error");
+        assert_eq!(error.code, error_codes::INVALID_PARAMS);
+        assert!(error.message.contains(TOOL_CHANNEL_DENIED_CODE));
     }
 
     #[tokio::test]

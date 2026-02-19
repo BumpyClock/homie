@@ -157,14 +157,13 @@ pub(super) fn parse_files_search_params(
     Some((chat_id, query, limit, base_path))
 }
 
-pub(super) fn parse_tool_channel(params: &Option<Value>) -> String {
+pub(super) fn parse_tool_channel(params: &Option<Value>) -> Option<String> {
     params
         .as_ref()
         .and_then(|value| value.get("channel"))
         .and_then(|value| value.as_str())
         .map(|value| value.trim().to_lowercase())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "web".to_string())
 }
 
 pub(super) fn parse_resume_params(params: &Option<Value>) -> Option<(String, Option<String>)> {

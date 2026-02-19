@@ -29,12 +29,23 @@ impl ChatService {
         homie_config: Arc<HomieConfig>,
         exec_policy: Arc<ExecPolicy>,
     ) -> Self {
+        Self::new_with_channel(outbound_tx, store, homie_config, exec_policy, None)
+    }
+
+    pub fn new_with_channel(
+        outbound_tx: mpsc::Sender<OutboundMessage>,
+        store: Arc<dyn Store>,
+        homie_config: Arc<HomieConfig>,
+        exec_policy: Arc<ExecPolicy>,
+        tool_channel: Option<String>,
+    ) -> Self {
         Self {
             core: Arc::new(Mutex::new(CodexChatCore::new(
                 outbound_tx,
                 store,
                 homie_config,
                 exec_policy,
+                tool_channel,
             ))),
         }
     }
@@ -45,11 +56,22 @@ impl ChatService {
         homie_config: Arc<HomieConfig>,
         exec_policy: Arc<ExecPolicy>,
     ) -> (Self, AgentService) {
+        Self::new_shared_with_channel(outbound_tx, store, homie_config, exec_policy, None)
+    }
+
+    pub fn new_shared_with_channel(
+        outbound_tx: mpsc::Sender<OutboundMessage>,
+        store: Arc<dyn Store>,
+        homie_config: Arc<HomieConfig>,
+        exec_policy: Arc<ExecPolicy>,
+        tool_channel: Option<String>,
+    ) -> (Self, AgentService) {
         let core = Arc::new(Mutex::new(CodexChatCore::new(
             outbound_tx,
             store,
             homie_config,
             exec_policy,
+            tool_channel,
         )));
         (Self { core: core.clone() }, AgentService { core })
     }
@@ -82,12 +104,23 @@ impl AgentService {
         homie_config: Arc<HomieConfig>,
         exec_policy: Arc<ExecPolicy>,
     ) -> Self {
+        Self::new_with_channel(outbound_tx, store, homie_config, exec_policy, None)
+    }
+
+    pub fn new_with_channel(
+        outbound_tx: mpsc::Sender<OutboundMessage>,
+        store: Arc<dyn Store>,
+        homie_config: Arc<HomieConfig>,
+        exec_policy: Arc<ExecPolicy>,
+        tool_channel: Option<String>,
+    ) -> Self {
         Self {
             core: Arc::new(Mutex::new(CodexChatCore::new(
                 outbound_tx,
                 store,
                 homie_config,
                 exec_policy,
+                tool_channel,
             ))),
         }
     }

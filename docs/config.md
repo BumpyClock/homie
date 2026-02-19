@@ -79,14 +79,20 @@ SearXNG:
 - `tools.providers.<provider_id>` controls per-provider tool loading.
 - Built-in `core` provider exists by default.
 - Tool catalogs are channel-aware: `chat.tools.list` returns only tools from providers enabled for the active channel.
+- Canonical channels: `web`, `mobile`, `whatsapp`.
+- `chat.tools.list` must receive a channel. Unknown or missing channels are denied (`tool_channel_denied`).
 - `tools.providers.<provider_id>.channels` is an optional channel allowlist.
-  - omitted or `[]` -> all channels
+  - omitted or `[]` -> all canonical channels
   - set -> provider loads only when current channel matches one of the listed values
   - channel gating applies after `enabled` and before per-tool allow/deny filters
 - Conflict detection:
   - unknown enabled provider -> config error
   - duplicate tool name across enabled providers -> config error
   - unknown tool names in `allow_tools`/`deny_tools` -> config error
+
+### Troubleshooting: `tool_channel_denied`
+- Ensure callers pass `channel` explicitly to `chat.tools.list` (`web`, `mobile`, or `whatsapp`).
+- Verify provider `channels` includes that channel (or leave it omitted/empty for all canonical channels).
 
 ### Browser automation (`browser` tool)
 - Core provider now includes `browser`, backed by `agent-browser` (`vercel-labs/agent-browser`).
@@ -102,7 +108,7 @@ Example:
 ```toml
 [tools.providers.core]
 enabled = true
-channels = ["web", "discord"]
+channels = ["web", "mobile", "whatsapp"]
 allow_tools = ["read", "ls", "find", "grep", "browser"]
 deny_tools = ["exec"]
 ```

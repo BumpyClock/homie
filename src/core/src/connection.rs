@@ -74,6 +74,7 @@ struct MessageLoopParams {
     exec_policy: Arc<ExecPolicy>,
     pairing_default_ttl_secs: u64,
     pairing_retention_secs: u64,
+    tool_channel: Option<String>,
 }
 
 /// Run the full connection lifecycle: handshake → message loop with
@@ -165,6 +166,7 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
         identity,
         negotiated_version: negotiated,
     };
+    let tool_channel = infer_tool_channel_from_client_id(&hello.client_id);
 
     tracing::info!(
         conn_id = %conn.id,
@@ -189,6 +191,7 @@ pub async fn run_connection(socket: WebSocket, auth: AuthOutcome, params: Connec
         exec_policy,
         pairing_default_ttl_secs,
         pairing_retention_secs,
+        tool_channel,
     };
 
     run_message_loop(&mut sink, &mut stream, loop_params).await;
@@ -215,6 +218,7 @@ async fn run_message_loop(
         exec_policy,
         pairing_default_ttl_secs,
         pairing_retention_secs,
+        tool_channel,
     } = params;
     let mut idle_deadline = tokio::time::Instant::now() + idle_timeout;
     let mut heartbeat = tokio::time::interval(heartbeat_interval);
@@ -232,11 +236,12 @@ async fn run_message_loop(
         outbound_tx.clone(),
         event_tx.clone(),
     )));
-    let (chat_service, agent_service) = ChatService::new_shared(
+    let (chat_service, agent_service) = ChatService::new_shared_with_channel(
         outbound_tx.clone(),
         store.clone(),
         homie_config,
         exec_policy,
+        tool_channel,
     );
     router.register(Box::new(chat_service));
     router.register(Box::new(agent_service));
@@ -415,6 +420,19 @@ async fn run_message_loop(
 
     // Connection closing — clean up all services.
     router.shutdown_all();
+}
+
+fn infer_tool_channel_from_client_id(client_id: &str) -> Option<String> {
+    let normalized = client_id.trim().to_lowercase();
+    if normalized.starts_with("homie-web/") {
+        Some("web".to_string())
+    } else if normalized.starts_with("homie-mobile/") {
+        Some("mobile".to_string())
+    } else if normalized.starts_with("homie-whatsapp/") {
+        Some("whatsapp".to_string())
+    } else {
+        None
+    }
 }
 
 async fn handle_text_message(

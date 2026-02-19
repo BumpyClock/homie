@@ -36,6 +36,7 @@ pub(super) struct CodexChatCore {
     pub(super) store: Arc<dyn Store>,
     pub(super) homie_config: Arc<HomieConfig>,
     pub(super) exec_policy: Arc<ExecPolicy>,
+    pub(super) tool_channel: Option<String>,
     pub(super) roci: RociBackend,
 }
 
@@ -49,6 +50,7 @@ impl CodexChatCore {
         store: Arc<dyn Store>,
         homie_config: Arc<HomieConfig>,
         exec_policy: Arc<ExecPolicy>,
+        tool_channel: Option<String>,
     ) -> Self {
         let backend = ChatBackend::from_env();
         let roci = RociBackend::new(
@@ -56,6 +58,7 @@ impl CodexChatCore {
             store.clone(),
             exec_policy.clone(),
             homie_config.clone(),
+            tool_channel.clone(),
         );
         Self {
             backend,
@@ -67,6 +70,7 @@ impl CodexChatCore {
             store,
             homie_config,
             exec_policy,
+            tool_channel,
             roci,
         }
     }

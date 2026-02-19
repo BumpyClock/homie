@@ -35,7 +35,6 @@ import {
   type ThreadTokenUsage,
   formatRelativeTime,
   normalizeCollaborationModes,
-  normalizeEnabledWebTools,
   normalizeChatSettings,
   normalizeModelOptions,
   normalizeSkillOptions,
@@ -285,14 +284,14 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   const refreshWebTools = useCallback(async () => {
     if (!enabled || status !== "connected") return;
     try {
-      const res = await call("chat.tools.list", { channel: "web" });
-      setEnabledWebTools(normalizeEnabledWebTools(res));
+      const res = await chatClient.listTools("web");
+      setEnabledWebTools(res);
       setWebToolsAvailable(true);
     } catch {
       setEnabledWebTools([]);
       setWebToolsAvailable(false);
     }
-  }, [call, enabled, status]);
+  }, [chatClient, enabled, status]);
 
   useEffect(() => {
     if (status === "connected" && enabled) return;
