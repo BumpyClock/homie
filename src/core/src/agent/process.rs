@@ -303,10 +303,9 @@ fn dispatch_line(
             } else {
                 None
             }
-        } else if let Some(text) = v.as_str() {
-            Some(CodexRequestId::Text(text.to_string()))
         } else {
-            None
+            v.as_str()
+                .map(|text| CodexRequestId::Text(text.to_string()))
         }
     });
     let numeric_id = match &id_value {

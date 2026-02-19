@@ -817,7 +817,7 @@ impl Store for SqliteStore {
         limit: usize,
     ) -> Result<Vec<ChatRawEventRecord>, String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
-        let max_rows = limit.max(1).min(10_000) as i64;
+        let max_rows = limit.clamp(1, 10_000) as i64;
         let mut stmt = conn
             .prepare(
                 "SELECT run_id, thread_id, method, params_json, created_at
@@ -1036,7 +1036,7 @@ impl Store for SqliteStore {
 
     fn list_cron_runs(&self, cron_id: &str, limit: usize) -> Result<Vec<CronRunRecord>, String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
-        let max_rows = limit.max(1).min(10_000) as i64;
+        let max_rows = limit.clamp(1, 10_000) as i64;
         let mut stmt = conn
             .prepare(
                 "SELECT run_id, cron_id, scheduled_at, started_at, finished_at, status, exit_code, output, error
@@ -1069,7 +1069,7 @@ impl Store for SqliteStore {
 
     fn list_latest_cron_runs(&self, limit: usize) -> Result<Vec<CronRunRecord>, String> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
-        let max_rows = limit.max(1).min(10_000) as i64;
+        let max_rows = limit.clamp(1, 10_000) as i64;
         let mut stmt = conn
             .prepare(
                 "SELECT run_id, cron_id, scheduled_at, started_at, finished_at, status, exit_code, output, error
@@ -1806,7 +1806,7 @@ mod tests {
         let items = store.list_cron_runs("cron-1", 10).unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].status, CronRunStatus::Failed);
-        assert!(store.cron_has_running("cron-1").unwrap() == false);
+        assert!(!store.cron_has_running("cron-1").unwrap());
         assert_eq!(items[0].run_id, "run-2");
     }
 

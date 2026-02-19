@@ -1,3 +1,6 @@
+// Parser-heavy tool module returns rich `RociError` variants; keep existing signatures stable.
+#![allow(clippy::result_large_err)]
+
 use std::sync::Arc;
 
 use roci::error::RociError;
@@ -29,7 +32,11 @@ pub fn cron_tool(ctx: ToolContext) -> Arc<dyn Tool> {
             "add|create|list|status|update|remove|cancel|run|runs|wake",
             false,
         )
-        .string("cron_id", "Cron identifier for status/update/remove/cancel/run/runs", false)
+        .string(
+            "cron_id",
+            "Cron identifier for status/update/remove/cancel/run/runs",
+            false,
+        )
         .string("name", "Cron name", false)
         .string("schedule", "Cron schedule expression", false)
         .string("command", "Cron command", false)
@@ -296,10 +303,12 @@ fn wake_crons(store: &dyn Store, id: Option<String>) -> Result<serde_json::Value
         return run_cron_now(store, id);
     }
 
-    let mut crons = store.list_crons().map_err(|error| RociError::ToolExecution {
-        tool_name: "cron".into(),
-        message: error,
-    })?;
+    let mut crons = store
+        .list_crons()
+        .map_err(|error| RociError::ToolExecution {
+            tool_name: "cron".into(),
+            message: error,
+        })?;
     let now = now_unix();
     let mut woke = 0usize;
     for cron in crons.iter_mut() {

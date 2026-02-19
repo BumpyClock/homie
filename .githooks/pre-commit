@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+STAGED="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+if [[ -z "$STAGED" ]]; then
+    exit 0
+fi
+
+if ! printf '%s\n' "$STAGED" | rg -q '^(Cargo\.toml|Cargo\.lock|src/core/|src/infra/homie-protocol/|src/infra/roci/)'; then
+    exit 0
+fi
+
+echo "pre-commit: running homie-core clippy (staged Rust/core changes detected)"
+cargo clippy -p homie-core --all-targets --all-features -- -D warnings
+

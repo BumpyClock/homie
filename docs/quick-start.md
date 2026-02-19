@@ -8,6 +8,7 @@
 ## Install
 ```bash
 pnpm install
+./scripts/install-git-hooks.sh
 ```
 
 ## Configure

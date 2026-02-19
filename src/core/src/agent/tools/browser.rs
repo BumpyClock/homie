@@ -1,3 +1,6 @@
+// Parser-heavy tool module returns rich `RociError` variants; keep existing signatures stable.
+#![allow(clippy::result_large_err)]
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 

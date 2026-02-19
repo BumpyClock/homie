@@ -170,23 +170,14 @@ impl Default for ChatConfig {
 
 const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../system_prompt.md");
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct ToolsConfig {
     pub web: WebToolsConfig,
     pub providers: HashMap<String, ToolProviderConfig>,
 }
 
-impl Default for ToolsConfig {
-    fn default() -> Self {
-        Self {
-            web: WebToolsConfig::default(),
-            providers: HashMap::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct ToolProviderConfig {
     pub enabled: Option<bool>,
@@ -195,45 +186,20 @@ pub struct ToolProviderConfig {
     pub deny_tools: Vec<String>,
 }
 
-impl Default for ToolProviderConfig {
-    fn default() -> Self {
-        Self {
-            enabled: None,
-            channels: Vec::new(),
-            allow_tools: Vec::new(),
-            deny_tools: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct WebToolsConfig {
     pub fetch: WebFetchConfig,
     pub search: WebSearchConfig,
 }
 
-impl Default for WebToolsConfig {
-    fn default() -> Self {
-        Self {
-            fetch: WebFetchConfig::default(),
-            search: WebSearchConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WebFetchBackend {
     Native,
     Firecrawl,
+    #[default]
     Auto,
-}
-
-impl Default for WebFetchBackend {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -803,24 +769,13 @@ where
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct ProvidersConfig {
     pub openai_codex: OpenAiCodexProviderConfig,
     pub github_copilot: GithubCopilotProviderConfig,
     pub openai_compatible: OpenAiCompatibleProviderConfig,
     pub claude_code: ClaudeCodeProviderConfig,
-}
-
-impl Default for ProvidersConfig {
-    fn default() -> Self {
-        Self {
-            openai_codex: OpenAiCodexProviderConfig::default(),
-            github_copilot: GithubCopilotProviderConfig::default(),
-            openai_compatible: OpenAiCompatibleProviderConfig::default(),
-            claude_code: ClaudeCodeProviderConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -899,20 +854,11 @@ impl Default for ClaudeCodeProviderConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct PathsConfig {
     pub credentials_dir: Option<String>,
     pub execpolicy_path: Option<String>,
-}
-
-impl Default for PathsConfig {
-    fn default() -> Self {
-        Self {
-            credentials_dir: None,
-            execpolicy_path: None,
-        }
-    }
 }
 
 fn resolve_path(value: &str) -> Result<PathBuf, String> {

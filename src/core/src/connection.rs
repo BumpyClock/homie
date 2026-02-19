@@ -450,10 +450,12 @@ async fn handle_text_message(
                 authz,
                 router,
                 subscriptions,
-                req.id,
-                req.method,
-                req.params,
-                None,
+                RouteRequest {
+                    req_id: req.id,
+                    method: req.method,
+                    params: req.params,
+                    response_id_override: None,
+                },
             )
             .await;
         }
@@ -473,10 +475,12 @@ async fn handle_text_message(
                     authz,
                     router,
                     subscriptions,
-                    legacy.req_id,
-                    legacy.method,
-                    legacy.params,
-                    Some(legacy.response_id),
+                    RouteRequest {
+                        req_id: legacy.req_id,
+                        method: legacy.method,
+                        params: legacy.params,
+                        response_id_override: Some(legacy.response_id),
+                    },
                 )
                 .await;
             }
@@ -490,16 +494,27 @@ async fn handle_text_message(
     }
 }
 
+struct RouteRequest {
+    req_id: Uuid,
+    method: String,
+    params: Option<Value>,
+    response_id_override: Option<Value>,
+}
+
 async fn route_and_respond(
     sink: &mut SplitSink<WebSocket, Message>,
     authz: AuthContext,
     router: &mut MessageRouter,
     subscriptions: &mut SubscriptionManager,
-    req_id: Uuid,
-    method: String,
-    params: Option<Value>,
-    response_id_override: Option<Value>,
+    req: RouteRequest,
 ) {
+    let RouteRequest {
+        req_id,
+        method,
+        params,
+        response_id_override,
+    } = req;
+
     if let Some(scope) = scope_for_method(&method) {
         if !authz.allows(scope) {
             let resp = Response::error(req_id, error_codes::UNAUTHORIZED, "unauthorized");
@@ -608,13 +623,12 @@ fn decode_legacy_request(text: &str) -> Option<LegacyDecode> {
         _ => return None,
     };
 
-    Some(LegacyRequest {
+    Some(LegacyDecode::Request(LegacyRequest {
         req_id,
         response_id,
         method,
         params: req.params,
-    })
-    .map(LegacyDecode::Request)
+    }))
 }
 
 /// Handle `events.subscribe` — add a topic subscription.

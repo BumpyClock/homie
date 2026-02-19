@@ -12,13 +12,11 @@ fn debug_terminal_bytes_enabled() -> bool {
 
 fn debug_terminal_session_filter() -> Option<Uuid> {
     static FILTER: OnceLock<Option<Uuid>> = OnceLock::new();
-    FILTER
-        .get_or_init(|| {
-            std::env::var("HOMIE_DEBUG_TERMINAL_SESSION")
-                .ok()
-                .and_then(|v| v.parse::<Uuid>().ok())
-        })
-        .clone()
+    *FILTER.get_or_init(|| {
+        std::env::var("HOMIE_DEBUG_TERMINAL_SESSION")
+            .ok()
+            .and_then(|v| v.parse::<Uuid>().ok())
+    })
 }
 
 pub fn terminal_debug_enabled_for(session_id: Uuid) -> bool {

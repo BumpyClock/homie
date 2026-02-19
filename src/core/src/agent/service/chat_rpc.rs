@@ -2,7 +2,7 @@ use homie_protocol::{error_codes, Response};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::agent::roci_backend::RociBackend;
+use crate::agent::roci_backend::{RociBackend, StartRunRequest};
 use crate::storage::SessionStatus;
 
 use super::files::{extract_attached_folder, search_files_in_folder};
@@ -11,7 +11,7 @@ use super::params::{
     build_chat_settings, merge_settings, normalize_model_selector, normalize_settings_models,
     parse_cancel_params, parse_files_search_params, parse_message_params, parse_resume_params,
     parse_settings_update_params, parse_thread_archive_params, parse_thread_read_params,
-    parse_thread_rename_params,
+    parse_thread_rename_params, MessageParams,
 };
 use crate::agent::service::core::CodexChatCore;
 use crate::storage::ChatRecord;
@@ -176,17 +176,24 @@ impl CodexChatCore {
         req_id: Uuid,
         params: Option<Value>,
     ) -> Response {
-        let (chat_id, message, model, effort, approval_policy, collaboration_mode, inject) =
-            match parse_message_params(&params) {
-                Some(v) => v,
-                None => {
-                    return Response::error(
-                        req_id,
-                        error_codes::INVALID_PARAMS,
-                        "missing chat_id or message",
-                    )
-                }
-            };
+        let MessageParams {
+            chat_id,
+            message,
+            model,
+            effort,
+            approval_policy,
+            collaboration_mode,
+            inject,
+        } = match parse_message_params(&params) {
+            Some(v) => v,
+            None => {
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "missing chat_id or message",
+                )
+            }
+        };
         let normalized_model = model
             .as_ref()
             .map(|m| normalize_model_selector(m, &self.homie_config.providers));
@@ -252,17 +259,17 @@ impl CodexChatCore {
             };
             match self
                 .roci
-                .start_run(
-                    &chat_id,
-                    &thread_id,
-                    &message,
-                    roci_model,
-                    roci_settings,
-                    roci_policy,
-                    roci_config,
-                    roci_collab_mode,
-                    Some(self.homie_config.chat.system_prompt.clone()),
-                )
+                .start_run(StartRunRequest {
+                    chat_id: &chat_id,
+                    thread_id: &thread_id,
+                    message: &message,
+                    model: roci_model,
+                    settings: roci_settings,
+                    approval_policy: roci_policy,
+                    config: roci_config,
+                    collaboration_mode: roci_collab_mode,
+                    system_prompt: Some(self.homie_config.chat.system_prompt.clone()),
+                })
                 .await
             {
                 Ok(turn_id) => {
@@ -436,7 +443,7 @@ impl CodexChatCore {
 
         let settings = chat_id
             .as_deref()
-            .or_else(|| Some(thread_id.as_str()))
+            .or(Some(thread_id.as_str()))
             .and_then(|id| {
                 self.store
                     .get_chat(id)

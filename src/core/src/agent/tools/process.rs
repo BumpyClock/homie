@@ -1,3 +1,6 @@
+// Parser-heavy tool module returns rich `RociError` variants; keep existing signatures stable.
+#![allow(clippy::result_large_err)]
+
 use std::sync::Arc;
 
 use roci::error::RociError;
@@ -56,10 +59,7 @@ async fn process_impl(
     match action.as_str() {
         "list" => {
             let list = registry.list(tail);
-            let entries: Vec<serde_json::Value> = list
-                .into_iter()
-                .map(|info| process_info_json(info))
-                .collect();
+            let entries: Vec<serde_json::Value> = list.into_iter().map(process_info_json).collect();
             Ok(serde_json::json!({ "processes": entries }))
         }
         "status" => {

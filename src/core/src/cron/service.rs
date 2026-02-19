@@ -418,8 +418,8 @@ fn now_unix() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{CronRunRecord, CronRunStatus};
     use crate::storage::SqliteStore;
+    use crate::storage::{CronRunRecord, CronRunStatus};
 
     fn make_store() -> Arc<SqliteStore> {
         Arc::new(SqliteStore::open_memory().unwrap())
@@ -535,7 +535,7 @@ mod tests {
                 Some(json!({"cron_id": cron_id, "limit": 5})),
             )
             .await;
-        assert!(runs.result.unwrap()["runs"].as_array().unwrap().len() >= 1);
+        assert!(!runs.result.unwrap()["runs"].as_array().unwrap().is_empty());
 
         let removed = svc
             .handle_request(

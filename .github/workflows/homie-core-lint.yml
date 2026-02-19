@@ -1,0 +1,45 @@
+name: homie-core lint
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - src/core/**
+      - src/infra/homie-protocol/**
+      - src/infra/roci/**
+      - .github/workflows/homie-core-lint.yml
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - src/core/**
+      - src/infra/homie-protocol/**
+      - src/infra/roci/**
+      - .github/workflows/homie-core-lint.yml
+  workflow_dispatch:
+
+jobs:
+  homie-core-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy (homie-core, deny warnings)
+        run: cargo clippy -p homie-core --all-targets --all-features -- -D warnings
+
+      - name: Rustfmt check
+        run: cargo fmt --all -- --check

@@ -24,13 +24,9 @@ pub use registry::{ListedTool, ToolProvider, ToolRegistry};
 pub const TOOL_CHANNEL_WEB: &str = "web";
 pub const TOOL_CHANNEL_MOBILE: &str = "mobile";
 pub const TOOL_CHANNEL_WHATSAPP: &str = "whatsapp";
-pub const DEFAULT_TOOL_CHANNEL: &str = TOOL_CHANNEL_WEB;
 pub const TOOL_CHANNEL_DENIED_CODE: &str = "tool_channel_denied";
-pub const CANONICAL_TOOL_CHANNELS: &[&str] = &[
-    TOOL_CHANNEL_WEB,
-    TOOL_CHANNEL_MOBILE,
-    TOOL_CHANNEL_WHATSAPP,
-];
+pub const CANONICAL_TOOL_CHANNELS: &[&str] =
+    &[TOOL_CHANNEL_WEB, TOOL_CHANNEL_MOBILE, TOOL_CHANNEL_WHATSAPP];
 
 #[derive(Clone)]
 pub struct ToolContext {
@@ -50,10 +46,6 @@ impl ToolContext {
     pub fn new_with_channel(homie_config: Arc<HomieConfig>, channel: Option<&str>) -> Self {
         let processes = Arc::new(ProcessRegistry::new());
         Self::with_processes_and_channel(processes, homie_config, channel)
-    }
-
-    pub fn with_processes(processes: Arc<ProcessRegistry>, homie_config: Arc<HomieConfig>) -> Self {
-        Self::with_processes_and_channel(processes, homie_config, None)
     }
 
     pub fn with_store(mut self, store: Arc<dyn Store>) -> Self {

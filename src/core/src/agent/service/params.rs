@@ -6,17 +6,17 @@ use crate::homie_config::ProvidersConfig;
 use roci::auth::DeviceCodePoll;
 use roci::auth::DeviceCodeSession;
 
-pub(super) fn parse_message_params(
-    params: &Option<Value>,
-) -> Option<(
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<Value>,
-    bool,
-)> {
+pub(super) struct MessageParams {
+    pub(super) chat_id: String,
+    pub(super) message: String,
+    pub(super) model: Option<String>,
+    pub(super) effort: Option<String>,
+    pub(super) approval_policy: Option<String>,
+    pub(super) collaboration_mode: Option<Value>,
+    pub(super) inject: bool,
+}
+
+pub(super) fn parse_message_params(params: &Option<Value>) -> Option<MessageParams> {
     let p = params.as_ref()?;
     let chat_id = p.get("chat_id")?.as_str()?.to_string();
     let message = p.get("message")?.as_str()?.to_string();
@@ -38,7 +38,7 @@ pub(super) fn parse_message_params(
         .or_else(|| p.get("collaborationMode"))
         .cloned();
     let inject = p.get("inject").and_then(|v| v.as_bool()).unwrap_or(false);
-    Some((
+    Some(MessageParams {
         chat_id,
         message,
         model,
@@ -46,7 +46,7 @@ pub(super) fn parse_message_params(
         approval_policy,
         collaboration_mode,
         inject,
-    ))
+    })
 }
 
 pub(super) fn build_chat_settings(

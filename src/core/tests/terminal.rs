@@ -680,14 +680,14 @@ async fn session_exit_event_on_process_exit() {
             msg = next_msg(&mut ws) => {
                 match msg {
                     WsMsg::Text(t) => {
-                        if let Ok(m) = serde_json::from_str::<homie_protocol::Message>(&t) {
-                            if let homie_protocol::Message::Event(evt) = m {
-                                if evt.topic == "terminal.session.exit" {
-                                    let params = evt.params.unwrap();
-                                    assert_eq!(params["session_id"].as_str().unwrap(), sid);
-                                    got_exit = true;
-                                    break;
-                                }
+                        if let Ok(homie_protocol::Message::Event(evt)) =
+                            serde_json::from_str::<homie_protocol::Message>(&t)
+                        {
+                            if evt.topic == "terminal.session.exit" {
+                                let params = evt.params.unwrap();
+                                assert_eq!(params["session_id"].as_str().unwrap(), sid);
+                                got_exit = true;
+                                break;
                             }
                         }
                     }

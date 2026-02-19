@@ -465,12 +465,12 @@ async fn exit_event_only_when_subscribed() {
             msg = next_msg(&mut ws) => {
                 match msg {
                     WsMsg::Text(t) => {
-                        if let Ok(m) = serde_json::from_str::<homie_protocol::Message>(&t) {
-                            if let homie_protocol::Message::Event(evt) = m {
-                                if evt.topic == "terminal.session.exit" {
-                                    got_exit = true;
-                                    break;
-                                }
+                        if let Ok(homie_protocol::Message::Event(evt)) =
+                            serde_json::from_str::<homie_protocol::Message>(&t)
+                        {
+                            if evt.topic == "terminal.session.exit" {
+                                got_exit = true;
+                                break;
                             }
                         }
                     }
@@ -520,14 +520,14 @@ async fn exit_event_with_wildcard_subscription() {
             msg = next_msg(&mut ws) => {
                 match msg {
                     WsMsg::Text(t) => {
-                        if let Ok(m) = serde_json::from_str::<homie_protocol::Message>(&t) {
-                            if let homie_protocol::Message::Event(evt) = m {
-                                if evt.topic == "terminal.session.exit" {
-                                    let params = evt.params.unwrap();
-                                    assert_eq!(params["session_id"].as_str().unwrap(), sid);
-                                    got_exit = true;
-                                    break;
-                                }
+                        if let Ok(homie_protocol::Message::Event(evt)) =
+                            serde_json::from_str::<homie_protocol::Message>(&t)
+                        {
+                            if evt.topic == "terminal.session.exit" {
+                                let params = evt.params.unwrap();
+                                assert_eq!(params["session_id"].as_str().unwrap(), sid);
+                                got_exit = true;
+                                break;
                             }
                         }
                     }
@@ -592,22 +592,22 @@ async fn exit_events_are_broadcast_to_all_connections() {
         tokio::select! {
             msg = next_msg(&mut ws1), if !got_exit_1 => {
                 if let WsMsg::Text(t) = msg {
-                    if let Ok(m) = serde_json::from_str::<homie_protocol::Message>(&t) {
-                        if let homie_protocol::Message::Event(evt) = m {
-                            if evt.topic == "terminal.session.exit" {
-                                got_exit_1 = true;
-                            }
+                    if let Ok(homie_protocol::Message::Event(evt)) =
+                        serde_json::from_str::<homie_protocol::Message>(&t)
+                    {
+                        if evt.topic == "terminal.session.exit" {
+                            got_exit_1 = true;
                         }
                     }
                 }
             }
             msg = next_msg(&mut ws2), if !got_exit_2 => {
                 if let WsMsg::Text(t) = msg {
-                    if let Ok(m) = serde_json::from_str::<homie_protocol::Message>(&t) {
-                        if let homie_protocol::Message::Event(evt) = m {
-                            if evt.topic == "terminal.session.exit" {
-                                got_exit_2 = true;
-                            }
+                    if let Ok(homie_protocol::Message::Event(evt)) =
+                        serde_json::from_str::<homie_protocol::Message>(&t)
+                    {
+                        if evt.topic == "terminal.session.exit" {
+                            got_exit_2 = true;
                         }
                     }
                 }

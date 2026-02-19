@@ -76,6 +76,21 @@ struct FirecrawlResult {
     warning: Option<String>,
 }
 
+struct FetchPayloadArgs<'a> {
+    url: &'a str,
+    final_url: &'a str,
+    status: u16,
+    content_type: &'a str,
+    title: Option<&'a str>,
+    extract_mode: ExtractMode,
+    extractor: &'a str,
+    backend: &'a str,
+    text: &'a str,
+    max_chars: usize,
+    start: Instant,
+    warning: Option<&'a str>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResolvedBackend {
     Native,
@@ -386,20 +401,20 @@ async fn web_fetch_inner(
         .await
         {
             Ok(firecrawl) => {
-                let payload = build_fetch_payload(
+                let payload = build_fetch_payload(FetchPayloadArgs {
                     url,
-                    firecrawl.final_url.as_deref().unwrap_or(url),
-                    firecrawl.status.unwrap_or(200),
-                    "text/markdown",
-                    firecrawl.title.as_deref(),
+                    final_url: firecrawl.final_url.as_deref().unwrap_or(url),
+                    status: firecrawl.status.unwrap_or(200),
+                    content_type: "text/markdown",
+                    title: firecrawl.title.as_deref(),
                     extract_mode,
-                    "firecrawl",
-                    "firecrawl",
-                    &firecrawl.text,
+                    extractor: "firecrawl",
+                    backend: "firecrawl",
+                    text: &firecrawl.text,
                     max_chars,
                     start,
-                    firecrawl.warning.as_deref(),
-                );
+                    warning: firecrawl.warning.as_deref(),
+                });
                 write_cache(fetch_cache(), &cache_key, payload.clone(), cache_ttl_ms);
                 return Ok(payload);
             }
@@ -439,20 +454,20 @@ async fn web_fetch_inner(
                     &firecrawl_base_url,
                 )
                 .await?;
-                let payload = build_fetch_payload(
+                let payload = build_fetch_payload(FetchPayloadArgs {
                     url,
-                    firecrawl.final_url.as_deref().unwrap_or(url),
-                    firecrawl.status.unwrap_or(200),
-                    "text/markdown",
-                    firecrawl.title.as_deref(),
+                    final_url: firecrawl.final_url.as_deref().unwrap_or(url),
+                    status: firecrawl.status.unwrap_or(200),
+                    content_type: "text/markdown",
+                    title: firecrawl.title.as_deref(),
                     extract_mode,
-                    "firecrawl",
-                    "firecrawl",
-                    &firecrawl.text,
+                    extractor: "firecrawl",
+                    backend: "firecrawl",
+                    text: &firecrawl.text,
                     max_chars,
                     start,
-                    firecrawl.warning.as_deref(),
-                );
+                    warning: firecrawl.warning.as_deref(),
+                });
                 write_cache(fetch_cache(), &cache_key, payload.clone(), cache_ttl_ms);
                 return Ok(payload);
             }
@@ -470,20 +485,20 @@ async fn web_fetch_inner(
                 &firecrawl_base_url,
             )
             .await?;
-            let payload = build_fetch_payload(
+            let payload = build_fetch_payload(FetchPayloadArgs {
                 url,
-                firecrawl.final_url.as_deref().unwrap_or(url),
-                firecrawl.status.unwrap_or(response.status().as_u16()),
-                "text/markdown",
-                firecrawl.title.as_deref(),
+                final_url: firecrawl.final_url.as_deref().unwrap_or(url),
+                status: firecrawl.status.unwrap_or(response.status().as_u16()),
+                content_type: "text/markdown",
+                title: firecrawl.title.as_deref(),
                 extract_mode,
-                "firecrawl",
-                "firecrawl",
-                &firecrawl.text,
+                extractor: "firecrawl",
+                backend: "firecrawl",
+                text: &firecrawl.text,
                 max_chars,
                 start,
-                firecrawl.warning.as_deref(),
-            );
+                warning: firecrawl.warning.as_deref(),
+            });
             write_cache(fetch_cache(), &cache_key, payload.clone(), cache_ttl_ms);
             return Ok(payload);
         }
@@ -531,20 +546,20 @@ async fn web_fetch_inner(
                     &firecrawl_base_url,
                 )
                 .await?;
-                let payload = build_fetch_payload(
+                let payload = build_fetch_payload(FetchPayloadArgs {
                     url,
-                    firecrawl.final_url.as_deref().unwrap_or(url),
-                    firecrawl.status.unwrap_or(200),
-                    "text/markdown",
-                    firecrawl.title.as_deref(),
+                    final_url: firecrawl.final_url.as_deref().unwrap_or(url),
+                    status: firecrawl.status.unwrap_or(200),
+                    content_type: "text/markdown",
+                    title: firecrawl.title.as_deref(),
                     extract_mode,
-                    "firecrawl",
-                    "firecrawl",
-                    &firecrawl.text,
+                    extractor: "firecrawl",
+                    backend: "firecrawl",
+                    text: &firecrawl.text,
                     max_chars,
                     start,
-                    firecrawl.warning.as_deref(),
-                );
+                    warning: firecrawl.warning.as_deref(),
+                });
                 write_cache(fetch_cache(), &cache_key, payload.clone(), cache_ttl_ms);
                 return Ok(payload);
             } else {
@@ -568,20 +583,20 @@ async fn web_fetch_inner(
         }
     }
 
-    let payload = build_fetch_payload(
+    let payload = build_fetch_payload(FetchPayloadArgs {
         url,
-        &final_url,
+        final_url: &final_url,
         status,
-        &content_type,
-        title.as_deref(),
+        content_type: &content_type,
+        title: title.as_deref(),
         extract_mode,
         extractor,
-        "native",
-        &text,
+        backend: "native",
+        text: &text,
         max_chars,
         start,
-        None,
-    );
+        warning: None,
+    });
     write_cache(fetch_cache(), &cache_key, payload.clone(), cache_ttl_ms);
     Ok(payload)
 }
@@ -1188,45 +1203,32 @@ async fn fetch_firecrawl_content(
     })
 }
 
-fn build_fetch_payload(
-    url: &str,
-    final_url: &str,
-    status: u16,
-    content_type: &str,
-    title: Option<&str>,
-    extract_mode: ExtractMode,
-    extractor: &str,
-    backend: &str,
-    text: &str,
-    max_chars: usize,
-    start: Instant,
-    warning: Option<&str>,
-) -> serde_json::Value {
-    let truncated = truncate_text(text, max_chars);
-    let mode = match extract_mode {
+fn build_fetch_payload(args: FetchPayloadArgs<'_>) -> serde_json::Value {
+    let truncated = truncate_text(args.text, args.max_chars);
+    let mode = match args.extract_mode {
         ExtractMode::Markdown => "markdown",
         ExtractMode::Text => "text",
     };
     let mut obj = serde_json::json!({
-        "url": url,
-        "finalUrl": final_url,
-        "status": status,
-        "contentType": content_type,
+        "url": args.url,
+        "finalUrl": args.final_url,
+        "status": args.status,
+        "contentType": args.content_type,
         "extractMode": mode,
-        "extractor": extractor,
-        "backend": backend,
+        "extractor": args.extractor,
+        "backend": args.backend,
         "truncated": truncated.1,
         "length": truncated.0.chars().count(),
         "fetchedAt": chrono::Utc::now().to_rfc3339(),
-        "tookMs": start.elapsed().as_millis() as u64,
+        "tookMs": args.start.elapsed().as_millis() as u64,
         "text": truncated.0,
     });
-    if let Some(title) = title {
+    if let Some(title) = args.title {
         if let Some(map) = obj.as_object_mut() {
             map.insert("title".into(), serde_json::Value::String(title.to_string()));
         }
     }
-    if let Some(warning) = warning {
+    if let Some(warning) = args.warning {
         if let Some(map) = obj.as_object_mut() {
             map.insert(
                 "warning".into(),
@@ -1242,13 +1244,11 @@ fn truncate_text(text: &str, max_chars: usize) -> (String, bool) {
         return (String::new(), text.is_empty());
     }
     let mut out = String::new();
-    let mut count = 0usize;
-    for ch in text.chars() {
+    for (count, ch) in text.chars().enumerate() {
         if count >= max_chars {
             break;
         }
         out.push(ch);
-        count += 1;
     }
     let truncated = text.chars().count() > max_chars;
     (out, truncated)
@@ -1399,13 +1399,11 @@ fn normalize_freshness(raw: &str) -> Option<String> {
 
 fn truncate_str(value: &str, max_chars: usize) -> String {
     let mut out = String::new();
-    let mut count = 0usize;
-    for ch in value.chars() {
+    for (count, ch) in value.chars().enumerate() {
         if count >= max_chars {
             break;
         }
         out.push(ch);
-        count += 1;
     }
     out
 }
@@ -1467,6 +1465,7 @@ fn search_cache() -> &'static Mutex<HashMap<String, CacheEntry>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use std::sync::{Arc, Mutex, OnceLock};
 
@@ -1481,8 +1480,8 @@ mod tests {
 
     use super::{
         build_fetch_payload, fetch_cache, normalize_cache_key, resolve_backend, search_cache,
-        web_fetch_impl, web_search_impl, write_cache, ExtractMode, ResolvedBackend, ToolContext,
-        WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME,
+        web_fetch_impl, web_search_impl, write_cache, ExtractMode, FetchPayloadArgs,
+        ResolvedBackend, ToolContext, WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME,
     };
 
     static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -1665,36 +1664,36 @@ mod tests {
     #[test]
     fn web_fetch_payload_includes_backend_field() {
         let start = Instant::now();
-        let payload = build_fetch_payload(
-            "https://example.com",
-            "https://example.com",
-            200,
-            "text/html",
-            Some("Example"),
-            ExtractMode::Markdown,
-            "readability",
-            "native",
-            "hello world",
-            50_000,
+        let payload = build_fetch_payload(FetchPayloadArgs {
+            url: "https://example.com",
+            final_url: "https://example.com",
+            status: 200,
+            content_type: "text/html",
+            title: Some("Example"),
+            extract_mode: ExtractMode::Markdown,
+            extractor: "readability",
+            backend: "native",
+            text: "hello world",
+            max_chars: 50_000,
             start,
-            None,
-        );
+            warning: None,
+        });
         assert_eq!(payload["backend"], json!("native"));
 
-        let payload_fc = build_fetch_payload(
-            "https://example.com",
-            "https://example.com",
-            200,
-            "text/markdown",
-            None,
-            ExtractMode::Markdown,
-            "firecrawl",
-            "firecrawl",
-            "hello world",
-            50_000,
+        let payload_fc = build_fetch_payload(FetchPayloadArgs {
+            url: "https://example.com",
+            final_url: "https://example.com",
+            status: 200,
+            content_type: "text/markdown",
+            title: None,
+            extract_mode: ExtractMode::Markdown,
+            extractor: "firecrawl",
+            backend: "firecrawl",
+            text: "hello world",
+            max_chars: 50_000,
             start,
-            None,
-        );
+            warning: None,
+        });
         assert_eq!(payload_fc["backend"], json!("firecrawl"));
     }
 

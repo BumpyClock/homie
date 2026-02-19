@@ -1,3 +1,4 @@
+#[allow(clippy::module_inception)] // Intentional: keep existing tests namespace in tests.rs with minimal churn.
 mod tests {
     use crate::agent::process::CodexRequestId;
     use crate::agent::service::dispatch::{AgentService, ChatService};
@@ -5,7 +6,7 @@ mod tests {
     use crate::agent::service::models::{chrono_now, roci_model_catalog};
     use crate::agent::service::params::{
         normalize_model_selector, parse_approval_params, parse_cancel_params, parse_message_params,
-        parse_tool_channel,
+        parse_tool_channel, MessageParams,
     };
     use crate::agent::tools::TOOL_CHANNEL_DENIED_CODE;
     use crate::execpolicy::ExecPolicy;
@@ -114,8 +115,15 @@ mod tests {
             "chat_id": "abc-123",
             "message": "hello world"
         }));
-        let (chat_id, message, model, effort, approval_policy, collaboration_mode, inject) =
-            parse_message_params(&params).unwrap();
+        let MessageParams {
+            chat_id,
+            message,
+            model,
+            effort,
+            approval_policy,
+            collaboration_mode,
+            inject,
+        } = parse_message_params(&params).unwrap();
         assert_eq!(chat_id, "abc-123");
         assert_eq!(message, "hello world");
         assert!(model.is_none());
@@ -139,7 +147,7 @@ mod tests {
             "message": "hello world",
             "inject": true
         }));
-        let (_, _, _, _, _, _, inject) = parse_message_params(&params).unwrap();
+        let MessageParams { inject, .. } = parse_message_params(&params).unwrap();
         assert!(inject);
     }
 

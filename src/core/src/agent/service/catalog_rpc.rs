@@ -134,8 +134,7 @@ impl CodexChatCore {
                 .tool_channel
                 .as_deref()
                 .or(requested_channel.as_deref());
-            let ctx =
-                ToolContext::new_with_channel(self.homie_config.clone(), effective_channel);
+            let ctx = ToolContext::new_with_channel(self.homie_config.clone(), effective_channel);
             let resolved_channel = match ctx.channel.clone() {
                 Some(channel) => channel,
                 None => {
