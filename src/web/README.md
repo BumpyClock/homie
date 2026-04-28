@@ -1,73 +1,54 @@
-# React + TypeScript + Vite
+# Homie web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React/Vite client for Homie terminal + chat access. It connects to the Homie gateway websocket and uses `@homie/shared` for the JSON-RPC transport, handshake, chat client helpers, and shared settings/auth types.
 
-Currently, two official plugins are available:
+## Setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+From repo root:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm install
+pnpm --filter @homie/shared build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Start the gateway first:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cargo run -p homie-gateway
 ```
+
+Default gateway target:
+
+- `ws://127.0.0.1:9800/ws`
+
+## Environment
+
+```bash
+VITE_GATEWAY_URL=ws://127.0.0.1:9800/ws
+```
+
+If unset in dev, the web app defaults to `ws://127.0.0.1:9800/ws`.
+
+For LAN testing, run the gateway with:
+
+```bash
+HOMIE_BIND=0.0.0.0:9800 HOMIE_ALLOW_LAN=1 cargo run -p homie-gateway
+VITE_GATEWAY_URL=ws://<host-lan-ip>:9800/ws pnpm --filter web dev
+```
+
+For Tailscale remote access, run the gateway with `HOMIE_TAILSCALE_SERVE=1` or compatibility alias `HOMIE_TAILSCALE=1`, then point `VITE_GATEWAY_URL` at the served `wss://.../ws` endpoint.
+
+## Commands
+
+- `pnpm --filter web dev` - start Vite; prebuilds `@homie/shared`
+- `pnpm --filter web lint` - run ESLint
+- `pnpm --filter web typecheck` - run TypeScript without emit
+- `pnpm --filter web build` - build shared package, typecheck web, and build Vite assets
+- `pnpm --filter web preview` - serve the production build locally
+
+## Target Behavior
+
+- The first websocket frame is the shared client handshake; RPC starts only after a `hello` response.
+- Terminal and chat calls use JSON-RPC envelopes over the gateway websocket.
+- Approval responses call `chat.approval.respond` with `codex_request_id` and `decision`.
+- Cancel sends `chat.cancel` with the active `chat_id` and `turn_id`.

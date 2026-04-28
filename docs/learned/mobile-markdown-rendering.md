@@ -1,3 +1,8 @@
+---
+summary: "Library survey and implementation notes for markdown in mobile chat views"
+read_when: "Before changing markdown rendering or chat text pipeline in mobile app"
+---
+
 # Mobile Markdown Rendering (Expo/RN) - 2026-02-10
 
 ## Goal

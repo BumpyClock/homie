@@ -27,6 +27,10 @@ type WebTerminalEvent =
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'error'; message: string };
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
 function fallbackDecodeUtf8(payload: Uint8Array): string {
   const chunkSize = 2048;
   let output = '';
@@ -314,6 +318,7 @@ export function MobileTerminalPane({
         }
       } catch (error) {
         if (cancelled) return;
+        if (isAbortError(error)) return;
         const message = error instanceof Error ? error.message : 'Unable to attach terminal session';
         setPaneError(message);
       }

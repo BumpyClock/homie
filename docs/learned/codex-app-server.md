@@ -1,3 +1,8 @@
+---
+summary: "Reference summary of Codex App-Server protocol for agent-server integration"
+read_when: "Before touching Codex App-Server transport or protocol assumptions"
+---
+
 # Codex App-Server Protocol Reference
 
 > Sources: [Official docs](https://developers.openai.com/codex/app-server), [GitHub](https://github.com/openai/codex/tree/main/codex-rs/app-server), [Rust crate](https://docs.rs/codex-app-server-protocol/latest/codex_app_server_protocol/), [CLI reference](https://developers.openai.com/codex/cli/reference/)

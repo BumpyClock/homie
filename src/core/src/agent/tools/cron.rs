@@ -26,24 +26,26 @@ struct CronToolParams {
 }
 
 pub fn cron_tool(ctx: ToolContext) -> Arc<dyn Tool> {
-    let params = AgentToolParameters::object()
-        .string(
-            "action",
-            "add|create|list|status|update|remove|cancel|run|runs|wake",
-            false,
-        )
-        .string(
-            "cron_id",
-            "Cron identifier for status/update/remove/cancel/run/runs",
-            false,
-        )
-        .string("name", "Cron name", false)
-        .string("schedule", "Cron schedule expression", false)
-        .string("command", "Cron command", false)
-        .boolean("skip_overlap", "Skip overlapping runs", false)
-        .number("limit", "Run list limit", false)
-        .string("status", "Cron status for create", false)
-        .build();
+    let params = AgentToolParameters::from_schema(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": "add|create|list|status|update|remove|cancel|run|runs|wake"
+            },
+            "cron_id": {
+                "type": "string",
+                "description": "Cron identifier for status/update/remove/cancel/run/runs"
+            },
+            "name": { "type": "string", "description": "Cron name" },
+            "schedule": { "type": "string", "description": "Cron schedule expression" },
+            "command": { "type": "string", "description": "Cron command" },
+            "skip_overlap": { "type": "boolean", "description": "Skip overlapping runs" },
+            "limit": { "type": "number", "description": "Run list limit" },
+            "status": { "type": "string", "description": "Cron status for create" }
+        },
+        "required": []
+    }));
 
     Arc::new(AgentTool::new(
         "cron",

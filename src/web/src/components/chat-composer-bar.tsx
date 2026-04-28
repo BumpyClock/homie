@@ -81,11 +81,13 @@ function ChatSelect({
     return Array.from(groups.entries());
   }, [filteredOptions]);
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) setQuery("");
+  };
+
   useEffect(() => {
-    if (!open) {
-      setQuery("");
-      return;
-    }
+    if (!open) return;
     if (!searchable) return;
     const id = window.requestAnimationFrame(() => {
       searchInputRef.current?.focus();
@@ -94,7 +96,7 @@ function ChatSelect({
   }, [open, searchable]);
 
   return (
-    <Select.Root value={value} onValueChange={onChange} disabled={disabled} open={open} onOpenChange={setOpen}>
+    <Select.Root value={value} onValueChange={onChange} disabled={disabled} open={open} onOpenChange={handleOpenChange}>
       <Select.Trigger
         className="inline-flex items-center gap-2 min-h-[40px] min-w-[124px] max-w-[220px] px-2.5 rounded-lg border border-border/60 bg-card/30 text-sm text-foreground hover:bg-muted/40 data-[state=open]:bg-muted/40 transition-colors motion-reduce:transition-none disabled:opacity-60"
         aria-label={label}

@@ -1,10 +1,15 @@
+// Gateway protocol and websocket transport.
 export * from "./protocol";
 export * from "./gateway-transport";
 export * from "./request-map";
+
+// Chat domain types, client helpers, event mapping, and turn grouping.
 export * from "./chat-types";
 export * from "./chat-client";
 export * from "./chat-events";
 export * from "./chat-turns";
+
+// Terminal, provider, settings, and UI-adjacent shared helpers.
 export * from "./terminal-sessions";
 export * from "./model-providers";
 export * from "./chat-utils";

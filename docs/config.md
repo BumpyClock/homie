@@ -1,3 +1,8 @@
+---
+summary: "Reference for Homie runtime configuration and runtime behavior"
+read_when: "Before editing config schema, defaults, or tool/provider runtime behavior"
+---
+
 # Homie config
 
 Location: `~/.homie/config.toml` (or `HOMIE_HOME` override).
@@ -249,6 +254,10 @@ Behavior:
 ## Debug
 - `debug.persist_raw_provider_events` stores raw provider events in sqlite when enabled.
 - Runtime env flags: `HOMIE_DEBUG=1` or `HOME_DEBUG=1`.
+
+## Tailscale
+- `HOMIE_TAILSCALE_SERVE=1` enables Tailscale auth mode and runs `tailscale serve https / <local_backend>` at startup.
+- `HOMIE_TAILSCALE=1` is kept as an alias for compatibility (same behavior as `HOMIE_TAILSCALE_SERVE=1`).
 
 ## Client env vars
 - Web: `VITE_GATEWAY_URL=ws://<host>:9800/ws`

@@ -1,3 +1,8 @@
+---
+summary: "Semantics and ordering rules for parallel tool-call batches"
+read_when: "Before changing agent loop scheduling or parallel tool-call handling"
+---
+
 # Parallel tool-call semantics (2026-02-12)
 
 Scope: `remotely-5ko.7` and `remotely-5ko.8`.

@@ -3,10 +3,11 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use homie_core::HomieConfig;
-use roci::auth::{providers::openai_codex::OpenAiCodexAuth, FileTokenStore, TokenStoreConfig};
+use roci::auth::{FileTokenStore, TokenStoreConfig};
 use roci::config::RociConfig;
 use roci::models::LanguageModel;
-use roci::provider::{create_provider, ProviderRequest};
+use roci::provider::ProviderRequest;
+use roci::roci_providers::auth::openai_codex::OpenAiCodexAuth;
 use roci::types::{generation::GenerationSettings, message::ModelMessage};
 use tokio::time::timeout;
 
@@ -42,14 +43,23 @@ async fn live_openai_codex_generate_text() {
         }
     }
 
-    let model: LanguageModel = "openai-codex:gpt-5.2-codex".parse().expect("model parse");
-    let provider = create_provider(&model, &config).expect("provider");
+    let model: LanguageModel = "codex:gpt-5.2-codex".parse().expect("model parse");
+    let registry = roci::default_registry();
+    let provider = registry
+        .create_provider(model.provider_name(), model.model_id(), &config)
+        .expect("provider");
 
     let request = ProviderRequest {
         messages: vec![ModelMessage::user("Say 'ok' then stop.")],
         settings: GenerationSettings::default(),
         tools: None,
         response_format: None,
+        api_key_override: None,
+        headers: reqwest::header::HeaderMap::new(),
+        metadata: std::collections::HashMap::new(),
+        payload_callback: None,
+        session_id: None,
+        transport: None,
     };
 
     let mut stream = timeout(Duration::from_secs(60), provider.stream_text(&request))

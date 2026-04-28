@@ -50,16 +50,10 @@ impl CodexChatCore {
         store: Arc<dyn Store>,
         homie_config: Arc<HomieConfig>,
         exec_policy: Arc<ExecPolicy>,
+        roci: RociBackend,
         tool_channel: Option<String>,
     ) -> Self {
         let backend = ChatBackend::from_env();
-        let roci = RociBackend::new(
-            outbound_tx.clone(),
-            store.clone(),
-            exec_policy.clone(),
-            homie_config.clone(),
-            tool_channel.clone(),
-        );
         Self {
             backend,
             outbound_tx,
@@ -131,7 +125,7 @@ impl CodexChatCore {
             let roci = self.roci.clone();
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
-                    roci.shutdown().await;
+                    roci.shutdown_connection().await;
                 });
             }
         }

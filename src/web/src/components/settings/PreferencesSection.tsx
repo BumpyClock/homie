@@ -1,5 +1,5 @@
 import { Moon, Sun, Monitor } from "lucide-react";
-import { useTheme, type Theme, type ColorScheme, COLOR_SCHEMES } from "@/hooks/use-theme";
+import { useTheme, type Theme, type ColorScheme } from "@/hooks/use-theme";
 import { PREVIEW_OPTIONS, type PreviewRefresh } from "@/lib/session-utils";
 
 interface PreferencesSectionProps {

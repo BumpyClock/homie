@@ -16,13 +16,13 @@ pub(super) fn approval_command_argv(params: &Value) -> Option<Vec<String>> {
     shell_words::split(command).ok()
 }
 
-fn normalize_approval_decision(decision: &str) -> ApprovalDecision {
+fn normalize_approval_decision(decision: &str) -> Option<ApprovalDecision> {
     match decision {
-        "accept" => ApprovalDecision::Accept,
-        "accept_for_session" => ApprovalDecision::AcceptForSession,
-        "decline" => ApprovalDecision::Decline,
-        "cancel" => ApprovalDecision::Cancel,
-        _ => ApprovalDecision::Decline,
+        "accept" => Some(ApprovalDecision::Accept),
+        "accept_for_session" => Some(ApprovalDecision::AcceptForSession),
+        "decline" => Some(ApprovalDecision::Decline),
+        "cancel" => Some(ApprovalDecision::Cancel),
+        _ => None,
     }
 }
 
@@ -43,13 +43,28 @@ impl CodexChatCore {
             }
         };
 
+        let roci_decision = match normalize_approval_decision(&decision) {
+            Some(decision) => decision,
+            None => {
+                tracing::warn!(
+                    ?codex_request_id,
+                    decision,
+                    "approval respond failed: unknown decision"
+                );
+                return Response::error(
+                    req_id,
+                    error_codes::INVALID_PARAMS,
+                    "unknown approval decision",
+                );
+            }
+        };
+
         if self.use_roci() {
             let request_id = match &codex_request_id {
                 CodexRequestId::Number(n) => n.to_string(),
                 CodexRequestId::Text(text) => text.clone(),
             };
-            let decision = normalize_approval_decision(&decision);
-            let ok = self.roci.respond_approval(&request_id, decision).await;
+            let ok = self.roci.respond_approval(&request_id, roci_decision).await;
             return if ok {
                 Response::success(req_id, json!({ "ok": true }))
             } else {

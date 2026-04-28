@@ -2,6 +2,8 @@
 topic: roci auth + agent loop extensions
 date: 2026-02-02
 source: local repo review (/home/bumpyclock/Projects/references/roci)
+summary: "Notes on ROCI auth-loop and agent-loop extension considerations"
+read_when: "Before touching ROCI auth threading or agent-loop extension points"
 ---
 
 # Roci extension notes (auth + agent loop)

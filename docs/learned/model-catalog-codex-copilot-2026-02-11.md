@@ -1,3 +1,8 @@
+---
+summary: "Model catalog and provider model-listing behavior updates for Codex/Copilot"
+read_when: "Before modifying model discovery, fallback catalog, or provider model flows"
+---
+
 # Model catalog refresh (Codex + GitHub Copilot)
 
 Date: 2026-02-11

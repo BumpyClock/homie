@@ -65,6 +65,82 @@ export interface ChatTurnGroup {
 
 export type TurnGroup = ChatTurnGroup;
 
+/**
+ * Per-turn chat items partitioned for rendering.
+ */
+export interface ChatTurnItemPartition {
+  userItems: ChatItem[];
+  assistantItems: ChatItem[];
+  activityItems: ChatItem[];
+  approvalItems: ChatItem[];
+  nonApprovalActivityItems: ChatItem[];
+  toolItems: ChatItem[];
+  lastActivity?: ChatItem;
+  latestReasoningItem?: ChatItem;
+  hasAssistant: boolean;
+}
+
+/**
+ * Partitions turn items in input order with a single pass.
+ */
+export function partitionChatTurnItems(items: readonly ChatItem[]): ChatTurnItemPartition {
+  const userItems: ChatItem[] = [];
+  const assistantItems: ChatItem[] = [];
+  const activityItems: ChatItem[] = [];
+  const approvalItems: ChatItem[] = [];
+  const nonApprovalActivityItems: ChatItem[] = [];
+  const toolItems: ChatItem[] = [];
+  let lastActivity: ChatItem | undefined;
+  let latestReasoningItem: ChatItem | undefined;
+  let hasAssistant = false;
+
+  for (const item of items) {
+    if (isUserChatItem(item)) {
+      userItems.push(item);
+      continue;
+    }
+
+    hasAssistant = true;
+
+    if (isAssistantChatItem(item)) {
+      assistantItems.push(item);
+      continue;
+    }
+
+    activityItems.push(item);
+
+    if (item.kind === "approval") {
+      approvalItems.push(item);
+      if (nonApprovalActivityItems.length === 0) {
+        lastActivity = item;
+      }
+      continue;
+    }
+
+    nonApprovalActivityItems.push(item);
+    lastActivity = item;
+
+    if (item.kind === "reasoning") {
+      latestReasoningItem = item;
+    }
+    if (item.kind === "tool") {
+      toolItems.push(item);
+    }
+  }
+
+  return {
+    userItems,
+    assistantItems,
+    activityItems,
+    approvalItems,
+    nonApprovalActivityItems,
+    toolItems,
+    lastActivity,
+    latestReasoningItem,
+    hasAssistant,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -14,6 +14,7 @@ import { radius, spacing, typography } from '@/theme/tokens';
 
 interface ProviderAccountsSectionProps {
   accountProviders: ChatAccountProviderStatus[];
+  authResetKey: string;
   startProviderLogin: (provider: string, profile?: string) => Promise<ChatDeviceCodeSession>;
   pollProviderLogin: (
     provider: string,
@@ -25,6 +26,7 @@ interface ProviderAccountsSectionProps {
 
 export function ProviderAccountsSection({
   accountProviders,
+  authResetKey,
   startProviderLogin,
   pollProviderLogin,
   refreshAccountProviders,
@@ -36,6 +38,7 @@ export function ProviderAccountsSection({
     startLogin: startProviderLogin,
     pollLogin: pollProviderLogin,
     onAuthorized: refreshAccountProviders,
+    resetKey: authResetKey,
   });
 
   if (enabledProviders.length === 0) {

@@ -3,8 +3,7 @@ use serde_json::{json, Map, Value};
 use crate::agent::process::CodexRequestId;
 use crate::agent::process::CodexRequestId::Text;
 use crate::homie_config::ProvidersConfig;
-use roci::auth::DeviceCodePoll;
-use roci::auth::DeviceCodeSession;
+use roci::auth::{AuthPollResult, DeviceCodeSession};
 
 pub(super) struct MessageParams {
     pub(super) chat_id: String,
@@ -312,17 +311,17 @@ pub(super) fn device_code_session_json(session: &DeviceCodeSession) -> Value {
     })
 }
 
-pub(super) fn device_code_poll_json(poll: DeviceCodePoll) -> Value {
+pub(super) fn device_code_poll_json(poll: AuthPollResult, interval_secs: u64) -> Value {
     match poll {
-        DeviceCodePoll::Pending { interval_secs } => {
+        AuthPollResult::Pending => {
             json!({ "status": "pending", "interval_secs": interval_secs })
         }
-        DeviceCodePoll::SlowDown { interval_secs } => {
-            json!({ "status": "slow_down", "interval_secs": interval_secs })
+        AuthPollResult::SlowDown { new_interval } => {
+            json!({ "status": "slow_down", "interval_secs": new_interval.as_secs() })
         }
-        DeviceCodePoll::Authorized { .. } => json!({ "status": "authorized" }),
-        DeviceCodePoll::AccessDenied => json!({ "status": "denied" }),
-        DeviceCodePoll::Expired => json!({ "status": "expired" }),
+        AuthPollResult::Authorized { .. } => json!({ "status": "authorized" }),
+        AuthPollResult::Denied => json!({ "status": "denied" }),
+        AuthPollResult::Expired => json!({ "status": "expired" }),
     }
 }
 

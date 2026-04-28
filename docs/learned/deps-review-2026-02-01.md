@@ -1,3 +1,8 @@
+---
+summary: "Dependency review notes for core async and terminal-related Rust dependencies"
+read_when: "Before swapping foundational Rust dependencies in core/backend"
+---
+
 # Dependency review (2026-02-01)
 
 Sources (primary):

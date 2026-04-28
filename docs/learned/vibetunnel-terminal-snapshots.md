@@ -1,3 +1,8 @@
+---
+summary: "Terminal snapshot and stream parity notes from VibeTunnel reference"
+read_when: "Before redesigning terminal session buffering or snapshot replay"
+---
+
 # VibeTunnel terminal snapshots (reference)
 
 - Server keeps a terminal buffer using ghostty-web (WASM) with scrollback limit 10k lines.

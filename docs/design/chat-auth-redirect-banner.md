@@ -1,3 +1,8 @@
+---
+summary: "Design for chat auth redirect banner and fallback auth UX"
+read_when: "Before adjusting chat auth prompts or banner-based auth redirection"
+---
+
 # Chat Auth Redirect Banner Design Doc
 
 ## Overview

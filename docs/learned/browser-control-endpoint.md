@@ -1,3 +1,8 @@
+---
+summary: "Reference notes for browser control endpoint wiring and expectations"
+read_when: "Before changing browser tool control routing or control endpoint contracts"
+---
+
 # Reference browser control endpoint (Homie integration)
 
 Sources: `~/Projects/reference-assistant/src/browser/client.ts`, `~/Projects/reference-assistant/src/browser/client-actions-core.ts`, `~/Projects/reference-assistant/src/browser/routes/*`, `~/Projects/reference-assistant/docs/tools/browser.md`.

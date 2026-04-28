@@ -108,11 +108,6 @@ impl ProcessRegistry {
         entry.output.extend_from_slice(chunk);
     }
 
-    pub fn remove(&self, id: &str) -> bool {
-        let mut guard = self.inner.lock().unwrap();
-        guard.remove(id).is_some()
-    }
-
     pub fn mark_exited(&self, id: &str, exit_code: Option<i32>) {
         let mut guard = self.inner.lock().unwrap();
         let Some(entry) = guard.get_mut(id) else {

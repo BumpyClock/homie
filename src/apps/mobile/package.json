@@ -7,6 +7,7 @@
     "android": "node ./scripts/expo-start.mjs --android --port 8081",
     "ios": "node ./scripts/expo-start.mjs --ios --port 8081",
     "web": "expo start --web",
+    "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

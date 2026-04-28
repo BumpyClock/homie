@@ -1,33 +1,29 @@
 # @homie/shared
 
-Shared TypeScript package for Homie app clients (`src/web`, `src/apps/mobile`).
+Shared TypeScript package for Homie web and mobile clients.
 
 ## Scope
 
-- Protocol envelopes + typed RPC payloads
-- Gateway websocket transport + request lifecycle
-- Chat API helpers + event mapping
-
-## Versioning Strategy
-
-- Internal package for now (`private: true`), versioned with semver tags in `package.json`
-- Minor version bump (`0.x+1`) for additive APIs
-- Patch version bump for internal fixes with no API changes
-- Breaking API changes require explicit migration notes in bead updates before merge
-
-## Commands
-
-- `pnpm install`
-- `pnpm typecheck`
-- `pnpm build`
+- Protocol envelopes and typed RPC payloads
+- Gateway websocket transport, including the required client hello handshake before RPC
+- Chat API helpers, event mapping, approval responses, and cancel calls
+- Shared settings, provider-auth copy, and client hooks
 
 ## Consumers
 
-- Web app (`src/web`) via local path alias/import
-- Mobile app (`src/apps/mobile`) via local path alias/import
+- Web: `src/web`
+- Mobile: `src/apps/mobile`
 
-Wiring is handled in follow-up beads:
-- `remotely-8di.2.2`
-- `remotely-8di.2.3`
-- `remotely-8di.2.4`
-- `remotely-8di.2.5`
+Both clients import from `@homie/shared` through the workspace package.
+
+## Commands
+
+- `pnpm --filter @homie/shared build`
+- `pnpm --filter @homie/shared typecheck`
+- `pnpm --filter @homie/shared test`
+
+## API Notes
+
+- `GatewayTransport` sends the handshake first and only releases queued RPC after `hello`.
+- `createChatClient(...).respondApproval(...)` maps to `chat.approval.respond`.
+- `createChatClient(...).cancel(...)` maps to `chat.cancel` with `chat_id` and `turn_id`.

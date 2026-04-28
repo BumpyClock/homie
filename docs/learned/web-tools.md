@@ -1,3 +1,8 @@
+---
+summary: "Reference findings for web_fetch/web_search behavior and guardrails"
+read_when: "Before changing web tool extraction, search, or SSRF safeguards"
+---
+
 # Web tools findings
 
 ## Reference web_fetch behavior

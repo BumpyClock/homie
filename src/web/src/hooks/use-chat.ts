@@ -79,8 +79,11 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
 
   useEffect(() => {
     bootstrappedRef.current = false;
-    setEnabledWebTools([]);
-    setWebToolsAvailable(false);
+    const timer = setTimeout(() => {
+      setEnabledWebTools([]);
+      setWebToolsAvailable(false);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [namespace]);
 
   const refreshLocalSettings = useCallback(() => {
@@ -296,13 +299,14 @@ export function useChat({ status, call, onEvent, enabled, namespace }: UseChatOp
   useEffect(() => {
     if (status === "connected" && enabled) return;
     bootstrappedRef.current = false;
-    setEnabledWebTools([]);
-    setWebToolsAvailable(false);
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      setEnabledWebTools([]);
+      setWebToolsAvailable(false);
       setThreads([]);
       setActiveChatId(null);
       setActiveThread(null);
     }, 0);
+    return () => clearTimeout(timer);
   }, [status, enabled]);
 
   useEffect(() => {

@@ -1,3 +1,8 @@
+---
+summary: "Shared auth architecture for provider login across web and mobile clients"
+read_when: "Before refactoring auth state machine or cross-platform auth adapters"
+---
+
 # Shared-first provider auth architecture
 
 > **Bead**: remotely-o1v.5.2 | **Date**: 2026-02-16

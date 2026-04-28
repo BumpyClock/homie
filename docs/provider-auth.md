@@ -1,3 +1,8 @@
+---
+summary: "Provider authentication behavior and supported auth providers"
+read_when: "Before changing provider auth flows, provider settings UI, or onboarding docs"
+---
+
 # Provider auth
 
 Provider authentication is managed from the **Settings** panel in both web and mobile clients.

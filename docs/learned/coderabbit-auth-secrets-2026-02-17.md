@@ -1,3 +1,8 @@
+---
+summary: "Known CodeRabbit auth secret-storage failure mode and platform constraints"
+read_when: "Before retrying or documenting CodeRabbit auth steps on Linux"
+---
+
 ## CodeRabbit CLI auth failure: ERR_SECRETS_PLATFORM_ERROR (Linux Secret Service)
 
 Date: 2026-02-17

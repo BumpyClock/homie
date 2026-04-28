@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use roci::auth::providers::github_copilot::GitHubCopilotAuth;
 use roci::config::RociConfig;
+use roci::roci_providers::auth::github_copilot::GitHubCopilotAuth;
 use serde_json::{json, Value};
 
 use crate::homie_config::{OpenAiCompatibleProviderConfig, ProvidersConfig};

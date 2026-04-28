@@ -45,28 +45,29 @@ struct BrowserCommandResult {
 }
 
 pub fn browser_tool(ctx: ToolContext) -> std::sync::Arc<dyn Tool> {
-    let params = AgentToolParameters::object()
-        .string(
-            "command",
-            "agent-browser command (example: 'open https://example.com' or 'snapshot -i').",
-            true,
-        )
-        .string("cwd", "Working directory for relative file paths.", false)
-        .string("session", "Optional browser session name.", false)
-        .string("profile", "Optional browser profile path.", false)
-        .string(
-            "provider",
-            "Optional provider (browserbase|browseruse|kernel|ios).",
-            false,
-        )
-        .boolean("headed", "Run with a visible browser window.", false)
-        .boolean(
-            "json",
-            "Use JSON output from agent-browser (default true).",
-            false,
-        )
-        .number("timeout", "Timeout in seconds (default 90).", false)
-        .build();
+    let params = AgentToolParameters::from_schema(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "agent-browser command (example: 'open https://example.com' or 'snapshot -i')."
+            },
+            "cwd": { "type": "string", "description": "Working directory for relative file paths." },
+            "session": { "type": "string", "description": "Optional browser session name." },
+            "profile": { "type": "string", "description": "Optional browser profile path." },
+            "provider": {
+                "type": "string",
+                "description": "Optional provider (browserbase|browseruse|kernel|ios)."
+            },
+            "headed": { "type": "boolean", "description": "Run with a visible browser window." },
+            "json": {
+                "type": "boolean",
+                "description": "Use JSON output from agent-browser (default true)."
+            },
+            "timeout": { "type": "number", "description": "Timeout in seconds (default 90)." }
+        },
+        "required": ["command"]
+    }));
 
     std::sync::Arc::new(AgentTool::new(
         BROWSER_TOOL_NAME,

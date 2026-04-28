@@ -1,3 +1,8 @@
+---
+summary: "Design for compact tool activity cards and progressive disclosure in timeline"
+read_when: "Before changing tool history, card rendering, or timeline compactness rules"
+---
+
 # Tool Detail Card System Design Doc
 
 ## Overview

@@ -1,3 +1,8 @@
+---
+summary: "Decision record for terminal renderer choice and tradeoffs"
+read_when: "Before changing terminal renderer stack or terminal streaming behavior"
+---
+
 # Terminal Renderer: Decision Record
 
 ## Status

@@ -9,11 +9,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      // Deduplicate React — pnpm hoists a different version to the workspace
-      // root which causes "Invalid hook call" errors in Radix UI and other
-      // libraries that resolve React from the root node_modules.
-      "react": path.resolve(__dirname, "node_modules/react"),
-      "react-dom": path.resolve(__dirname, "node_modules/react-dom"),
+      // Deduplicate React through the hoisted workspace install.
+      "react": path.resolve(__dirname, "../../node_modules/react"),
+      "react-dom": path.resolve(__dirname, "../../node_modules/react-dom"),
     },
     // Ensure Vite deduplicates React across all dependency trees
     dedupe: ["react", "react-dom"],

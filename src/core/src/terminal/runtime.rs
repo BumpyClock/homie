@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::thread::JoinHandle;
 
 use portable_pty::{Child, MasterPty, PtySize};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc::error::TrySendError, oneshot};
 use uuid::Uuid;
 
 /// Holds the PTY master, writer, child process, and reader thread for one
@@ -129,8 +129,9 @@ impl SessionRuntime {
                     match reader.read(&mut buf) {
                         Ok(0) => break, // EOF
                         Ok(n) => {
-                            if output_tx.blocking_send(buf[..n].to_vec()).is_err() {
-                                break; // receiver dropped
+                            match output_tx.try_send(buf[..n].to_vec()) {
+                                Ok(()) | Err(TrySendError::Full(_)) => {}
+                                Err(TrySendError::Closed(_)) => break, // receiver dropped
                             }
                         }
                         Err(e) => {

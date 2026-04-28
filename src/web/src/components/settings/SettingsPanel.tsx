@@ -38,9 +38,11 @@ export function SettingsPanel({
 
   // Sync activeSection when initialSection changes while opening
   useEffect(() => {
-    if (isOpen && initialSection) {
+    if (!isOpen || !initialSection) return;
+    const frame = requestAnimationFrame(() => {
       setActiveSection(initialSection);
-    }
+    });
+    return () => cancelAnimationFrame(frame);
   }, [isOpen, initialSection]);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);

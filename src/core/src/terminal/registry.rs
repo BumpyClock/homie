@@ -1,48 +1,31 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use axum::extract::ws::Message as WsMessage;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::process::Command;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::debug_bytes::{contains_subseq, fmt_bytes, terminal_debug_enabled_for};
-use homie_protocol::{BinaryFrame, StreamType};
-
-use super::runtime::SessionRuntime;
 use crate::outbound::OutboundMessage;
 use crate::router::ReapEvent;
 use crate::storage::{SessionStatus, Store, TerminalRecord};
+use homie_protocol::{BinaryFrame, StreamType};
 
-const HISTORY_CHUNK_BYTES: usize = 16 * 1024;
-const DEFAULT_HISTORY_BYTES: usize = 2 * 1024 * 1024;
+use super::runtime::SessionRuntime;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionInfo {
-    pub session_id: Uuid,
-    pub name: Option<String>,
-    pub shell: String,
-    pub cols: u16,
-    pub rows: u16,
-    pub started_at: String,
-}
+mod history;
+mod output;
+mod shell;
+mod time;
+mod tmux;
+mod types;
 
-#[derive(Debug)]
-pub enum TerminalError {
-    NotFound(Uuid),
-    Missing(String),
-    Internal(String),
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct TmuxSessionInfo {
-    pub name: String,
-    pub windows: u32,
-    pub attached: bool,
-}
+use history::{history_limit_bytes, HistoryBuffer};
+use output::{forward_pty_output, replay_history};
+use shell::build_shell_command;
+use time::chrono_now;
+use tmux::is_tmux_shell;
+pub use types::{SessionInfo, TerminalError, TmuxSessionInfo};
 
 struct ActiveSession {
     runtime: SessionRuntime,
@@ -50,45 +33,6 @@ struct ActiveSession {
     output_task: tokio::task::JoinHandle<()>,
     subscribers: Arc<Mutex<HashMap<Uuid, mpsc::Sender<OutboundMessage>>>>,
     history: Arc<Mutex<HistoryBuffer>>,
-}
-
-struct HistoryBuffer {
-    data: VecDeque<u8>,
-    max_bytes: usize,
-}
-
-impl HistoryBuffer {
-    fn new(max_bytes: usize) -> Self {
-        Self {
-            data: VecDeque::new(),
-            max_bytes,
-        }
-    }
-
-    fn push(&mut self, chunk: &[u8]) {
-        if self.max_bytes == 0 || chunk.is_empty() {
-            return;
-        }
-        if chunk.len() >= self.max_bytes {
-            self.data.clear();
-            self.data
-                .extend(chunk[chunk.len() - self.max_bytes..].iter().copied());
-            return;
-        }
-        while self.data.len() + chunk.len() > self.max_bytes {
-            self.data.pop_front();
-        }
-        self.data.extend(chunk.iter().copied());
-    }
-
-    fn snapshot(&self) -> Vec<u8> {
-        if self.data.is_empty() {
-            return Vec::new();
-        }
-        let mut out = Vec::with_capacity(self.data.len());
-        out.extend(self.data.iter().copied());
-        out
-    }
 }
 
 pub struct TerminalRegistry {
@@ -116,97 +60,6 @@ impl TerminalRegistry {
     ) -> Result<SessionInfo, TerminalError> {
         let (display_shell, cmd) = build_shell_command(&shell);
         self.start_session_with_command(display_shell, cmd, cols, rows, None)
-    }
-
-    pub fn list_tmux_sessions(&self) -> Result<(bool, Vec<TmuxSessionInfo>), TerminalError> {
-        if !tmux_supported() {
-            return Ok((false, Vec::new()));
-        }
-        let output = Command::new("tmux")
-            .args([
-                "list-sessions",
-                "-F",
-                "#{session_name}|#{session_windows}|#{session_attached}",
-            ])
-            .output()
-            .map_err(|e| TerminalError::Internal(format!("tmux list failed: {e}")))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let lowered = stderr.to_lowercase();
-            if lowered.contains("no server running") || lowered.contains("no sessions") {
-                return Ok((true, Vec::new()));
-            }
-            return Err(TerminalError::Internal(format!(
-                "tmux list failed: {stderr}"
-            )));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut sessions = Vec::new();
-        for line in stdout.lines() {
-            let mut parts = line.split('|');
-            let name = match parts.next() {
-                Some(v) if !v.is_empty() => v.to_string(),
-                _ => continue,
-            };
-            let windows = parts
-                .next()
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(0);
-            let attached = parts.next().map(|v| v == "1").unwrap_or(false);
-            sessions.push(TmuxSessionInfo {
-                name,
-                windows,
-                attached,
-            });
-        }
-        Ok((true, sessions))
-    }
-
-    pub fn attach_tmux_session(
-        &mut self,
-        session_name: String,
-        cols: u16,
-        rows: u16,
-    ) -> Result<SessionInfo, TerminalError> {
-        if !tmux_supported() {
-            return Err(TerminalError::Internal("tmux not supported".into()));
-        }
-        if !tmux_has_session(&session_name)? {
-            return Err(TerminalError::Missing(format!(
-                "tmux session not found: {session_name}"
-            )));
-        }
-        let mut cmd = CommandBuilder::new("tmux");
-        cmd.arg("attach");
-        cmd.arg("-t");
-        cmd.arg(&session_name);
-        let display = format!("tmux:{session_name}");
-        self.start_session_with_command(display, cmd, cols, rows, Some(session_name))
-    }
-
-    pub fn kill_tmux_session(&self, session_name: String) -> Result<(), TerminalError> {
-        if !tmux_supported() {
-            return Err(TerminalError::Internal("tmux not supported".into()));
-        }
-        let output = Command::new("tmux")
-            .args(["kill-session", "-t", &session_name])
-            .output()
-            .map_err(|e| TerminalError::Internal(format!("tmux kill failed: {e}")))?;
-        if output.status.success() {
-            return Ok(());
-        }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let lowered = stderr.to_lowercase();
-        if lowered.contains("no server running") || lowered.contains("no sessions") {
-            return Err(TerminalError::Missing(format!(
-                "tmux session not found: {session_name}"
-            )));
-        }
-        Err(TerminalError::Internal(format!(
-            "tmux kill failed: {stderr}"
-        )))
     }
 
     fn start_session_with_command(
@@ -334,39 +187,7 @@ impl TerminalRegistry {
         };
         if should_replay {
             let snapshot = history.lock().unwrap().snapshot();
-            if !snapshot.is_empty() {
-                let slice = if max_bytes > 0 && snapshot.len() > max_bytes {
-                    snapshot[snapshot.len() - max_bytes..].to_vec()
-                } else {
-                    snapshot
-                };
-                let session_id = info.session_id;
-                tokio::spawn(async move {
-                    for chunk in slice.chunks(HISTORY_CHUNK_BYTES) {
-                        if terminal_debug_enabled_for(session_id) {
-                            tracing::info!(
-                                session = %session_id,
-                                msg = %fmt_bytes(chunk, 80),
-                                "terminal replay chunk"
-                            );
-                        }
-                        let frame = BinaryFrame {
-                            session_id,
-                            stream: StreamType::Stdout,
-                            payload: chunk.to_vec(),
-                        };
-                        if outbound_tx
-                            .send(OutboundMessage::raw(WsMessage::Binary(
-                                frame.encode().into(),
-                            )))
-                            .await
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                });
-            }
+            replay_history(info.session_id, snapshot, max_bytes, outbound_tx);
         }
         self.persist_status(&info, SessionStatus::Active, None);
         Ok(info)
@@ -593,129 +414,5 @@ impl TerminalRegistry {
         if let Err(e) = self.store.upsert_terminal(&rec) {
             tracing::warn!(%info.session_id, "failed to persist terminal status: {e}");
         }
-    }
-}
-
-async fn forward_pty_output(
-    session_id: Uuid,
-    mut output_rx: mpsc::Receiver<Vec<u8>>,
-    subscribers: Arc<Mutex<HashMap<Uuid, mpsc::Sender<OutboundMessage>>>>,
-    history: Arc<Mutex<HistoryBuffer>>,
-) {
-    while let Some(data) = output_rx.recv().await {
-        if terminal_debug_enabled_for(session_id) {
-            let has_dsr = contains_subseq(&data, b"\x1b[6n") || contains_subseq(&data, b"[6n");
-            tracing::info!(
-                session = %session_id,
-                dsr = has_dsr,
-                msg = %fmt_bytes(&data, 80),
-                "terminal pty out"
-            );
-        }
-        if let Ok(mut buffer) = history.lock() {
-            buffer.push(&data);
-        }
-        let frame = BinaryFrame {
-            session_id,
-            stream: StreamType::Stdout,
-            payload: data,
-        };
-        let encoded = frame.encode();
-        let mut to_remove = Vec::new();
-        let targets: Vec<(Uuid, mpsc::Sender<OutboundMessage>)> = {
-            let guard = subscribers.lock().unwrap();
-            guard.iter().map(|(id, tx)| (*id, tx.clone())).collect()
-        };
-        for (id, tx) in targets {
-            if tx
-                .send(OutboundMessage::raw(WsMessage::Binary(
-                    encoded.clone().into(),
-                )))
-                .await
-                .is_err()
-            {
-                to_remove.push(id);
-            }
-        }
-        if !to_remove.is_empty() {
-            let mut guard = subscribers.lock().unwrap();
-            for id in to_remove {
-                guard.remove(&id);
-            }
-        }
-    }
-}
-
-fn chrono_now() -> String {
-    let dur = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}s", dur.as_secs())
-}
-
-fn history_limit_bytes() -> usize {
-    std::env::var("HOMIE_HISTORY_BYTES")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(DEFAULT_HISTORY_BYTES)
-}
-
-fn tmux_supported() -> bool {
-    if cfg!(target_os = "windows") {
-        return false;
-    }
-    Command::new("tmux").arg("-V").output().is_ok()
-}
-
-fn is_tmux_shell(shell: &str) -> bool {
-    shell.starts_with("tmux:")
-}
-
-fn tmux_has_session(session_name: &str) -> Result<bool, TerminalError> {
-    let output = Command::new("tmux")
-        .args(["has-session", "-t", session_name])
-        .output()
-        .map_err(|e| TerminalError::Internal(format!("tmux has-session failed: {e}")))?;
-    if output.status.success() {
-        return Ok(true);
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let lowered = stderr.to_lowercase();
-    if lowered.contains("no server running") || lowered.contains("no sessions") {
-        return Ok(false);
-    }
-    Ok(false)
-}
-
-fn build_shell_command(shell: &str) -> (String, CommandBuilder) {
-    #[cfg(target_os = "windows")]
-    {
-        let raw = shell.trim();
-        let unquoted = raw
-            .strip_prefix('"')
-            .and_then(|v| v.strip_suffix('"'))
-            .unwrap_or(raw);
-
-        let lower = unquoted.to_ascii_lowercase();
-        let marker = "cmd.exe";
-        if let Some(pos) = lower.find(marker) {
-            let exe = unquoted[..pos + marker.len()].trim().to_string();
-            let rest = unquoted[pos + marker.len()..].trim();
-
-            // Special-case: allow "cmd.exe /d" to be passed as a single string (common mistake).
-            // Also default to "/d" for cmd to avoid AutoRun side effects.
-            if rest.is_empty() || rest.eq_ignore_ascii_case("/d") {
-                let mut cmd = CommandBuilder::new(&exe);
-                cmd.arg("/d");
-                return (format!("{exe} /d"), cmd);
-            }
-        }
-
-        (shell.to_string(), CommandBuilder::new(shell))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        (shell.to_string(), CommandBuilder::new(shell))
     }
 }

@@ -107,6 +107,7 @@ export default function SettingsTabScreen() {
         return (
           <ProviderAccountsSection
             accountProviders={accountProviders}
+            authResetKey={`${targetUrl}:${status}`}
             startProviderLogin={startProviderLogin}
             pollProviderLogin={pollProviderLogin}
             refreshAccountProviders={refreshAccountProviders}

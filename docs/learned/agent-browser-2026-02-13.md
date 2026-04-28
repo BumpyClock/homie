@@ -1,3 +1,8 @@
+---
+summary: "Research on Agent Browser references and reusable browser automation patterns"
+read_when: "Before implementing browser automation based on external reference implementations"
+---
+
 # Agent Browser (Vercel) research notes
 
 Date: 2026-02-13

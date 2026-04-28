@@ -30,7 +30,7 @@ htmd.workspace = true
 html2text.workspace = true
 pulldown-cmark.workspace = true
 cron = "0.12"
-roci = { path = "../infra/roci", default-features = false, features = ["openai", "openai-compatible", "anthropic", "agent"] }
+roci = { path = "../infra/roci", default-features = false, features = ["openai", "openai-compatible", "github-copilot", "anthropic", "agent"] }
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

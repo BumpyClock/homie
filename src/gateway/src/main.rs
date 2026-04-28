@@ -18,9 +18,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bind = parse_socket("HOMIE_BIND", defaults.bind);
     let tailnet_bind = parse_optional_socket("HOMIE_TAILNET_BIND");
-    let tailscale_env = parse_bool("HOMIE_TAILSCALE", false);
+    let tailscale_alias = parse_bool("HOMIE_TAILSCALE", false);
     let tailscale_serve =
-        parse_bool("HOMIE_TAILSCALE_SERVE", defaults.tailscale_serve) || tailscale_env;
+        parse_bool("HOMIE_TAILSCALE_SERVE", defaults.tailscale_serve) || tailscale_alias;
     let allow_lan = parse_bool("HOMIE_ALLOW_LAN", defaults.allow_lan);
     let heartbeat_interval = parse_duration("HOMIE_HEARTBEAT_SECS", defaults.heartbeat_interval);
     let idle_timeout = parse_duration("HOMIE_IDLE_SECS", defaults.idle_timeout);
@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = SqliteStore::open(Path::new(&db_path))?;
     let store = Arc::new(store);
 
-    if tailscale_env {
+    if tailscale_serve {
         ensure_tailscale_serve(config.bind).await;
     }
 

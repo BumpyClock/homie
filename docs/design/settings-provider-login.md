@@ -1,3 +1,8 @@
+---
+summary: "Settings redesign and provider login navigation and interaction updates"
+read_when: "Before editing settings layout, provider login paths, or onboarding flows"
+---
+
 # Settings Redesign: Sectioned Navigation + Provider Login
 
 > **Bead**: remotely-o1v | **Date**: 2026-02-16

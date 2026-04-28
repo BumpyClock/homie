@@ -15,6 +15,7 @@ import {
 import type { ChatItem } from "@/lib/chat-utils";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import {
+  partitionChatTurnItems,
   friendlyToolLabelFromItem,
   normalizeChatToolName,
   rawToolNameFromItem,
@@ -24,6 +25,7 @@ import {
   getReasoningPreview,
   getActivityPreview,
 } from "@/lib/chat-utils";
+import type { ChatTurnItemPartition } from "@/lib/chat-utils";
 import { useStreamingDebounce } from "@homie/shared";
 
 interface ChatTurnsProps {
@@ -495,33 +497,34 @@ function renderToolDetail(item: ChatItem) {
 
 function AssistantTurn({
   turn,
+  partition,
   isStreaming,
   onApprove,
 }: {
   turn: TurnGroup;
+  partition: ChatTurnItemPartition;
   isStreaming: boolean;
   onApprove?: (requestId: number | string, decision: "accept" | "decline") => void;
 }) {
-  const assistant = turn.items.filter((item) => item.kind === "assistant");
-  const response = assistant[assistant.length - 1]?.text ?? "";
+  const {
+    assistantItems,
+    activityItems,
+    approvalItems,
+    nonApprovalActivityItems,
+    toolItems,
+    lastActivity,
+    latestReasoningItem,
+  } = partition;
+  const response = assistantItems[assistantItems.length - 1]?.text ?? "";
   const usePlainText = useStreamingDebounce(isStreaming, response);
-  const activities = turn.items.filter((item) => item.kind !== "user" && item.kind !== "assistant");
-  const approvalItems = activities.filter((item) => item.kind === "approval");
-  const nonApprovalActivities = activities.filter((item) => item.kind !== "approval");
-  const hasActivities = nonApprovalActivities.length > 0 || approvalItems.length > 0;
+  const hasActivities = nonApprovalActivityItems.length > 0 || approvalItems.length > 0;
   const preview = previewFromTurn(turn, isStreaming);
-  const toolItems = useMemo(
-    () => activities.filter((item) => item.kind === "tool"),
-    [activities],
-  );
   const toolSummary = useMemo(
     () => (toolItems.length > 0 ? formatToolTypeSummary(toolItems) : null),
     [toolItems],
   );
   const [expanded, setExpanded] = useState(false);
-  const lastActivity = nonApprovalActivities[nonApprovalActivities.length - 1] ?? approvalItems[approvalItems.length - 1];
-  const reasoningItem = [...activities].reverse().find((item) => item.kind === "reasoning");
-  const showReasoningPreview = !expanded && reasoningItem && reasoningItem !== lastActivity;
+  const showReasoningPreview = !expanded && latestReasoningItem && latestReasoningItem !== lastActivity;
   const showStreamingDots = isStreaming && !expanded;
 
   return (
@@ -536,7 +539,7 @@ function AssistantTurn({
             <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
             <span className="truncate">{preview}</span>
             <span className="shrink-0 text-[10px] tracking-wide opacity-70">
-              {toolSummary ?? `${activities.length} steps`}
+              {toolSummary ?? `${activityItems.length} steps`}
             </span>
           </button>
         )}
@@ -557,11 +560,11 @@ function AssistantTurn({
           </div>
         )}
 
-        {!expanded && showReasoningPreview && reasoningItem && (
+        {!expanded && showReasoningPreview && latestReasoningItem && (
           <div className="rounded-lg border border-border bg-card/20 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2 homie-fade-in">
             <span className="text-[11px] uppercase tracking-wide">Reasoning</span>
             <span className="text-foreground/80 truncate flex-1">
-              {getReasoningPreview(reasoningItem)}
+              {getReasoningPreview(latestReasoningItem)}
               {showStreamingDots && (
                 <span className="homie-dots ml-1 inline-flex items-center gap-1 align-middle" aria-hidden="true">
                   <span className="h-2 w-2 rounded-full bg-muted-foreground/70" />
@@ -590,7 +593,7 @@ function AssistantTurn({
           >
             <div>
               <div className="space-y-3 pb-1">
-                {nonApprovalActivities.map((item) => (
+                {nonApprovalActivityItems.map((item) => (
                   <ActivityRow key={item.id} item={item} onApprove={onApprove} />
                 ))}
               </div>
@@ -649,16 +652,20 @@ export function ChatTurns({
       )}
       {turns.map((turn) => {
         const turnId = turn.turnId ?? turn.id;
-        const userItems = turn.items.filter((item) => item.kind === "user");
-        const hasAssistant = turn.items.some((item) => item.kind !== "user");
+        const partition = partitionChatTurnItems(turn.items);
         const isStreaming = running && activeTurnId === turnId;
         return (
           <div key={turn.id} className="space-y-3">
-            {userItems.map((item) => (
+            {partition.userItems.map((item) => (
               <UserBubble key={item.id} text={item.text || ""} />
             ))}
-            {hasAssistant && (
-              <AssistantTurn turn={turn} isStreaming={isStreaming} onApprove={onApprove} />
+            {partition.hasAssistant && (
+              <AssistantTurn
+                turn={turn}
+                partition={partition}
+                isStreaming={isStreaming}
+                onApprove={onApprove}
+              />
             )}
           </div>
         );

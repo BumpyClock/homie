@@ -12,6 +12,7 @@ export interface UseProviderAuthOptions {
   startLogin: (provider: string) => Promise<ChatDeviceCodeSession>;
   pollLogin: (provider: string, session: ChatDeviceCodeSession) => Promise<ChatDeviceCodePollResult>;
   onAuthorized: () => Promise<void>;
+  resetKey?: unknown;
 }
 
 interface CancelToken {
@@ -26,6 +27,10 @@ const SLOW_DOWN_INCREASE_SECS = 5;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 export function useProviderAuth(opts: UseProviderAuthOptions): {
@@ -124,6 +129,11 @@ export function useProviderAuth(opts: UseProviderAuthOptions): {
           }
         } catch (err) {
           if (token.cancelled) return;
+          if (isAbortError(err)) {
+            token.cancelled = true;
+            tokensRef.current.delete(providerId);
+            return;
+          }
           const message = err instanceof Error ? err.message : AUTH_COPY.errorFailed;
           setState(providerId, { status: "error", error: message });
           tokensRef.current.delete(providerId);
@@ -143,6 +153,14 @@ export function useProviderAuth(opts: UseProviderAuthOptions): {
       tokens.clear();
     };
   }, []);
+
+  useEffect(() => {
+    for (const token of tokensRef.current.values()) {
+      token.cancelled = true;
+    }
+    tokensRef.current.clear();
+    setAuthStates({});
+  }, [opts.resetKey]);
 
   return { authStates, connect, cancel };
 }

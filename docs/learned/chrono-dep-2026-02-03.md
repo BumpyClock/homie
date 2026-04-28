@@ -1,3 +1,8 @@
+---
+summary: "Dependency health check notes for chrono crate versions and stability"
+read_when: "Before modifying date/time dependency usage in Rust services"
+---
+
 # chrono dep health check (2026-02-03)
 
 Sources:

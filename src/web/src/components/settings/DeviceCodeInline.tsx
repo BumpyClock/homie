@@ -10,7 +10,7 @@ interface DeviceCodeInlineProps {
 export function DeviceCodeInline({ verificationUrl, userCode, expiresAt }: DeviceCodeInlineProps) {
   const [copied, setCopied] = useState(false);
   const [remaining, setRemaining] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval>>();
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleCopy = useCallback(async () => {
     try {

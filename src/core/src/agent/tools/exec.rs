@@ -29,17 +29,20 @@ struct ExecRequest {
 }
 
 pub fn exec_tool(ctx: ToolContext) -> Arc<dyn Tool> {
-    let params = AgentToolParameters::object()
-        .string("command", "Shell command to execute", true)
-        .string("cwd", "Working directory (optional)", false)
-        .string(
-            "yieldMs",
-            "Milliseconds before returning and backgrounding",
-            false,
-        )
-        .boolean("background", "Run in background immediately", false)
-        .number("timeout", "Timeout in seconds", false)
-        .build();
+    let params = AgentToolParameters::from_schema(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "command": { "type": "string", "description": "Shell command to execute" },
+            "cwd": { "type": "string", "description": "Working directory (optional)" },
+            "yieldMs": {
+                "type": "number",
+                "description": "Milliseconds before returning and backgrounding"
+            },
+            "background": { "type": "boolean", "description": "Run in background immediately" },
+            "timeout": { "type": "number", "description": "Timeout in seconds" }
+        },
+        "required": ["command"]
+    }));
 
     Arc::new(AgentTool::new(
         "exec",

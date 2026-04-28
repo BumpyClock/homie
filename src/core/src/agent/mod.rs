@@ -1,5 +1,5 @@
 mod process;
-mod roci_backend;
+pub(crate) mod roci_backend;
 mod service;
 mod tools;
 

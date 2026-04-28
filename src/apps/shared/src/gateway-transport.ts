@@ -27,6 +27,12 @@ export interface GatewayTransportState {
   error: unknown;
 }
 
+interface TransportDiagnostic {
+  message: string;
+  context: Record<string, unknown>;
+  error?: unknown;
+}
+
 export interface ReconnectBackoffOptions {
   baseDelayMs?: number;
   maxDelayMs?: number;
@@ -261,11 +267,7 @@ export class GatewayTransport {
     this.pendingRequests.rejectAll(new Error("Connection closed"));
 
     if (socket) {
-      try {
-        socket.close();
-      } catch {
-        // ignore
-      }
+      this.closeSocket(socket, "stop");
     }
 
     this.resetState("disconnected");
@@ -292,11 +294,7 @@ export class GatewayTransport {
     this.pendingRequests.rejectAll(new Error("Connection closed"));
 
     if (socket) {
-      try {
-        socket.close();
-      } catch {
-        // ignore
-      }
+      this.closeSocket(socket, "setConnection");
     }
 
     if (!url) {
@@ -384,10 +382,28 @@ export class GatewayTransport {
   sendBinary(data: Uint8Array | ArrayBuffer): void {
     const socket = this.socket;
     if (!socket || socket.readyState !== WS_OPEN || !this.handshakeCompleted) {
+      this.recordTransportFailure("sendBinary skipped", {
+        reason: this.getSendUnavailableReason(socket),
+        readyState: socket?.readyState ?? null,
+        handshaken: this.handshakeCompleted,
+        bytes: data.byteLength,
+      });
       return;
     }
 
-    socket.send(data);
+    try {
+      socket.send(data);
+    } catch (error) {
+      this.recordTransportFailure(
+        "sendBinary failed",
+        {
+          readyState: socket.readyState,
+          handshaken: this.handshakeCompleted,
+          bytes: data.byteLength,
+        },
+        error
+      );
+    }
   }
 
   private connect(): void {
@@ -404,11 +420,7 @@ export class GatewayTransport {
       }
 
       if (state === WS_CONNECTING || state === WS_CLOSING) {
-        try {
-          existing.close();
-        } catch {
-          // ignore
-        }
+        this.closeSocket(existing, "replaceExistingSocket");
       }
 
       this.socket = null;
@@ -450,7 +462,6 @@ export class GatewayTransport {
       }
 
       this.setStatus("handshaking");
-      this.retryCount = 0;
       this.log("open");
       this.clearReconnectTimeout();
 
@@ -469,17 +480,34 @@ export class GatewayTransport {
         client_id: clientHello.client_id,
       });
 
-      socket.send(JSON.stringify(clientHello));
+      try {
+        socket.send(JSON.stringify(clientHello));
+      } catch (error) {
+        this.recordTransportFailure(
+          "hello send failed",
+          {
+            readyState: socket.readyState,
+            protocol: clientHello.protocol,
+            client_id: clientHello.client_id,
+          },
+          error
+        );
+        this.setStatus("error");
+        this.socket = null;
+        this.handshakeCompleted = false;
+        this.clearHandshakeTimeout();
+        this.clearBinaryBacklog();
+        this.closeSocket(socket, "sendHello");
+        this.setStatus("disconnected");
+        this.scheduleReconnect();
+        return;
+      }
 
       this.clearHandshakeTimeout();
       this.handshakeTimeout = setTimeout(() => {
         if (this.socket === socket && !this.handshakeCompleted) {
           this.log("handshake timeout; closing");
-          try {
-            socket.close();
-          } catch {
-            // ignore
-          }
+          this.closeSocket(socket, "handshakeTimeout");
         }
       }, this.options.handshakeTimeoutMs);
     };
@@ -500,8 +528,17 @@ export class GatewayTransport {
             }
             this.dispatchBinary(buffer);
           })
-          .catch(() => {
-            // ignore
+          .catch((error) => {
+            if (!this.running || this.socket !== socket) {
+              return;
+            }
+            this.recordTransportFailure(
+              "blob decode failed",
+              {
+                readyState: socket.readyState,
+              },
+              error
+            );
           });
         return;
       }
@@ -535,6 +572,7 @@ export class GatewayTransport {
 
         if (decoded.type === "hello") {
           this.handshakeCompleted = true;
+          this.retryCount = 0;
           this.clearHandshakeTimeout();
           this.clearBinaryBacklog();
           this.serverHello = decoded;
@@ -548,7 +586,7 @@ export class GatewayTransport {
           this.rejection = decoded;
           this.setStatus("rejected");
           this.log("handshake rejected", decoded);
-          socket.close();
+          this.closeSocket(socket, "handshakeRejected");
         }
         return;
       }
@@ -586,11 +624,7 @@ export class GatewayTransport {
       this.setStatus("error");
       this.log("error", event);
 
-      try {
-        socket.close();
-      } catch {
-        // ignore
-      }
+      this.closeSocket(socket, "socketError");
     };
 
     socket.onclose = (event) => {
@@ -682,6 +716,55 @@ export class GatewayTransport {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+  }
+
+  private closeSocket(
+    socket: GatewaySocketLike,
+    phase: string,
+    code?: number,
+    reason?: string
+  ): void {
+    try {
+      socket.close(code, reason);
+    } catch (error) {
+      this.recordTransportFailure(
+        "socket close failed",
+        {
+          phase,
+          readyState: socket.readyState,
+          code: code ?? null,
+          reason: reason ?? null,
+        },
+        error
+      );
+    }
+  }
+
+  private getSendUnavailableReason(socket: GatewaySocketLike | null): string {
+    if (!socket) {
+      return "not_connected";
+    }
+
+    if (socket.readyState !== WS_OPEN) {
+      return "socket_not_open";
+    }
+
+    return "handshake_incomplete";
+  }
+
+  private recordTransportFailure(
+    message: string,
+    context: Record<string, unknown>,
+    error?: unknown
+  ): void {
+    const diagnostic: TransportDiagnostic = { message, context };
+    if (error !== undefined) {
+      diagnostic.error = error;
+    }
+
+    this.error = diagnostic;
+    this.emitState();
+    this.log("transport failure", diagnostic);
   }
 
   private setStatus(status: ConnectionStatus): void {

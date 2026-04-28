@@ -3,10 +3,11 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use homie_core::HomieConfig;
-use roci::auth::{providers::github_copilot::GitHubCopilotAuth, FileTokenStore, TokenStoreConfig};
+use roci::auth::{FileTokenStore, TokenStoreConfig};
 use roci::config::RociConfig;
 use roci::models::LanguageModel;
-use roci::provider::{create_provider, ProviderRequest};
+use roci::provider::ProviderRequest;
+use roci::roci_providers::auth::github_copilot::GitHubCopilotAuth;
 use roci::types::{generation::GenerationSettings, message::ModelMessage};
 use tokio::time::timeout;
 
@@ -51,13 +52,22 @@ async fn live_github_copilot_generate_text() {
     let model: LanguageModel = format!("github-copilot:{model_id}")
         .parse()
         .expect("model parse");
-    let provider = create_provider(&model, &config).expect("provider");
+    let registry = roci::default_registry();
+    let provider = registry
+        .create_provider(model.provider_name(), model.model_id(), &config)
+        .expect("provider");
 
     let request = ProviderRequest {
         messages: vec![ModelMessage::user("Reply with exactly: ok")],
         settings: GenerationSettings::default(),
         tools: None,
         response_format: None,
+        api_key_override: None,
+        headers: reqwest::header::HeaderMap::new(),
+        metadata: std::collections::HashMap::new(),
+        payload_callback: None,
+        session_id: None,
+        transport: None,
     };
 
     let mut stream = timeout(Duration::from_secs(60), provider.stream_text(&request))

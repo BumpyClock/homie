@@ -12,6 +12,7 @@ use axum::Router;
 use tokio::sync::broadcast;
 use tower_http::trace::TraceLayer;
 
+use crate::agent::roci_backend::RociBackend;
 use crate::auth::{authenticate, AuthOutcome, TailscaleWhois};
 use crate::config::ServerConfig;
 use crate::connection::{run_connection, ConnectionParams};
@@ -35,6 +36,7 @@ pub(crate) struct AppState {
     pub cron_runner: Arc<CronRunner>,
     pub homie_config: Arc<HomieConfig>,
     pub exec_policy: Arc<ExecPolicy>,
+    pub roci: RociBackend,
 }
 
 /// Build the axum router for the WS server.
@@ -91,6 +93,12 @@ pub fn build_router(
 
     let homie_config = load_homie_config();
     let exec_policy = load_exec_policy(&homie_config);
+    let roci = RociBackend::new(
+        store.clone(),
+        event_tx.clone(),
+        exec_policy.clone(),
+        homie_config.clone(),
+    );
     let nodes = Arc::new(Mutex::new(NodeRegistry::new(config.node_timeout)));
 
     let reaper_registry = terminal_registry.clone();
@@ -124,6 +132,7 @@ pub fn build_router(
         cron_runner,
         homie_config,
         exec_policy,
+        roci,
     };
 
     Router::new()
@@ -193,6 +202,7 @@ async fn ws_upgrade(
     let homie_config = state.homie_config.clone();
     let cron_runner = state.cron_runner.clone();
     let exec_policy = state.exec_policy.clone();
+    let roci = state.roci.clone();
     let nodes = state.nodes.clone();
     let terminal_registry = state.terminal_registry.clone();
     let event_tx = state.event_tx.clone();
@@ -208,6 +218,7 @@ async fn ws_upgrade(
         cron_runner,
         homie_config,
         exec_policy,
+        roci,
         pairing_default_ttl_secs: state.config.pairing_default_ttl_secs,
         pairing_retention_secs: state.config.pairing_retention_secs,
     };

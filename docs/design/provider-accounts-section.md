@@ -1,3 +1,8 @@
+---
+summary: "Design of provider accounts settings section and account state handling"
+read_when: "Before changing settings provider account surfaces in web/mobile"
+---
+
 # Provider Accounts Section Design Doc
 
 > **Bead**: remotely-o1v.4 | **Date**: 2026-02-16

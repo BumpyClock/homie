@@ -8,6 +8,13 @@ use tokio::sync::mpsc;
 use super::params::{extract_thread_id, extract_turn_id};
 use crate::agent::process::{CodexEvent, CodexResponseSender};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum EventForwardOutcome {
+    Sent,
+    Dropped,
+    OutboundClosed,
+}
+
 pub(super) fn codex_method_to_topics(method: &str) -> Option<(&'static str, &'static str)> {
     match method {
         "item/agentMessage/delta" => Some(("chat.message.delta", "agent.chat.delta")),
@@ -66,12 +73,6 @@ pub(super) async fn event_forwarder_loop(
             if let Some(id) = event.id.clone() {
                 if let Some(argv) = super::approvals::approval_command_argv(&raw_params) {
                     if exec_policy.is_allowed(&argv) {
-                        if let Some(thread_id) = extract_thread_id(&raw_params) {
-                            if let Ok(Some(chat)) = store.get_chat(&thread_id) {
-                                let next = chat.event_pointer.saturating_add(1);
-                                let _ = store.update_event_pointer(&chat.chat_id, next);
-                            }
-                        }
                         let result = json!({ "decision": "accept" });
                         if response_sender.send_response(id, result).await.is_ok() {
                             tracing::info!("execpolicy auto-approved command");
@@ -120,30 +121,78 @@ pub(super) async fn event_forwarder_loop(
             );
         }
 
-        if let Some(thread_id) = extract_thread_id(&event_params) {
-            if let Ok(Some(chat)) = store.get_chat(&thread_id) {
-                let next = chat.event_pointer.saturating_add(1);
-                let _ = store.update_event_pointer(&chat.chat_id, next);
-            }
-        }
-
-        let chat_params = event_params.clone();
-        match outbound_tx.try_send(OutboundMessage::event(chat_topic, Some(chat_params))) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                tracing::warn!(topic = chat_topic, "backpressure: dropping chat event");
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => break,
-        }
-
-        match outbound_tx.try_send(OutboundMessage::event(agent_topic, Some(event_params))) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                tracing::warn!(topic = agent_topic, "backpressure: dropping agent event");
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => break,
+        let outcome =
+            forward_mapped_event(&outbound_tx, &store, chat_topic, agent_topic, event_params);
+        if matches!(outcome, EventForwardOutcome::OutboundClosed) {
+            break;
         }
     }
 
     tracing::debug!("agent event forwarder exited");
+}
+
+pub(super) fn forward_mapped_event(
+    outbound_tx: &mpsc::Sender<OutboundMessage>,
+    store: &std::sync::Arc<dyn Store>,
+    chat_topic: &'static str,
+    agent_topic: &'static str,
+    event_params: serde_json::Value,
+) -> EventForwardOutcome {
+    let thread_id = extract_thread_id(&event_params);
+    let chat_params = event_params.clone();
+    match outbound_tx.try_send(OutboundMessage::event(chat_topic, Some(chat_params))) {
+        Ok(()) => {
+            if let Some(thread_id) = thread_id.as_deref() {
+                advance_event_pointer(store, thread_id);
+            }
+        }
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            tracing::warn!(topic = chat_topic, "backpressure: dropping chat event");
+            return EventForwardOutcome::Dropped;
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+            tracing::warn!(topic = chat_topic, "outbound closed: dropping chat event");
+            return EventForwardOutcome::OutboundClosed;
+        }
+    }
+
+    match outbound_tx.try_send(OutboundMessage::event(agent_topic, Some(event_params))) {
+        Ok(()) => {}
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            tracing::warn!(topic = agent_topic, "backpressure: dropping agent event");
+            return EventForwardOutcome::Dropped;
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+            tracing::warn!(topic = agent_topic, "outbound closed: dropping agent event");
+            return EventForwardOutcome::OutboundClosed;
+        }
+    }
+
+    EventForwardOutcome::Sent
+}
+
+fn advance_event_pointer(store: &std::sync::Arc<dyn Store>, chat_id: &str) {
+    match store.get_chat(chat_id) {
+        Ok(Some(chat)) => {
+            let next = chat.event_pointer.saturating_add(1);
+            if let Err(error) = store.update_event_pointer(&chat.chat_id, next) {
+                tracing::warn!(
+                    chat_id = %chat.chat_id,
+                    pointer = next,
+                    error = %error,
+                    "failed to update event pointer"
+                );
+            }
+        }
+        Ok(None) => {
+            tracing::warn!(%chat_id, "failed to update event pointer: missing chat");
+        }
+        Err(error) => {
+            tracing::warn!(
+                %chat_id,
+                error = %error,
+                "failed to load chat for event pointer update"
+            );
+        }
+    }
 }

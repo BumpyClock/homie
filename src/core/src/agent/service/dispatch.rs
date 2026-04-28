@@ -6,6 +6,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
+use crate::agent::roci_backend::RociBackend;
 use crate::outbound::OutboundMessage;
 use crate::router::{ReapEvent, ServiceHandler};
 use crate::storage::Store;
@@ -39,12 +40,20 @@ impl ChatService {
         exec_policy: Arc<ExecPolicy>,
         tool_channel: Option<String>,
     ) -> Self {
+        let (event_tx, _) = tokio::sync::broadcast::channel(256);
+        let roci = RociBackend::new(
+            store.clone(),
+            event_tx,
+            exec_policy.clone(),
+            homie_config.clone(),
+        );
         Self {
             core: Arc::new(Mutex::new(CodexChatCore::new(
                 outbound_tx,
                 store,
                 homie_config,
                 exec_policy,
+                roci,
                 tool_channel,
             ))),
         }
@@ -56,7 +65,14 @@ impl ChatService {
         homie_config: Arc<HomieConfig>,
         exec_policy: Arc<ExecPolicy>,
     ) -> (Self, AgentService) {
-        Self::new_shared_with_channel(outbound_tx, store, homie_config, exec_policy, None)
+        let (event_tx, _) = tokio::sync::broadcast::channel(256);
+        let roci = RociBackend::new(
+            store.clone(),
+            event_tx,
+            exec_policy.clone(),
+            homie_config.clone(),
+        );
+        Self::new_shared_with_channel(outbound_tx, store, homie_config, exec_policy, roci, None)
     }
 
     pub fn new_shared_with_channel(
@@ -64,6 +80,7 @@ impl ChatService {
         store: Arc<dyn Store>,
         homie_config: Arc<HomieConfig>,
         exec_policy: Arc<ExecPolicy>,
+        roci: RociBackend,
         tool_channel: Option<String>,
     ) -> (Self, AgentService) {
         let core = Arc::new(Mutex::new(CodexChatCore::new(
@@ -71,6 +88,7 @@ impl ChatService {
             store,
             homie_config,
             exec_policy,
+            roci,
             tool_channel,
         )));
         (Self { core: core.clone() }, AgentService { core })
@@ -114,12 +132,20 @@ impl AgentService {
         exec_policy: Arc<ExecPolicy>,
         tool_channel: Option<String>,
     ) -> Self {
+        let (event_tx, _) = tokio::sync::broadcast::channel(256);
+        let roci = RociBackend::new(
+            store.clone(),
+            event_tx,
+            exec_policy.clone(),
+            homie_config.clone(),
+        );
         Self {
             core: Arc::new(Mutex::new(CodexChatCore::new(
                 outbound_tx,
                 store,
                 homie_config,
                 exec_policy,
+                roci,
                 tool_channel,
             ))),
         }

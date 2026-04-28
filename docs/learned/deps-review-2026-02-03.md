@@ -1,6 +1,8 @@
 ---
 topic: dependency health check
 date: 2026-02-03
+summary: "Dependency health notes for toml/shell-words/directories in this period"
+read_when: "Before updating foundational support crates in shared tooling"
 ---
 
 # Dependency health check (toml + shell-words + directories)

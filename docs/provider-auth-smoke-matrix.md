@@ -1,3 +1,8 @@
+---
+summary: "Validation matrix and execution notes for provider authentication checks"
+read_when: "Before updating provider auth smoke tests or release confidence checks"
+---
+
 # Provider auth smoke matrix
 
 Date: 2026-02-18
