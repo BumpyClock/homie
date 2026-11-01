@@ -4,16 +4,18 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
-STAGED="$(git diff --cached --name-only --diff-filter=ACMR)"
+PATHS="$(mktemp)"
+trap 'rm -f "$PATHS"' EXIT
+git diff --cached --name-only --no-renames -z > "$PATHS"
 
-if [[ -z "$STAGED" ]]; then
-    exit 0
-fi
-
-if ! printf '%s\n' "$STAGED" | rg -q '^(Cargo\.toml|Cargo\.lock|src/core/|src/infra/homie-protocol/|src/infra/roci/)'; then
-    exit 0
-fi
-
-echo "pre-commit: running homie-core clippy (staged Rust/core changes detected)"
-cargo clippy -p homie-core --all-targets --all-features -- -D warnings
+while IFS= read -r -d '' path; do
+    case "$path" in
+        Cargo.toml|Cargo.lock|.gitmodules|.cargo/*|rust-toolchain*|rustfmt.toml|.rustfmt.toml|*.rs|*/Cargo.toml|src/core/*|src/infra/homie-protocol/*|src/infra/roci|src/infra/roci/*|.githooks/*)
+            echo "pre-commit: checking Rust workspace formatting and homie-core clippy"
+            cargo fmt --all -- --check
+            cargo clippy --locked -p homie-core --all-targets --all-features -- -D warnings
+            exit 0
+            ;;
+    esac
+done < "$PATHS"
 

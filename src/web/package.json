@@ -8,7 +8,7 @@
     "dev": "vite --host",
     "prebuild": "pnpm --dir ../apps/shared build",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint .",
     "preview": "vite preview"
   },
